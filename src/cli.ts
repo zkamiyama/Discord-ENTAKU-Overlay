@@ -1,3 +1,4 @@
+import { StudioStore } from './studio/store.ts';
 import { VERSION } from './version.ts';
 import { AvatarStore } from './assets/store.ts';
 import { dirname, join, resolve } from 'node:path';
@@ -41,10 +42,13 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   const sessions=replay?.session?[replay.session]:options.safeMode||options.mode==='replay'?[]:await store.loadAll();
   const avatarStore=new AvatarStore(options.safeMode||options.mode==='replay'?null:dataDir);
   const avatarProfiles=await avatarStore.initialize();
+  const studioStore=new StudioStore(options.safeMode||options.mode==='replay'?null:dataDir);
+  const studio=await studioStore.initialize();
   const start=performance.now();
-  const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,avatarProfiles,
+  const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,avatarProfiles,studio,
     ...(options.mode==='replay'?{utcNow:()=>new Date(0).toISOString(),sessionId:()=> 'replay-session'}:{})});
   const player=replay?new ReplayPlayer(replay,engine):null;
+  let replayPaused=false,replayRate=1,replaySeeking=false,replayTick=performance.now();
   const now=()=>player?player.elapsedMs:performance.now()-start;
   if(options.mode==='demo')for(const event of demoEvents())engine.apply(event);
   if(player)player.advanceTo(0);
@@ -62,8 +66,16 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     if(!provider||retrying||stopping)return;retrying=true;
     void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
-  const app=startServer({engine,keys,assets,avatarStore,port:options.port,now,onChange:persist,
-    ...(player?{tick:()=>player.advanceTo(Math.min(player.replay.durationMs,performance.now()-start))}:{}),
+  const app=startServer({engine,keys,assets,avatarStore,studioStore,port:options.port,now,onChange:persist,
+    ...(player?{tick:()=>{
+      const time=performance.now(),elapsed=time-replayTick;replayTick=time;
+      if(!replayPaused&&!replaySeeking)player.advanceTo(Math.min(player.replay.durationMs,player.elapsedMs+elapsed*replayRate));
+    },replay:{status:()=>({elapsedMs:player.elapsedMs,durationMs:player.replay.durationMs,paused:replayPaused||player.done,rate:replayRate,seeking:replaySeeking}),control:async command=>{
+      if(command.action==='pause')replayPaused=true;
+      else if(command.action==='play'){if(player.done)await player.seekTo(0);replayPaused=false;replayTick=performance.now();}
+      else if(command.action==='rate'){if(![.25,.5,1,2,4].includes(command.value!))throw new Error('INVALID_REPLAY_RATE');replayRate=command.value!;}
+      else {replayPaused=true;replaySeeking=true;try{await player.seekTo(command.value!);}finally{replaySeeking=false;replayTick=performance.now();}}
+    }}}:{}),
     ...(options.mode==='ipc'?{retry}:{})});
   if(options.mode==='ipc'){
     console.log('Compatibility authentication explicitly enabled. Discord may show a StreamKit consent dialog.');

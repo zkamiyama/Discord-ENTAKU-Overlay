@@ -1,3 +1,8 @@
+import { DiagnosticJournal } from '../diagnostics/journal.ts';
+import { ProviderRecording } from '../diagnostics/recording.ts';
+import type { RenderReport,ReplayControl,ReplayStatus,RuntimeDiagnostics } from '../contracts/diagnostics.ts';
+import { StudioStore, unpackStudioZip } from '../studio/store.ts';
+import { DEFAULT_STUDIO_SCENE, MAX_STUDIO_UNPACKED_BYTES } from '../studio/manifest.ts';
 import { VERSION } from '../version.ts';
 import { AvatarStore } from '../assets/store.ts';
 import { MAX_IMAGE_BYTES } from '../assets/image.ts';
@@ -8,7 +13,7 @@ import { bearerRole, roleForKey, validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 import type { DirectorMode, ProviderEvent } from '../contracts/domain.ts';
 import { demoParticipant } from '../replay/demo.ts';
-export interface WebAsset { body: string; type: string }
+export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
 interface SocketData { role: 'read' | 'control' | null; timer?: ReturnType<typeof setTimeout>; messages: number; windowStart: number }
 export interface ServerOptions {
@@ -16,8 +21,10 @@ export interface ServerOptions {
   now?: () => number; tick?: () => void; onChange?: () => void;
   retry?: () => void;
   avatarStore?: AvatarStore;
+  studioStore?: StudioStore;
+  replay?:{status:()=>ReplayStatus;control:(command:ReplayControl)=>Promise<void>};
 }
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob: data:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self' blob: data:; img-src 'self' blob: data:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 function headers(type = 'application/json'): Record<string,string> {
   return { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP };
 }
@@ -26,28 +33,37 @@ export function startServer(options: ServerOptions) {
   const { engine, keys } = options;
   const now = options.now ?? (() => performance.now());
   const clients = new Set<ServerWebSocket<SocketData>>();
+  const journal=new DiagnosticJournal(),recording=new ProviderRecording();
+  const reports=new Map<ServerWebSocket<SocketData>,RenderReport>();
+  const offEvents=engine.observeEvents((event,ms)=>{journal.event(event,ms);recording.append(event,ms);});
+  const diagnostic=():RuntimeDiagnostics=>{
+    const state=engine.snapshot(now()),render=[...reports.values()].filter(r=>performance.now()-r.updatedAtMs<10000).sort((a,b)=>b.updatedAtMs-a.updatedAtMs)[0]??null;
+    return {version:VERSION,runtime:Bun.version,platform:process.platform,source:state.source,connection:state.connection,errorCode:state.errorCode,participantCount:state.participants.filter(p=>p.presence==='present').length,capacity:state.session.capacity,rssBytes:process.memoryUsage().rss,events:journal.snapshot(),render,recording:recording.info(now()),replay:options.replay?.status()??null};
+  };
   const replies = new Map<string, { body: string; result: unknown }>();
   const avatars = new AvatarCache();
+  const studioStore=options.studioStore??new StudioStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
   let mutationQueue = Promise.resolve();
   const serial = <T>(work:()=>Promise<T>):Promise<T> => {
     const result=mutationQueue.then(work);mutationQueue=result.then(()=>{},()=>{});return result;
   };
-  const assetErrors = new Set(['IMAGE_TOO_LARGE','IMAGE_DIMENSIONS_REJECTED','INVALID_IMAGE','ANIMATED_IMAGE_REJECTED','IMAGE_FORMAT_REJECTED','ASSET_STORE_FULL','ASSET_NOT_FOUND','INVALID_AVATAR_PROFILE','INVALID_FACE_RECT','FACE_RECT_TOO_SMALL','INVALID_AVATAR_TRANSFORM','AVATAR_TOO_WIDE','AVATAR_TOO_TALL','AVATAR_SETTINGS_WRITE_FAILED','TOO_MANY_AVATAR_PROFILES']);
+  const assetErrors = new Set(['IMAGE_TOO_LARGE','IMAGE_DIMENSIONS_REJECTED','INVALID_IMAGE','ANIMATED_IMAGE_REJECTED','IMAGE_FORMAT_REJECTED','ASSET_STORE_FULL','ASSET_NOT_FOUND','INVALID_AVATAR_PROFILE','INVALID_FACE_RECT','INVALID_FRAMING_RECT','FRAMING_MUST_INCLUDE_FACE','FACE_RECT_TOO_SMALL','INVALID_AVATAR_TRANSFORM','AVATAR_TOO_WIDE','AVATAR_TOO_TALL','AVATAR_SETTINGS_WRITE_FAILED','TOO_MANY_AVATAR_PROFILES']);
   let demoId = 1000, broadcastAt = -Infinity;
   const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {
     if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
     socket.send(JSON.stringify(message));
   };
-  const snapshot = (): unknown => ({ type: 'snapshot', state: engine.snapshot(now()) });
+  const snapshot = (): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...engine.snapshot(now()),clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
   const broadcast = (): void => {
+    journal.state(engine.snapshot(now()));
     const message = snapshot();
     for (const socket of clients) if (socket.data.role) send(socket, message);
     broadcastAt = performance.now();
   };
   const applyDemo = (event: ProviderEvent): void => { engine.apply(event, now()); options.onChange?.(); };
   const server = Bun.serve<SocketData>({
-    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: MAX_IMAGE_BYTES + 32768,
+    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: MAX_STUDIO_UNPACKED_BYTES + 1024*1024,
     async fetch(request, server) {
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
       const url = new URL(request.url);
@@ -57,6 +73,50 @@ export function startServer(options: ServerOptions) {
         return server.upgrade(request, { data: { role: null, messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: 1 });
+      if(request.method==='GET'&&url.pathname==='/api/diagnostics'){
+        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        return json(diagnostic());
+      }
+      if(request.method==='GET'&&url.pathname==='/api/replay/export'){
+        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        try{return new Response(recording.export(now()),{headers:headers('application/x-ndjson; charset=utf-8')});}
+        catch{return json({error:'RECORDING_EMPTY'},422);}
+      }
+      if (request.method === 'GET' && url.pathname === '/api/studio/bundles') {
+        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        try{return json(await studioStore.list());}catch{return json({error:'STUDIO_INDEX_UNAVAILABLE'},500);}
+      }
+      const bundleMatch=/^\/api\/studio\/bundles\/([a-f0-9]{64})(\/file)?$/.exec(url.pathname);
+      if(request.method==='GET'&&bundleMatch){
+        if(!bearerRole(request,keys))return json({error:'AUTH_REQUIRED'},403);
+        try{
+          if(!bundleMatch[2])return json(await studioStore.bundle(bundleMatch[1]!));
+          const file=await studioStore.file(bundleMatch[1]!,url.searchParams.get('path')??'');
+          return new Response(new Blob([file.bytes as Uint8Array<ArrayBuffer>]),{headers:headers(file.mime)});
+        }catch{return json({error:'STUDIO_FILE_NOT_FOUND'},404);}
+      }
+      if(request.method==='POST'&&url.pathname==='/api/studio/import'){
+        if(!validOrigin(request,server.port!)||bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        return serial(async()=>{
+          try{
+            const form=await request.formData(),entry=form.get('entry');
+            if(entry!==null&&typeof entry!=='string')throw new Error('STUDIO_ENTRY_REQUIRED');
+            const archive=form.get('archive');
+            let files;
+            if(archive instanceof File){files=unpackStudioZip(new Uint8Array(await archive.arrayBuffer()));}
+            else{
+              const inputs=[...form.entries()].filter(([name])=>name.startsWith('file:'));
+              if(inputs.length>256)throw new Error('STUDIO_FILE_LIMIT');
+              files=await Promise.all(inputs.map(async([name,value])=>{
+                const file:unknown=value;
+                if(!(file instanceof File))throw new Error('STUDIO_FILE_REJECTED');
+                return {path:name.slice(5),bytes:new Uint8Array(await file.arrayBuffer())};
+              }));
+            }
+            return json(await studioStore.importFiles(files,entry||undefined),201);
+          }catch(e){const code=e instanceof Error&&/^STUDIO_[A-Z_]+$/.test(e.message)?e.message:'STUDIO_IMPORT_FAILED';return json({error:code},422);}
+        });
+      }
       if (request.method === 'POST' && url.pathname === '/api/assets') {
         if (!validOrigin(request,server.port!) || bearerRole(request,keys)!=='control') return json({error:'CONTROL_AUTH_REQUIRED'},403);
         if (!['image/png','image/webp'].includes(request.headers.get('content-type')??'')) return json({error:'IMAGE_FORMAT_REJECTED'},415);
@@ -78,7 +138,7 @@ export function startServer(options: ServerOptions) {
         if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON_REQUIRED' }, 415);
         return serial(async()=>{
         try {
-          const raw = await request.text(); if (Buffer.byteLength(raw) > 16384) return json({ error: 'COMMAND_TOO_LARGE' }, 413);
+          const raw = await request.text(); if (Buffer.byteLength(raw) > 256*1024) return json({ error: 'COMMAND_TOO_LARGE' }, 413);
           const body: unknown = JSON.parse(raw);
           if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('INVALID_COMMAND');
           const c = body as Record<string,unknown>;
@@ -87,7 +147,16 @@ export function startServer(options: ServerOptions) {
           if (prior) return prior.body === raw ? json(prior.result) : json({ error: 'REQUEST_ID_CONFLICT' }, 409);
           if (c.expectedRevision !== engine.snapshot().revision) return json({ error: 'REVISION_CONFLICT', revision: engine.snapshot().revision }, 409);
           const current = now();
-          if(c.type==='avatar-set'){
+          if(c.type==='record-start')recording.start(engine.snapshot(now()));
+          else if(c.type==='record-stop')recording.stop(now());
+          else if(c.type==='replay-control'&&options.replay){
+            if(!['play','pause','seek','rate'].includes(String(c.action)))throw new Error('INVALID_COMMAND');
+            if((c.action==='seek'||c.action==='rate')&&(typeof c.value!=='number'||!Number.isFinite(c.value)))throw new Error('INVALID_COMMAND');
+            await options.replay.control({action:c.action as ReplayControl['action'],value:c.value as number|undefined});
+          } else if(c.type==='studio-set'||c.type==='studio-reset'){
+            const scene=await studioStore.save(c.type==='studio-reset'?DEFAULT_STUDIO_SCENE:c.scene);
+            engine.setStudioScene(scene,c.expectedRevision as number,now());
+          } else if(c.type==='avatar-set'){
             const profile=await customAssets.validateDraft(c.profile);
             const profiles=[...engine.snapshot().avatarProfiles.filter(p=>p.userId!==profile.userId),profile];
             await customAssets.saveProfiles(profiles);
@@ -123,7 +192,7 @@ export function startServer(options: ServerOptions) {
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && (assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
+          const code = error instanceof Error && (/^STUDIO_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
           return json({ error: code }, 422);
         }
         });
@@ -139,7 +208,7 @@ export function startServer(options: ServerOptions) {
       if (request.method === 'GET' && url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
       if (request.method === 'GET' && url.pathname === '/') return Response.redirect(`http://127.0.0.1:${server.port}/dock`, 302);
       const asset = options.assets[url.pathname];
-      if (request.method === 'GET' && asset) return new Response(asset.body, { headers: headers(asset.type) });
+      if (request.method === 'GET' && asset) return new Response(asset.encoding==='base64'?Buffer.from(asset.body,'base64'):asset.body, { headers: headers(asset.type) });
       return json({ error: 'NOT_FOUND' }, 404);
     },
     websocket: {
@@ -164,11 +233,16 @@ export function startServer(options: ServerOptions) {
             send(socket, snapshot()); return;
           }
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
+          else if(p.type==='render-status'){
+            const allowed=['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST'];
+            if(!allowed.includes(String(p.status))||![p.frameMs,p.drawCalls,p.triangles].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<1e9))throw new Error();
+            reports.set(socket,{status:String(p.status),frameMs:p.frameMs as number,drawCalls:p.drawCalls as number,triangles:p.triangles as number,updatedAtMs:performance.now()});
+          }
           else if (p.type === 'resync') send(socket, snapshot());
           else socket.close(1008, 'INVALID_MESSAGE');
         } catch { socket.close(1008, 'INVALID_MESSAGE'); }
       },
-      close(socket) { clearTimeout(socket.data.timer); clients.delete(socket); },
+      close(socket) { clearTimeout(socket.data.timer); clients.delete(socket); reports.delete(socket); },
     },
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });
@@ -179,6 +253,6 @@ export function startServer(options: ServerOptions) {
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay#key=${keys.read}`, dock: `http://127.0.0.1:${server.port}/dock#key=${keys.control}` },
-    async stop() { clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
+    async stop() { offEvents(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
   };
 }

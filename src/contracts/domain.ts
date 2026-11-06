@@ -35,7 +35,7 @@ export interface CameraPlan {
   studioHidden?: boolean; safetyReason?: string;
 }
 export interface AppSnapshot {
-  protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number;
+  protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
   studio: StudioScene;
   speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean}>;
