@@ -6,10 +6,10 @@ const executable=join(directory,process.platform==='win32'?'ENTAKU-Overlay.exe':
 const env={...process.env,PATH:''}; // No Bun, Node, package manager or browser is on the child PATH.
 let server:ReturnType<typeof Bun.spawn>|null=null;
 async function run(args:string[]):Promise<string>{
-  const child=Bun.spawn([executable,...args],{cwd:directory,env,stdout:'pipe',stderr:'pipe'});
+  const child=Bun.spawn([executable,...args],{cwd:directory,env,stdout:'pipe',stderr:'ignore'});
   const timeout=setTimeout(()=>child.kill(),10000);
   try{const out=await new Response(child.stdout).text();const code=await child.exited;if(code!==0)throw new Error('COMPILED_COMMAND_FAILED');return out;}
-  finally{clearTimeout(timeout);}
+  finally{clearTimeout(timeout);child.kill();await child.exited;}
 }
 try{
   await copyFile(resolve(process.platform==='win32'?'dist/ENTAKU-Overlay.exe':'dist/entaku-overlay'),executable);
@@ -17,7 +17,7 @@ try{
   if(!(await run(['--help'])).includes('ENTAKU'))throw new Error('COMPILED_HELP_FAILED');
   const doctor=JSON.parse(await run(['--doctor']));
   if(doctor.compiled!==true||doctor.platform!==process.platform||doctor.authorization!=='not-attempted')throw new Error('COMPILED_DOCTOR_FAILED');
-  const child=Bun.spawn([executable,'--demo','--no-open','--safe-mode','--port','0'],{cwd:directory,env,stdout:'pipe',stderr:'pipe'});server=child;
+  const child=Bun.spawn([executable,'--demo','--no-open','--safe-mode','--port','0'],{cwd:directory,env,stdout:'pipe',stderr:'ignore'});server=child;
   const timer=setTimeout(()=>child.kill(),15000);
   const reader=child.stdout.getReader();let text='';
   try{
@@ -27,6 +27,13 @@ try{
     const overlay=await fetch(origin+'/overlay',{signal:AbortSignal.timeout(5000)});
     const bundle=await fetch(origin+'/static/overlay.js',{signal:AbortSignal.timeout(5000)});
     if(!health.ok||!overlay.ok||!bundle.ok||(await bundle.text()).length<100000)throw new Error('EMBEDDED_WEB_ASSETS_MISSING');
-    console.log(`Standalone smoke passed: ${process.platform}, PATH empty, copied executable only, HTTP + embedded assets, no Discord authorization.`);
+    // Consume HTTP bodies before stopping the child; no fetch stream is left open.
+    await health.arrayBuffer();await overlay.arrayBuffer();
   }finally{clearTimeout(timer);reader.releaseLock();child.kill();await child.exited;server=null;}
-}finally{server?.kill();await rm(directory,{recursive:true,force:true});}
+}finally{
+  if(server){server.kill();await server.exited;}
+  // Windows may retain executable/directory handles briefly after process exit.
+  // Retry only the documented transient rm errors; never hide a persistent failure.
+  await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:100});
+}
+console.log(`Standalone smoke passed: ${process.platform}, PATH empty, copied executable only, HTTP + embedded assets, temporary directory removed, no Discord authorization.`);
