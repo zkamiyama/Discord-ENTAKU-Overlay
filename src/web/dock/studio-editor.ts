@@ -38,7 +38,7 @@ export class StudioEditor {
     $('studio-fit').onclick=()=>{if(this.visual)this.preview?.fit(this.visual.root);};
   }
   open():void{
-    if(this.busy||!this.client.state)return;
+    if(this.busy||this.dialog.open||!this.client.state)return;
     this.revision=this.client.state.revision;this.draft=structuredClone(this.client.state.studio);this.files=[];
     this.dialog.showModal();this.preview=new PreviewStage($<HTMLCanvasElement>('studio-preview'));
     this.visual=new StudioVisual(this.client,this.preview.renderer);this.preview.scene.add(this.visual.root);
@@ -52,7 +52,9 @@ export class StudioEditor {
     $<HTMLInputElement>('studio-entry').value=entries.length===1?(entries[0]!.webkitRelativePath||entries[0]!.name):'';
     $('studio-feedback').textContent=`${this.files.length}ファイルを選択しました。取り込み後も「適用」するまで映像は変わりません。`;
   }
-  private lock(value:boolean):void{this.busy=value;for(const e of this.dialog.querySelectorAll<HTMLInputElement|HTMLButtonElement|HTMLSelectElement|HTMLTextAreaElement>('input,button,select,textarea'))e.disabled=value;}
+  private lock(value:boolean):void{this.busy=value;for(const e of this.dialog.querySelectorAll<HTMLInputElement|HTMLButtonElement|HTMLSelectElement|HTMLTextAreaElement>('input,button,select,textarea'))e.disabled=value;
+    if(!value)$<HTMLButtonElement>('studio-apply').disabled=!this.visual||this.visual.loading||!!this.visual.error;
+  }
   private report(error:unknown):void{const code=error instanceof Error?error.message:'STUDIO_FAILED';$('studio-feedback').textContent=code;$('studio-feedback').dataset.errorCode=code;}
   private async import():Promise<void>{
     if(this.busy||!this.files.length)return;this.lock(true);

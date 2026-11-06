@@ -37,7 +37,7 @@ export class CustomAvatarVisual {
       uniforms:{map:{value:image},opacity:{value:1},mirror:{value:side==='back'?1:0},floorY:{value:0}},vertexShader,
       fragmentShader:`uniform sampler2D map;uniform float opacity;uniform float mirror;uniform float floorY;varying vec2 vUv;varying float vWorldY;
       void main(){vec2 uv=vUv;if(mirror>.5)uv.x=1.-uv.x;vec4 c=texture2D(map,uv);if(c.a<.1||vWorldY<floorY)discard;
-      c.rgb*=gl_FrontFacing?1.:(mirror>.5?.55:.35);gl_FragColor=vec4(c.rgb,c.a*opacity);
+      c.rgb*=mirror>.5?.55:(gl_FrontFacing?1.:.35);gl_FragColor=vec4(c.rgb,c.a*opacity);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
       }`,transparent:true,depthWrite:true,depthTest:true,side:materialSide,
@@ -49,7 +49,7 @@ export class CustomAvatarVisual {
       float texelsPerPixel=max(length(dFdx(uv)*resolution),length(dFdy(uv)*resolution));float pixelDistance=d/max(texelsPerPixel,.02);
       if(pixelDistance < -2. || pixelDistance > 14. || vWorldY<floorY)discard;
       float core=1.-smoothstep(1.,2.5,abs(pixelDistance));float soft=exp(-pow(max(0.,pixelDistance-1.5),2.)/18.)*.32;
-      gl_FragColor=vec4(vec3(.20,.95,.35),max(core,soft)*strength*(gl_FrontFacing?1.:.55));
+      gl_FragColor=vec4(vec3(.20,.95,.35),max(core,soft)*strength*(mirror>.5?.55:(gl_FrontFacing?1.:.55)));
       #include <colorspace_fragment>
       }`,transparent:true,depthWrite:false,depthTest:true,side:materialSide,toneMapped:false,
     });

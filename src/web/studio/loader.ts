@@ -5,19 +5,8 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StudioClient } from '../shared/client.ts';
-/** Release shared materials/textures once, including ImageBitmaps not owned by the GC. */
-export function disposeObject(root:THREE.Object3D):void {
-  const geometry=new Set<THREE.BufferGeometry>(),materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>(),images=new Set<ImageBitmap>();
-  root.traverse(o=>{
-    if(o instanceof THREE.Mesh){geometry.add(o.geometry);for(const material of Array.isArray(o.material)?o.material:[o.material])materials.add(material);}
-  });
-  for(const material of materials){
-    for(const value of Object.values(material))if(value instanceof THREE.Texture)textures.add(value);
-    if(material instanceof THREE.ShaderMaterial)for(const u of Object.values(material.uniforms))if(u.value instanceof THREE.Texture)textures.add(u.value);
-  }
-  for(const texture of textures){if(typeof ImageBitmap!=='undefined'&&texture.image instanceof ImageBitmap)images.add(texture.image);texture.dispose();}
-  for(const image of images)image.close();for(const g of geometry)g.dispose();for(const m of materials)m.dispose();root.removeFromParent();
-}
+import { disposeObject } from './dispose.ts';
+export { disposeObject } from './dispose.ts';
 export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLRenderer,id:string):Promise<THREE.Group>{
   const bundle:StudioBundle=await (await client.authorizedFetch('/api/studio/bundles/'+id)).json();
   const manager=new THREE.LoadingManager(),urls=new Map<string,string>();

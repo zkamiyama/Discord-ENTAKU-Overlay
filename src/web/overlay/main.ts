@@ -1,3 +1,4 @@
+import { loadImagePair } from '../shared/image-pair.ts';
 import { StudioVisual } from '../studio/visual.ts';
 import { CustomAvatarVisual } from './custom-avatar.ts';
 import { avatarFramingBounds,type AvatarProfile } from '../../assets/avatar-profile.ts';
@@ -79,7 +80,7 @@ class Avatar {
     if(key!==this.profileKey){
       this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
       if(!profile){avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
-      else void Promise.all([client.customImage(profile.assetId),profile.back?client.customImage(profile.back.assetId):Promise.resolve(undefined)]).then(async([bitmap,back])=>{
+      else void loadImagePair(client.customImage(profile.assetId),profile.back?client.customImage(profile.back.assetId):undefined).then(async([bitmap,back])=>{
         try{
           if(this.disposed||generation!==this.customVersion)return;
           const next=await CustomAvatarVisual.create(bitmap,profile,back);

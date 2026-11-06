@@ -1,3 +1,4 @@
+import { loadImagePair } from '../shared/image-pair.ts';
 import { PreviewStage } from '../studio/preview.ts';
 import { CustomAvatarVisual } from '../overlay/custom-avatar.ts';
 import { avatarBounds, validateProfile, type AvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
@@ -62,8 +63,7 @@ export class AvatarEditor {
     this.canvas.onpointercancel=()=>{this.drag=null;};
   }
   async open(userId:string,name:string):Promise<void>{
-    if(this.busy||!this.client.state)return;
-    if(this.dialog.open)this.dialog.close();
+    if(this.busy||this.dialog.open||!this.client.state)return;
     this.userId=userId;this.revision=this.client.state.revision;this.image=null;this.bitmap=null;this.backImage=null;this.backBitmap=null;
     $('avatar-person').textContent=name; $<HTMLInputElement>('avatar-file').value='';
     const profile=this.client.state.avatarProfiles.find(p=>p.userId===userId);
@@ -82,7 +82,7 @@ export class AvatarEditor {
     if(profile){
       const version=++this.generation;this.setBusy(true);
       try{
-        const [bitmap,back]=await Promise.all([this.client.customImage(profile.assetId),profile.back?this.client.customImage(profile.back.assetId):Promise.resolve(undefined)]);
+        const [bitmap,back]=await loadImagePair(this.client.customImage(profile.assetId),profile.back?this.client.customImage(profile.back.assetId):undefined);
         if(version!==this.generation){bitmap.close();back?.close();return;}
         if(back&&profile.back){this.backBitmap=back;this.backImage={...profile.back.image,assetId:profile.back.assetId,byteLength:0};}
         this.bitmap=bitmap;this.image={...profile.image,assetId:profile.assetId,byteLength:0};
