@@ -186,9 +186,9 @@ export class AppEngine {
   }
   sessions(): SeatSession[] { return [...this.allocators.values()].map(a => a.snapshot()); }
   snapshot(now = this.now): AppSnapshot {
-    this.advance(now);
+    if (!Number.isFinite(now)) throw new Error('INVALID_TIME');
     return structuredClone({
-      protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: this.now,
+      protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.participants.values()],
       session: this.allocator.snapshot(), straightLength: this.layout.straightLength, seats: this.layout.seats, layoutMotion: this.layoutMotion,
       mode: this.director.mode, decision: this.decision, camera: this.camera, source: this.options.source,
