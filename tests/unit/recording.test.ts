@@ -1,0 +1,20 @@
+import {expect,test} from 'bun:test';
+import {ProviderRecording} from '../../src/diagnostics/recording.ts';
+import {AppEngine} from '../../src/domain/engine.ts';
+import {demoEvents} from '../../src/replay/demo.ts';
+import {parseReplay,ReplayPlayer} from '../../src/replay/player.ts';
+test('provider recordings redact identities and replay without authentication or network data',async()=>{
+ const engine=new AppEngine({source:'demo',serverEpoch:'private-epoch'});for(const e of demoEvents())engine.apply(e);
+ const recording=new ProviderRecording();recording.start(engine.snapshot(100));
+ const user=engine.snapshot().participants[0]!;
+ recording.append({type:'speaking',userId:user.userId,state:'active',sourceGeneration:42,receivedAtMs:500},500);
+ recording.append({type:'speaking',userId:user.userId,state:'inactive',sourceGeneration:42,receivedAtMs:2000},2000);
+ recording.stop(3000);const text=recording.export(3000);
+ expect(text).not.toContain(user.displayName);expect(text).not.toContain('avatarUrl');expect(text).not.toContain('private-epoch');
+ const replay=parseReplay(text),replayEngine=new AppEngine({source:'replay',serverEpoch:'play',sessions:replay.session?[replay.session]:[]});
+ const player=new ReplayPlayer(replay,replayEngine);player.advanceTo(replay.durationMs);
+ const end=replayEngine.snapshot().session.reservations;
+ const epoch=replayEngine.snapshot().serverEpoch;await player.seekTo(1000);expect(player.elapsedMs).toBe(1000);expect(replayEngine.snapshot().serverEpoch).not.toBe(epoch);
+ await player.seekTo(replay.durationMs);expect(replayEngine.snapshot().session.reservations).toEqual(end);
+ expect(()=>engine.rewindReplay([])).toThrow('REPLAY_ONLY');
+});

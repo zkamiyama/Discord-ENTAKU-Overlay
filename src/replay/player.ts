@@ -88,6 +88,12 @@ export class ReplayPlayer {
     }
     this.time = target;
   }
+  async seekTo(target:number):Promise<void>{
+    if(!Number.isFinite(target)||target<0||target>this.replay.durationMs)throw new Error('INVALID_REPLAY_TIME');
+    this.engine.rewindReplay(this.replay.session?[this.replay.session]:[]);
+    this.index=0;this.nextTick=0;this.time=0;this.advanceTo(0);
+    while(this.time<target){this.advanceTo(Math.min(target,this.time+5000));await new Promise<void>(resolve=>setTimeout(resolve,0));}
+  }
   get elapsedMs(): number { return this.time; }
   get done(): boolean { return this.time >= this.replay.durationMs; }
 }
