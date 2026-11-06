@@ -1,3 +1,4 @@
+import { VERSION } from './version.ts';
 export interface Options {
   mode: 'demo' | 'ipc' | 'replay'; replayPath?: string; doctor: boolean; clientId?: string;
   compatibility: boolean; consent: boolean; safeMode: boolean; noOpen: boolean;
@@ -32,7 +33,7 @@ export function parseOptions(args: readonly string[]): Options {
   if(result.clientId&&!result.doctor)throw new Error('CLIENT_ID_IS_DOCTOR_ONLY');
   return result;
 }
-export const HELP=`Discord ENTAKU Overlay 0.1.0-dev.1
+export const HELP=`Discord ENTAKU Overlay ${VERSION}
 
 Usage:
   ENTAKU-Overlay.exe [--demo] [--no-open] [--port 31337]

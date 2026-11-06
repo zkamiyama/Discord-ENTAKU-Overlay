@@ -40,3 +40,19 @@ test('distance map follows opaque pixels and transparent holes, not image rectan
   }
   expect(() => createDistanceField(new Uint8Array(4), 3, 2)).toThrow('INVALID_ALPHA_MASK');
 });
+test('distance transform matches brute-force Euclidean distances on deterministic random masks', () => {
+  let seed=13;
+  for(let trial=0;trial<20;trial++){
+    const width=8,height=7,alpha=Uint8Array.from({length:width*height},()=>{seed=(seed*1664525+1013904223)>>>0;return seed%3?255:0;});
+    const field=createDistanceField(alpha,width,height,16);
+    for(let i=0;i<alpha.length;i++){
+      const x=i%width,y=Math.floor(i/width);let inside=Infinity,outside=Infinity;
+      for(let j=0;j<alpha.length;j++){const d=(x-j%width)**2+(y-Math.floor(j/width))**2;if(alpha[j])inside=Math.min(inside,d);else outside=Math.min(outside,d);}
+      const expected=Math.round(255*Math.max(0,Math.min(1,.5+(Math.sqrt(inside)-Math.sqrt(outside))/32)));
+      expect(field.data[i]).toBe(expected);
+    }
+  }
+});
+test('an off-centre face cannot make two neighboring cards overlap silently', () => {
+  expect(()=>validateProfile({...profile,faceRect:[0,.1,.1,.25]})).toThrow('AVATAR_TOO_WIDE');
+});

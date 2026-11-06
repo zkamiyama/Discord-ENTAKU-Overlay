@@ -1,3 +1,4 @@
+import { VERSION } from './version.ts';
 import { AvatarStore } from './assets/store.ts';
 import { dirname, join, resolve } from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
@@ -23,9 +24,9 @@ function openBrowser(url:string):void {
 export async function main(embeddedAssets?: WebAssets, compiled=false, args=process.argv.slice(2)):Promise<void> {
   const options=parseOptions(args);
   if(options.help){console.log(HELP);return;}
-  if(options.version){console.log('0.1.0-dev.1');return;}
+  if(options.version){console.log(VERSION);return;}
   if(options.doctor){
-    const report:Record<string,unknown>={application:'Discord ENTAKU Overlay',version:'0.1.0-dev.1',runtime:Bun.version,platform:process.platform,arch:process.arch,compiled,transport:process.platform==='win32'?'named-pipe':'unix-socket',candidateCount:ipcCandidates().length,probe:'not-requested',authorization:'not-attempted'};
+    const report:Record<string,unknown>={application:'Discord ENTAKU Overlay',version:VERSION,runtime:Bun.version,platform:process.platform,arch:process.arch,compiled,transport:process.platform==='win32'?'named-pipe':'unix-socket',candidateCount:ipcCandidates().length,probe:'not-requested',authorization:'not-attempted'};
     if(options.clientId){
       try{const found=await discover(options.clientId);found.client.close();report.probe='ready';}
       catch(e){report.probe=errorCode(e);process.exitCode=1;}

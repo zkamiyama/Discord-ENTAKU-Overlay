@@ -1,3 +1,4 @@
+import { VERSION } from '../version.ts';
 import { AvatarStore } from '../assets/store.ts';
 import { MAX_IMAGE_BYTES } from '../assets/image.ts';
 import type { ServerWebSocket } from 'bun';
@@ -55,7 +56,7 @@ export function startServer(options: ServerOptions) {
         if (clients.size >= 8) return json({ error: 'CLIENT_LIMIT' }, 429);
         return server.upgrade(request, { data: { role: null, messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
-      if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: '0.1.0-dev.1', protocolVersion: 1 });
+      if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: 1 });
       if (request.method === 'POST' && url.pathname === '/api/assets') {
         if (!validOrigin(request,server.port!) || bearerRole(request,keys)!=='control') return json({error:'CONTROL_AUTH_REQUIRED'},403);
         if (!['image/png','image/webp'].includes(request.headers.get('content-type')??'')) return json({error:'IMAGE_FORMAT_REJECTED'},415);

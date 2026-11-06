@@ -72,7 +72,7 @@ export class AvatarStore {
   async validateDraft(draft: unknown): Promise<AvatarProfile> {
     if (!draft || typeof draft !== 'object') throw new Error('INVALID_AVATAR_PROFILE');
     const p = draft as AvatarProfile;
-    const { info } = await this.get(p.assetId);
+    const { info } = await this.get(p.assetId).catch(()=>{throw new Error('ASSET_NOT_FOUND');});
     return validateProfile({ ...p, image: { width: info.width, height: info.height, mime: info.mime } });
   }
   async saveProfiles(profiles: readonly AvatarProfile[]): Promise<void> {

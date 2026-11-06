@@ -76,3 +76,31 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
   await expect(page.locator('#avatar-editor')).not.toBeVisible();
   await expect.poll(()=>errors).toEqual([]);
 });
+
+test('narrow Dock accepts a static WebP and pointer selection writes normalized face coordinates', async ({ page }) => {
+  await page.setViewportSize({width:360,height:800});
+  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.locator('.person').nth(1).getByRole('button',{name:'画像を調整',exact:true}).click();
+  const bytes=await page.evaluate(async()=>{
+    const canvas=document.createElement('canvas');canvas.width=64;canvas.height=128;
+    const context=canvas.getContext('2d')!;context.fillStyle='#f3ad80';context.fillRect(12,10,40,110);
+    const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('WEBP_ENCODING_FAILED')),'image/webp'));
+    return [...new Uint8Array(await blob.arrayBuffer())];
+  });
+  await page.locator('#avatar-file').setInputFiles({name:'static.webp',mimeType:'image/webp',buffer:Buffer.from(bytes)});
+  await expect(page.locator('#avatar-size')).toContainText('64×128px');
+  const preview=await page.locator('#avatar-preview').boundingBox();expect(preview).not.toBeNull();
+  const box=preview!,point=(u:number,v:number)=>({x:box.x+(128+224*u)*box.width/480,y:box.y+(16+448*v)*box.height/480});
+  const a=point(.25,.1),b=point(.75,.35);
+  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:5});await page.mouse.up();
+  await expect.poll(async()=>Number(await page.locator('#face-x').inputValue())).toBeCloseTo(25,0);
+  await expect.poll(async()=>Number(await page.locator('#face-y').inputValue())).toBeCloseTo(10,0);
+  await expect.poll(async()=>Number(await page.locator('#face-w').inputValue())).toBeCloseTo(50,0);
+  await expect.poll(async()=>Number(await page.locator('#face-h').inputValue())).toBeCloseTo(25,0);
+  await expect(page.locator('#avatar-apply')).toBeEnabled();
+  await page.locator('#avatar-apply').click();await expect(page.locator('#avatar-editor')).not.toBeVisible();
+  await page.locator('.person').nth(1).getByRole('button',{name:'画像を調整',exact:true}).click();
+  await expect(page.locator('#avatar-size')).toContainText('64×128px');
+  page.once('dialog',d=>void d.accept());await page.locator('#avatar-reset').click();
+  await expect(page.locator('#avatar-editor')).not.toBeVisible();
+});

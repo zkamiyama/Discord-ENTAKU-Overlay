@@ -11,7 +11,7 @@ const messages: Record<string,string> = {
   AVATAR_TOO_TALL:'画像が高すぎます。余白・倍率・縦位置を調整してください。',
   REVISION_CONFLICT:'編集中に別の設定操作がありました。閉じて開き直すと現在の設定を取得します。',
   AVATAR_SETTINGS_WRITE_FAILED:'設定を保存できませんでした。保存先を確認してください。以前の設定は保持しています。',
-  ASSET_STORE_FULL:'素材の保存上限に達しました。', EMPTY_AVATAR_IMAGE:'不透明な部分のある画像を選んでください。',
+  ASSET_NOT_FOUND:'保存済みの画像を読み込めません。画像を選び直してください。', ASSET_STORE_FULL:'素材の保存上限に達しました。', EMPTY_AVATAR_IMAGE:'不透明な部分のある画像を選んでください。',
 };
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 export class AvatarEditor {
