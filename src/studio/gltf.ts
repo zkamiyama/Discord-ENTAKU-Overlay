@@ -1,4 +1,3 @@
-import { posix } from 'node:path';
 import { safeStudioPath, studioAssetUrlAllowed } from './manifest.ts';
 
 export interface GLTFDocument {
@@ -32,9 +31,7 @@ function inspect(jsonText:string, entryPath:string, source:GLTFDocument['source'
       if(uri===undefined)continue;
       if(typeof uri!=='string')throw new Error('STUDIO_GLTF_INVALID');
       if(studioAssetUrlAllowed(uri))continue;
-      const path=safeStudioPath(uri);
-      const resolved=posix.join(posix.dirname(entryPath),path);
-      externalPaths.add(safeStudioPath(resolved));
+      externalPaths.add(resolveStudioReference(entryPath,uri));
     }
   }
   return {source,json:j,externalPaths:[...externalPaths].sort(),requiredExtensions:required as string[]};
@@ -57,4 +54,14 @@ export function inspectGltfEntry(bytes:Uint8Array,entryPath:string):GLTFDocument
   }
   const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(20,20+chunkLength)).replace(/\u0000+$/g,'').trimEnd();
   return inspect(text,entryPath,'glb');
+}
+
+/** Resolve dot segments inside a bundle, never outside it. URL loading is still GLTFLoader's job. */
+export function resolveStudioReference(entry: string, uri: string): string {
+  if (!uri || uri.startsWith('/') || uri.includes('\\') || /^[a-z][a-z0-9+.-]*:/i.test(uri)) throw new Error('STUDIO_PATH_REJECTED');
+  const root = 'https://studio.invalid/bundle/';
+  const base = root + safeStudioPath(entry).split('/').map(encodeURIComponent).join('/');
+  const url = new URL(uri, base);
+  if (url.origin !== 'https://studio.invalid' || !url.pathname.startsWith('/bundle/') || url.search || url.hash) throw new Error('STUDIO_PATH_REJECTED');
+  return safeStudioPath(url.pathname.slice('/bundle/'.length));
 }
