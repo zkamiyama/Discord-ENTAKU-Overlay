@@ -9,3 +9,6 @@ data/
 coverage/
 test-results/
 playwright-report/
+
+# Bun runtime/compiler cache (generated on Windows).
+.bun-cache/
