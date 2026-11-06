@@ -27,6 +27,11 @@ try{
     const overlay=await fetch(origin+'/overlay',{signal:AbortSignal.timeout(5000)});
     const bundle=await fetch(origin+'/static/overlay.js',{signal:AbortSignal.timeout(5000)});
     if(!health.ok||!overlay.ok||!bundle.ok||(await bundle.text()).length<100000)throw new Error('EMBEDDED_WEB_ASSETS_MISSING');
+    for(const path of ['/static/avatar-field.js','/static/decoders/draco/draco_decoder.wasm','/static/decoders/basis/basis_transcoder.wasm']){
+      const response=await fetch(origin+path,{signal:AbortSignal.timeout(5000)}),bytes=new Uint8Array(await response.arrayBuffer());
+      if(!response.ok||bytes.length<100)throw new Error('EMBEDDED_DECODER_MISSING');
+      if(path.endsWith('.wasm')&&(bytes[0]!==0||bytes[1]!==97||bytes[2]!==115||bytes[3]!==109))throw new Error('EMBEDDED_WASM_INVALID');
+    }
     // Consume HTTP bodies before stopping the child; no fetch stream is left open.
     await health.arrayBuffer();await overlay.arrayBuffer();
   }finally{clearTimeout(timer);reader.releaseLock();child.kill();await child.exited;server=null;}
