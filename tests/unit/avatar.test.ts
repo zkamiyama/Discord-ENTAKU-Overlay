@@ -22,7 +22,8 @@ test('face normalization centres the face and preserves 0.28 metre height', () =
   expect(() => validateProfile({ ...profile, userId: 1 })).toThrow('INVALID_AVATAR_PROFILE');
   expect(() => validateProfile({ ...profile, faceRect: [.9, 0, .2, .2] })).toThrow('INVALID_FACE_RECT');
   expect(() => validateProfile({ ...profile, faceRect: [.1, .1, .1, .01] })).toThrow('FACE_RECT_TOO_SMALL');
-  expect(() => validateProfile({ ...profile, scale: 2 })).toThrow('AVATAR_TOO_WIDE');
+  expect(validateProfile({ ...profile, scale: 2 }).scale).toBe(2);
+  expect(() => validateProfile({ ...profile, scale: 3, faceRect:[0,.1,.1,.125] })).toThrow('AVATAR_TOO_WIDE');
 });
 test('distance map follows opaque pixels and transparent holes, not image rectangle', () => {
   const width = 15, height = 15, alpha = new Uint8Array(width * height);
@@ -53,6 +54,7 @@ test('distance transform matches brute-force Euclidean distances on deterministi
     }
   }
 });
-test('an off-centre face cannot make two neighboring cards overlap silently', () => {
-  expect(()=>validateProfile({...profile,faceRect:[0,.1,.1,.25]})).toThrow('AVATAR_TOO_WIDE');
+test('off-centre faces retain their full occupied width for adaptive layout', () => {
+  const p=validateProfile({...profile,faceRect:[0,.1,.1,.25]});
+  expect(avatarBounds(p).right).toBeGreaterThan(.5);
 });

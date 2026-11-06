@@ -36,9 +36,9 @@ export function solveStraightLength(count: number, radius: number, pitch: number
   }
   throw new RangeError('NO_VALID_LAYOUT');
 }
-export function makeLayout(count: number): { straightLength: number; seats: SeatTransform[] } {
+export function makeLayout(count: number, pitch:number=TABLE.seatPitch): { straightLength: number; seats: SeatTransform[] } {
   const radius = TABLE.innerRadius + TABLE.ringWidth + TABLE.avatarOffset;
-  const straightLength = solveStraightLength(count, radius, TABLE.seatPitch, TABLE.phase);
+  const straightLength = solveStraightLength(count, radius, pitch, TABLE.phase);
   return { straightLength, seats: railPoints(count, radius, straightLength, TABLE.phase).map((p, slotIndex) => ({
     slotIndex, position: [p.x, 0, p.z], inward: [p.inwardX, 0, p.inwardZ],
     baseYawRad: Math.atan2(p.inwardX, p.inwardZ), faceAnchor: [p.x, 1.25, p.z],

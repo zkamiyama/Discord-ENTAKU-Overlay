@@ -11,12 +11,17 @@ export type StudioObject =
   | { id: string; kind: 'box'; size: Vec3; color: string; transform: StudioTransform }
   | { id: string; kind: 'plane'; size: readonly [number, number]; color: string; transform: StudioTransform }
   | { id: string; kind: 'point-light'; position: Vec3; color: string; intensity: number };
+export interface StudioCamera {
+  blockers: Array<{id:string;min:Vec3;max:Vec3}>;
+  safeWide?: {position:Vec3;target:Vec3;fov:number};
+}
 export interface StudioScene {
   schemaVersion: 1;
   revision: number;
   tableAnchor: { position: Vec3; yawDeg: number };
   tableEnvelope: { maxStraightLength: number; overflow: 'hide-studio' | 'warn-only' };
   objects: StudioObject[];
+  camera?: StudioCamera;
 }
 export const DEFAULT_STUDIO_SCENE: StudioScene = {
   schemaVersion: 1,
@@ -60,7 +65,7 @@ function transform(v: unknown): StudioTransform {
   return { position: vec3(x.position,-100,100), yawDeg: finite(x.yawDeg,-360,360), scale: vec3(x.scale,0.01,20) };
 }
 export function validateStudioScene(value: unknown): StudioScene {
-  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects']);
+  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera']);
   if (scene.schemaVersion !== 1) throw new Error('STUDIO_SCHEMA_UNSUPPORTED');
   const rev=finite(scene.revision,0,Number.MAX_SAFE_INTEGER);
   if (!Number.isSafeInteger(rev)) throw new Error('STUDIO_SCENE_INVALID');
@@ -95,6 +100,7 @@ export function validateStudioScene(value: unknown): StudioScene {
     tableAnchor:{ position:vec3(anchor.position,-100,100), yawDeg:finite(anchor.yawDeg,-360,360) },
     tableEnvelope:{maxStraightLength:finite(envelope.maxStraightLength,0,100),overflow:envelope.overflow},
     objects,
+    ...(scene.camera===undefined?{}:{camera:validateStudioCamera(scene.camera)}),
   };
 }
 
@@ -104,7 +110,7 @@ export function safeStudioPath(value: unknown): string {
   let decoded: string;
   try { decoded = decodeURIComponent(value); } catch { throw new Error('STUDIO_PATH_REJECTED'); }
   if (decoded !== value && /%2f|%5c/i.test(value)) throw new Error('STUDIO_PATH_REJECTED');
-  if (decoded.includes('\0') || decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('?') || decoded.includes('#') || decoded.includes(':')) throw new Error('STUDIO_PATH_REJECTED');
+  if (/[\x00-\x1f\x7f]/.test(decoded) || decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('?') || decoded.includes('#') || decoded.includes(':')) throw new Error('STUDIO_PATH_REJECTED');
   const parts=decoded.split('/');
   if (parts.some(part => !part || part === '.' || part === '..' || part.length > 120)) throw new Error('STUDIO_PATH_REJECTED');
   return parts.join('/');
@@ -112,4 +118,19 @@ export function safeStudioPath(value: unknown): string {
 
 export function studioAssetUrlAllowed(value: string): boolean {
   return value.startsWith('data:') && /^data:(?:image\/(?:png|jpeg|webp|ktx2)|application\/(?:octet-stream|gltf-buffer));base64,/i.test(value);
+}
+
+function validateStudioCamera(value:unknown):StudioCamera{
+  const c=object(value,['blockers','safeWide']);
+  if(!Array.isArray(c.blockers)||c.blockers.length>64)throw new Error('STUDIO_CAMERA_INVALID');
+  const blockers=c.blockers.map(raw=>{
+    const b=object(raw,['id','min','max']);const min=vec3(b.min,-200,200),max=vec3(b.max,-200,200);
+    if(min.some((v,i)=>v>=max[i]!))throw new Error('STUDIO_CAMERA_INVALID');
+    return {id:id(b.id),min,max};
+  });
+  if(new Set(blockers.map(b=>b.id)).size!==blockers.length)throw new Error('STUDIO_CAMERA_INVALID');
+  if(c.safeWide===undefined)return {blockers};
+  const wide=object(c.safeWide,['position','target','fov']);const position=vec3(wide.position,-200,200),target=vec3(wide.target,-200,200);
+  if(Math.hypot(...position.map((v,i)=>v-target[i]!))<.1)throw new Error('STUDIO_CAMERA_INVALID');
+  return {blockers,safeWide:{position,target,fov:finite(wide.fov,20,80)}};
 }

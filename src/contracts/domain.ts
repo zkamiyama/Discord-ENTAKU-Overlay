@@ -1,3 +1,4 @@
+import type { StudioScene } from '../studio/manifest.ts';
 import type { AvatarProfile } from '../assets/avatar-profile.ts';
 export type SpeakingState = 'active' | 'inactive' | 'unknown';
 export type Presence = 'present' | 'absent' | 'stale';
@@ -20,7 +21,7 @@ export type ProviderEvent = { sourceGeneration: number; receivedAtMs: number } &
 export interface Reservation { userId: string; seatId: string; slotIndex: number; reservedAtUtc: string }
 export interface SeatSession {
   schemaVersion: 1; sessionId: string; channelId: string; revision: number;
-  minSeats: number; capacity: number; peakPresentCount: number;
+  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number;
   reservations: Reservation[]; waitingUserIds: string[];
 }
 export interface SeatTransform { slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
@@ -31,10 +32,13 @@ export interface CameraPose { position: Vec3; target: Vec3; fov: number }
 export interface CameraPlan {
   id: number; shot: Shot; reason: string; transition: 'CUT' | 'MOVE';
   from: CameraPose; to: CameraPose; startMs: number; durationMs: number;
+  studioHidden?: boolean; safetyReason?: string;
 }
 export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
+  studio: StudioScene;
+  speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean}>;
   avatarProfiles: AvatarProfile[];
   participants: Participant[]; session: SeatSession; straightLength: number; seats: SeatTransform[];
   layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; startMs: number; durationMs: number };

@@ -16,7 +16,9 @@ export function validateSession(input: unknown): SeatSession {
     users.add(r.userId); seats.add(r.seatId); slots.add(r.slotIndex);
   }
   for (const id of s.waitingUserIds) { if (!validId(id) || users.has(id)) throw new Error('INVALID_WAITING_LIST'); users.add(id); }
-  return structuredClone(s);
+  const pitch=s.seatPitch??TABLE.seatPitch;
+  if(!Number.isFinite(pitch)||pitch<TABLE.seatPitch||pitch>3)throw new Error('INVALID_SEAT_PITCH');
+  return {...structuredClone(s),seatPitch:pitch};
 }
 export function newSession(channelId: string, sessionId: string, minSeats: number = TABLE.minSeats): SeatSession {
   return validateSession({ schemaVersion: 1, sessionId, channelId, revision: 0, minSeats, capacity: minSeats, peakPresentCount: 0, reservations: [], waitingUserIds: [] });
@@ -26,6 +28,11 @@ export class SeatAllocator {
   private present = new Set<string>();
   constructor(session: SeatSession) { this.session = validateSession(session); }
   snapshot(): SeatSession { return structuredClone(this.session); }
+  expandPitch(pitch:number):boolean{
+    if(!Number.isFinite(pitch)||pitch<0||pitch>3)throw new Error('INVALID_SEAT_PITCH');
+    if(pitch<=(this.session.seatPitch??TABLE.seatPitch)+1e-9)return false;
+    this.session.seatPitch=pitch;this.session.revision++;return true;
+  }
   updatePresent(ids: readonly string[], utc: string): { changed: boolean; grew: boolean } {
     if (ids.some(id => !validId(id)) || new Set(ids).size !== ids.length || !Number.isFinite(Date.parse(utc))) throw new Error('INVALID_PARTICIPANTS');
     const before = JSON.stringify(this.session), capacity = this.session.capacity;

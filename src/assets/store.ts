@@ -73,7 +73,9 @@ export class AvatarStore {
     if (!draft || typeof draft !== 'object') throw new Error('INVALID_AVATAR_PROFILE');
     const p = draft as AvatarProfile;
     const { info } = await this.get(p.assetId).catch(()=>{throw new Error('ASSET_NOT_FOUND');});
-    return validateProfile({ ...p, image: { width: info.width, height: info.height, mime: info.mime } });
+    let back;
+    if(p.back){const b=await this.get(p.back.assetId).catch(()=>{throw new Error('ASSET_NOT_FOUND');});back={...p.back,image:{width:b.info.width,height:b.info.height,mime:b.info.mime}};}
+    return validateProfile({ ...p, ...(back?{back}:{}), image: { width: info.width, height: info.height, mime: info.mime } });
   }
   async saveProfiles(profiles: readonly AvatarProfile[]): Promise<void> {
     if (profiles.length > 256) throw new Error('TOO_MANY_AVATAR_PROFILES');
