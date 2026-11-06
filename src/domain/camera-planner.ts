@@ -72,25 +72,49 @@ export function shotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, 
   return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:35};
 }
 export function samplePlan(plan:CameraPlan,now:number):CameraPose {
-  if(plan.durationMs===0)return plan.to;
+  if(plan.durationMs===0||now>=plan.startMs+plan.durationMs)return plan.to;
+  if(now<=plan.startMs)return plan.from;
   const t=Math.max(0,Math.min(1,(now-plan.startMs)/plan.durationMs)),s=t*t*t*(t*(t*6-15)+10);
   return {position:lerp(plan.from.position,plan.to.position,s),target:lerp(plan.from.target,plan.to.target,s),fov:plan.from.fov+(plan.to.fov-plan.from.fov)*s};
 }
 /** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
 export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map()):CameraPlan {
   const from=samplePlan(previous,now),to=shotPose(shot,byUser,straightLength,extents);
-  let move=false;
+  let durationMs=0;
+  const cameraAngle = Math.acos(Math.max(-1,Math.min(1,dot(unit(sub(from.target,from.position)),unit(sub(to.target,to.position))))));
+  const travel = length(sub(from.position,to.position));
   if(previous.shot.kind==='SINGLE'&&shot.kind==='SINGLE') {
     const a=byUser.get(previous.shot.userIds[0]),b=byUser.get(shot.userIds[0]);
     if(a&&b) {
       const diff=Math.abs(a.slotIndex-b.slotIndex),adjacent=Math.min(diff,capacity-diff)<=1;
-      const yaw=Math.acos(Math.max(-1,Math.min(1,dot(unit(sub(from.target,from.position)),unit(sub(to.target,to.position))))));
-      move=adjacent&&yaw<=radians(55)&&length(sub(from.position,to.position))<=2.5;
-      for(let i=0;move&&i<=12;i++) {
+      let safe=adjacent&&cameraAngle<=radians(55)&&travel<=2.5;
+      for(let i=0;safe&&i<=12;i++) {
         const p=lerp(from.position,to.position,i/12);
-        move=p[1]>TABLE.topY+0.12&&front(a,p)&&front(b,p);
+        safe=p[1]>TABLE.topY+0.12&&front(a,p)&&front(b,p);
       }
+      if(safe)durationMs=900;
     }
   }
-  return {id:previous.id+1,shot,reason,transition:move?'MOVE':'CUT',from,to,startMs:now,durationMs:move?900:0};
+
+  // Widen to include a second nearby speaker without an abrupt cut. The same
+  // move works in reverse when the discussion returns to one of the pair.
+  // Distant pairs, unrelated speaker changes and obstructed paths stay CUTs.
+  const widening=previous.shot.kind==='SINGLE'&&shot.kind==='TWO_SHOT'&&shot.userIds.includes(previous.shot.userIds[0]);
+  const narrowing=previous.shot.kind==='TWO_SHOT'&&shot.kind==='SINGLE'&&previous.shot.userIds.includes(shot.userIds[0]);
+  if(widening||narrowing) {
+    const pair=widening?shot as Extract<Shot,{kind:'TWO_SHOT'}>:previous.shot as Extract<Shot,{kind:'TWO_SHOT'}>;
+    const a=byUser.get(pair.userIds[0]),b=byUser.get(pair.userIds[1]);
+    // pairPose is also the feasibility test used by ShotDirector.
+    let safe=!!a&&!!b&&!!pairPose(a,b,pair.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]))&&
+      cameraAngle<=radians(65);
+    for(let i=0;safe&&i<=16;i++) {
+      const p=lerp(from.position,to.position,i/16);
+      safe=p[1]>TABLE.topY+0.12&&front(a!,p)&&front(b!,p);
+    }
+    // Wider custom avatars need a longer dolly-out rather than a sudden CUT.
+    if(safe)durationMs=widening
+      ?Math.min(1600,Math.max(1200,Math.round(850+travel*150)))
+      :Math.min(1400,Math.max(950,Math.round(750+travel*120)));
+  }
+  return {id:previous.id+1,shot,reason,transition:durationMs?'MOVE':'CUT',from,to,startMs:now,durationMs};
 }

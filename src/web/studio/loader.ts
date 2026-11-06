@@ -8,7 +8,7 @@ import type { StudioClient } from '../shared/client.ts';
 import { disposeObject } from './dispose.ts';
 export { disposeObject } from './dispose.ts';
 export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLRenderer,id:string):Promise<THREE.Group>{
-  const bundle:StudioBundle=await (await client.authorizedFetch('/api/studio/bundles/'+id)).json();
+  const bundle:StudioBundle=await (await client.localFetch('/api/studio/bundles/'+id)).json();
   const manager=new THREE.LoadingManager(),urls=new Map<string,string>();
   const root=new URL(`/__studio/${id}/`,location.origin).href;
   let failed=false;
@@ -22,7 +22,7 @@ export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLR
     const transfers=await Promise.allSettled(Array.from({length:Math.min(4,bundle.files.length)},async()=>{
       while(index<bundle.files.length){
         const file=bundle.files[index++]!;
-        const response=await client.authorizedFetch(`/api/studio/bundles/${id}/file?path=${encodeURIComponent(file.path)}`);
+        const response=await client.localFetch(`/api/studio/bundles/${id}/file?path=${encodeURIComponent(file.path)}`);
         urls.set(file.path,URL.createObjectURL(await response.blob()));
       }
     }));

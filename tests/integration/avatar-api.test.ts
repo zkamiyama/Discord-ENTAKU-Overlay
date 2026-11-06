@@ -4,28 +4,26 @@ import { startServer } from '../../src/server/app.ts';
 import { AvatarStore } from '../../src/assets/store.ts';
 import { demoEvents } from '../../src/replay/demo.ts';
 import { png } from '../helpers/png.ts';
-const keys = { read: '1'.repeat(64), control: '2'.repeat(64) };
 function start(store = new AvatarStore()) {
   const engine = new AppEngine({ source: 'demo', serverEpoch: 'test' });
   for (const event of demoEvents()) engine.apply(event);
-  const app = startServer({ engine, keys, avatarStore: store, assets: {}, port: 0, now: () => 100 });
+  const app = startServer({ engine, avatarStore: store, assets: {}, port: 0, now: () => 100 });
   const origin = `http://127.0.0.1:${app.server.port}`;
-  const command = (body: Record<string,unknown>) => fetch(origin + '/api/commands', { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${keys.control}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const command = (body: Record<string,unknown>) => fetch(origin + '/api/commands', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { app, engine, origin, command };
 }
-test('asset API authenticates, keeps draft out of program, and serializes conflicting edits', async () => {
+test('asset API keeps drafts out of program and serializes conflicting edits without keys', async () => {
   const { app, engine, origin, command } = start();
   try {
-    const cases: Record<string,string>[] = [{}, { Origin: origin, Authorization: `Bearer ${keys.read}` }, { Origin: 'http://attacker.invalid', Authorization: `Bearer ${keys.control}` }];
+    const cases: Record<string,string>[] = [{}, { Origin: 'http://attacker.invalid' }];
     for(const headers of cases){
       expect((await fetch(origin + '/api/assets', { method: 'POST', headers: { ...headers, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) })).status).toBe(403);
     }
-    const imported = await fetch(origin + '/api/assets', { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${keys.control}`, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) });
+    const imported = await fetch(origin + '/api/assets', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) });
     expect(imported.status).toBe(201);
     const asset = await imported.json();
     expect(engine.snapshot().avatarProfiles).toEqual([]);
-    expect((await fetch(origin + '/api/assets/' + asset.assetId)).status).toBe(403);
-    const image = await fetch(origin + '/api/assets/' + asset.assetId, { headers: { Authorization: `Bearer ${keys.read}` } });
+    const image = await fetch(origin + '/api/assets/' + asset.assetId);
     expect(image.headers.get('content-type')).toBe('image/png');
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array(png()));
     const profile = { userId: engine.snapshot().participants[0]!.userId, assetId: asset.assetId, faceRect: [.25, .1, .5, .25], scale: 1, offsetX: 0, offsetY: 0 };
@@ -46,7 +44,7 @@ test('failed profile save cannot change program state or edit revision', async (
   class FailingStore extends AvatarStore { override async saveProfiles(): Promise<void> { throw new Error('AVATAR_SETTINGS_WRITE_FAILED'); } }
   const { app, engine, origin, command } = start(new FailingStore());
   try {
-    const response = await fetch(origin + '/api/assets', { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${keys.control}`, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) });
+    const response = await fetch(origin + '/api/assets', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) });
     const { assetId } = await response.json();
     const result = await command({ type: 'avatar-set', profile: { userId: '1', assetId, faceRect: [.25, .1, .5, .25], scale: 1, offsetX: 0, offsetY: 0 }, expectedRevision: 0, requestId: 'save-fails' });
     expect(result.status).toBe(422); expect((await result.json()).error).toBe('AVATAR_SETTINGS_WRITE_FAILED');

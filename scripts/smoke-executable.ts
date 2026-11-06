@@ -22,7 +22,7 @@ try{
   const reader=child.stdout.getReader();let text='';
   try{
     for(;;){const {value,done}=await reader.read();if(done)throw new Error('COMPILED_SERVER_EXITED');text+=new TextDecoder().decode(value);if(/Dock:/.test(text))break;}
-    const origin=/Overlay: (http:\/\/127\.0\.0\.1:\d+)/.exec(text)?.[1];if(!origin)throw new Error('COMPILED_SERVER_ADDRESS_MISSING');
+    const origin=/Overlay: (http:\/\/127\.0\.0\.1:\d+)\/overlay(?:\s|$)/.exec(text)?.[1];if(!origin||text.includes('#key='))throw new Error('COMPILED_SERVER_URL_INVALID');
     const health=await fetch(origin+'/api/health',{signal:AbortSignal.timeout(5000)});
     const overlay=await fetch(origin+'/overlay',{signal:AbortSignal.timeout(5000)});
     const bundle=await fetch(origin+'/static/overlay.js',{signal:AbortSignal.timeout(5000)});
@@ -34,6 +34,7 @@ try{
     }
     // Consume HTTP bodies before stopping the child; no fetch stream is left open.
     await health.arrayBuffer();await overlay.arrayBuffer();
+    if(await Bun.file(join(directory,'data','access-keys.json')).exists())throw new Error('OBSOLETE_ACCESS_KEYS_CREATED');
   }finally{clearTimeout(timer);reader.releaseLock();child.kill();await child.exited;server=null;}
 }finally{
   if(server){server.kill();await server.exited;}

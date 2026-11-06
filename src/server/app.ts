@@ -8,16 +8,15 @@ import { AvatarStore } from '../assets/store.ts';
 import { MAX_IMAGE_BYTES } from '../assets/image.ts';
 import type { ServerWebSocket } from 'bun';
 import { AppEngine } from '../domain/engine.ts';
-import type { AccessKeys } from './security.ts';
-import { bearerRole, roleForKey, validHost, validOrigin } from './security.ts';
+import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 import type { DirectorMode, ProviderEvent } from '../contracts/domain.ts';
 import { demoParticipant } from '../replay/demo.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { role: 'read' | 'control' | null; timer?: ReturnType<typeof setTimeout>; messages: number; windowStart: number }
+interface SocketData { messages: number; windowStart: number }
 export interface ServerOptions {
-  engine: AppEngine; keys: AccessKeys; assets: WebAssets; port: number;
+  engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
   retry?: () => void;
   avatarStore?: AvatarStore;
@@ -30,7 +29,7 @@ function headers(type = 'application/json'): Record<string,string> {
 }
 function json(value: unknown, status = 200): Response { return new Response(JSON.stringify(value), { status, headers: headers() }); }
 export function startServer(options: ServerOptions) {
-  const { engine, keys } = options;
+  const { engine } = options;
   const now = options.now ?? (() => performance.now());
   const clients = new Set<ServerWebSocket<SocketData>>();
   const journal=new DiagnosticJournal(),recording=new ProviderRecording();
@@ -58,7 +57,7 @@ export function startServer(options: ServerOptions) {
   const broadcast = (): void => {
     journal.state(engine.snapshot(now()));
     const message = snapshot();
-    for (const socket of clients) if (socket.data.role) send(socket, message);
+    for (const socket of clients) send(socket, message);
     broadcastAt = performance.now();
   };
   const applyDemo = (event: ProviderEvent): void => { engine.apply(event, now()); options.onChange?.(); };
@@ -70,25 +69,21 @@ export function startServer(options: ServerOptions) {
       if (url.pathname === '/ws') {
         if (request.method !== 'GET' || !validOrigin(request, server.port!)) return json({ error: 'ORIGIN_REJECTED' }, 403);
         if (clients.size >= 8) return json({ error: 'CLIENT_LIMIT' }, 429);
-        return server.upgrade(request, { data: { role: null, messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
+        return server.upgrade(request, { data: { messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: 1 });
       if(request.method==='GET'&&url.pathname==='/api/diagnostics'){
-        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
         return json(diagnostic());
       }
       if(request.method==='GET'&&url.pathname==='/api/replay/export'){
-        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
         try{return new Response(recording.export(now()),{headers:headers('application/x-ndjson; charset=utf-8')});}
         catch{return json({error:'RECORDING_EMPTY'},422);}
       }
       if (request.method === 'GET' && url.pathname === '/api/studio/bundles') {
-        if(bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
         try{return json(await studioStore.list());}catch{return json({error:'STUDIO_INDEX_UNAVAILABLE'},500);}
       }
       const bundleMatch=/^\/api\/studio\/bundles\/([a-f0-9]{64})(\/file)?$/.exec(url.pathname);
       if(request.method==='GET'&&bundleMatch){
-        if(!bearerRole(request,keys))return json({error:'AUTH_REQUIRED'},403);
         try{
           if(!bundleMatch[2])return json(await studioStore.bundle(bundleMatch[1]!));
           const file=await studioStore.file(bundleMatch[1]!,url.searchParams.get('path')??'');
@@ -96,7 +91,7 @@ export function startServer(options: ServerOptions) {
         }catch{return json({error:'STUDIO_FILE_NOT_FOUND'},404);}
       }
       if(request.method==='POST'&&url.pathname==='/api/studio/import'){
-        if(!validOrigin(request,server.port!)||bearerRole(request,keys)!=='control')return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        if(!validOrigin(request,server.port!))return json({error:'ORIGIN_REJECTED'},403);
         return serial(async()=>{
           try{
             const form=await request.formData(),entry=form.get('entry');
@@ -118,7 +113,7 @@ export function startServer(options: ServerOptions) {
         });
       }
       if (request.method === 'POST' && url.pathname === '/api/assets') {
-        if (!validOrigin(request,server.port!) || bearerRole(request,keys)!=='control') return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        if (!validOrigin(request,server.port!)) return json({error:'ORIGIN_REJECTED'},403);
         if (!['image/png','image/webp'].includes(request.headers.get('content-type')??'')) return json({error:'IMAGE_FORMAT_REJECTED'},415);
         if(Number(request.headers.get('content-length')??0)>MAX_IMAGE_BYTES)return json({error:'IMAGE_TOO_LARGE'},413);
         return serial(async()=>{
@@ -128,14 +123,12 @@ export function startServer(options: ServerOptions) {
       }
       const customMatch=/^\/api\/assets\/([a-f0-9]{64})$/.exec(url.pathname);
       if(request.method==='GET'&&customMatch){
-        if(!bearerRole(request,keys))return json({error:'AUTH_REQUIRED'},403);
         try{const {info,bytes}=await customAssets.get(customMatch[1]!);return new Response(new Blob([bytes as Uint8Array<ArrayBuffer>]),{headers:headers(info.mime)});}
         catch{return json({error:'ASSET_NOT_FOUND'},404);}
       }
       if (request.method === 'POST' && url.pathname === '/api/commands') {
         if (!validOrigin(request, server.port!)) return json({ error: 'ORIGIN_REJECTED' }, 403);
-        if (bearerRole(request, keys) !== 'control') return json({ error: 'CONTROL_AUTH_REQUIRED' }, 403);
-        if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON_REQUIRED' }, 415);
+                if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON_REQUIRED' }, 415);
         return serial(async()=>{
         try {
           const raw = await request.text(); if (Buffer.byteLength(raw) > 256*1024) return json({ error: 'COMMAND_TOO_LARGE' }, 413);
@@ -199,7 +192,6 @@ export function startServer(options: ServerOptions) {
       }
       const avatarMatch = /^\/api\/avatars\/(\d{1,20})$/.exec(url.pathname);
       if (request.method === 'GET' && avatarMatch) {
-        if (!bearerRole(request, keys)) return json({ error: 'AUTH_REQUIRED' }, 403);
         const person = engine.snapshot().participants.find(p => p.userId === avatarMatch[1]);
         if (!person?.avatarUrl) return json({ error: 'AVATAR_NOT_FOUND' }, 404);
         try { const data = await avatars.get(person.avatarUrl); return new Response(new Blob([data as Uint8Array<ArrayBuffer>]), { headers: headers('image/png') }); }
@@ -216,7 +208,8 @@ export function startServer(options: ServerOptions) {
       open(socket) {
         if (clients.size >= 8) { socket.close(1013, 'CLIENT_LIMIT'); return; }
         clients.add(socket);
-        socket.data.timer = setTimeout(() => socket.close(1008, 'AUTH_TIMEOUT'), 5000);
+        send(socket, { type: 'hello' });
+        send(socket, snapshot());
       },
       message(socket, message) {
         try {
@@ -225,13 +218,6 @@ export function startServer(options: ServerOptions) {
           if (++socket.data.messages > 30) { socket.close(1008, 'MESSAGE_RATE_LIMIT'); return; }
           if (typeof message !== 'string') throw new Error();
           const p = JSON.parse(message) as Record<string,unknown>;
-          if (!socket.data.role) {
-            const role = p.type === 'auth' ? roleForKey(p.key, keys) : null;
-            if (!role) { socket.close(1008, 'AUTH_REQUIRED'); return; }
-            socket.data.role = role; clearTimeout(socket.data.timer);
-            send(socket, { type: 'hello', role, ...(role === 'control' ? { overlayUrl: `http://127.0.0.1:${server.port}/overlay#key=${keys.read}` } : {}) });
-            send(socket, snapshot()); return;
-          }
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
           else if(p.type==='render-status'){
             const allowed=['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST'];
@@ -242,7 +228,7 @@ export function startServer(options: ServerOptions) {
           else socket.close(1008, 'INVALID_MESSAGE');
         } catch { socket.close(1008, 'INVALID_MESSAGE'); }
       },
-      close(socket) { clearTimeout(socket.data.timer); clients.delete(socket); reports.delete(socket); },
+      close(socket) { clients.delete(socket); reports.delete(socket); },
     },
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });
@@ -252,7 +238,7 @@ export function startServer(options: ServerOptions) {
   }, 50);
   return {
     server, broadcast,
-    urls: { overlay: `http://127.0.0.1:${server.port}/overlay#key=${keys.read}`, dock: `http://127.0.0.1:${server.port}/dock#key=${keys.control}` },
+    urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
     async stop() { offEvents(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
   };
 }

@@ -37,7 +37,7 @@ function row(user:DockPerson):Row {
 client.onState=state=>{
  get('studio-current').textContent=`シーン ${state.studio.revision} · ${state.studio.objects.length}オブジェクト`;
 
- get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
+ get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('camera-transition').textContent=state.camera.transition;get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
  const count=state.participants.filter(p=>p.presence==='present').length;
  get('counts').textContent=`${count}人 / ${state.session.capacity}席`;
  get('connection').textContent=`${state.connection} · ${state.channel?.name??'VC未選択'}${state.errorCode?' · '+state.errorCode:''}`;
@@ -62,6 +62,8 @@ client.onState=state=>{
   const at=get('participants').children[rowIndex++];
   if(at!==r.element)get('participants').insertBefore(r.element,at??null);
  }
- if(client.overlayUrl){get<HTMLInputElement>('overlay-url').value=client.overlayUrl;get<HTMLAnchorElement>('open-overlay').href=client.overlayUrl;}
 };
+const overlayUrl = new URL('/overlay', location.origin).href;
+get<HTMLInputElement>('overlay-url').value=overlayUrl;
+get<HTMLAnchorElement>('open-overlay').href=overlayUrl;
 client.connect();

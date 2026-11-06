@@ -13,7 +13,7 @@ test('replay CLI supports pause, speed and backward seek from the Dock without a
  try{
   const dock=await new Promise<string>((resolve,reject)=>{
    const timeout=setTimeout(()=>reject(new Error('REPLAY_START_TIMEOUT')),10000);let output='';
-   child.stdout.on('data',data=>{output+=data.toString();const match=/Dock:\s+(http:\/\/127\.0\.0\.1:\d+\/dock#key=[a-f0-9]+)/.exec(output);if(match){clearTimeout(timeout);resolve(match[1]!);}});
+   child.stdout.on('data',data=>{output+=data.toString();const match=/Dock:\s+(http:\/\/127\.0\.0\.1:\d+\/dock)/.exec(output);if(match){clearTimeout(timeout);resolve(match[1]!);}});
    child.once('error',e=>{clearTimeout(timeout);reject(e);});child.once('exit',code=>{clearTimeout(timeout);reject(new Error('REPLAY_EXIT_'+code));});
   });
   await page.goto(dock);await expect(page.locator('#transport')).toHaveText('接続済み');await expect(page.locator('#replay-controls')).toBeVisible();

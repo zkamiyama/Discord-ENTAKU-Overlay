@@ -30,3 +30,43 @@ test('custom avatar framing includes the closer nameplate and the yaw envelope',
     expect(fitsCameraFrame(pose,avatarFramePoints(seat,extent))).toBe(true);
   }
 });
+
+test('SINGLE grows into a nearby TWO_SHOT by an eased camera move, not an instant cut',()=>{
+ for(const n of [6,8,12,16,24,32]){
+   const layout=makeLayout(n),byUser=new Map(layout.seats.map((seat,i)=>[String(i),seat]));
+   for(let i=0;i<n;i++){
+     const first=String(i),second=String((i+1)%n);
+     const fromShot:Shot={kind:'SINGLE',userIds:[first]},targetShot:Shot={kind:'TWO_SHOT',userIds:[first,second]};
+     const firstPose=shotPose(fromShot,byUser,layout.straightLength);
+     const initial:CameraPlan={id:1,shot:fromShot,reason:'INITIAL',transition:'CUT',from:firstPose,to:firstPose,startMs:0,durationMs:0};
+     const result=planCamera(initial,targetShot,'NEARBY_DIALOGUE',byUser,n,layout.straightLength,3500);
+     expect(result.transition).toBe('MOVE');
+     expect(result.durationMs).toBeGreaterThanOrEqual(1200);
+     expect(result.durationMs).toBeLessThanOrEqual(1600);
+     expect(samplePlan(result,3500).position).toEqual(firstPose.position);
+     expect(samplePlan(result,3500+result.durationMs).position).toEqual(result.to.position);
+     expect(samplePlan(result,4100).position).not.toEqual(firstPose.position);
+     const back=planCamera({...result,id:result.id+1,from:result.to,to:result.to,durationMs:0},fromShot,'SPEAKER_QUALIFIED',byUser,n,layout.straightLength,7500);
+     expect(back.transition).toBe('MOVE');
+     expect(back.durationMs).toBeGreaterThanOrEqual(950);
+     expect(back.durationMs).toBeLessThanOrEqual(1400);
+   }
+ }
+});
+test('unrelated or distant TWO_SHOT changes remain CUTs',()=>{
+ const layout=makeLayout(16),byUser=new Map(layout.seats.map((s,i)=>[String(i),s]));
+ const original:Shot={kind:'SINGLE',userIds:['0']},pose=shotPose(original,byUser,layout.straightLength);
+ const prev:CameraPlan={id:1,shot:original,reason:'TEST',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
+ expect(planCamera(prev,{kind:'TWO_SHOT',userIds:['7','8']},'OTHER',byUser,16,layout.straightLength,4000).transition).toBe('CUT');
+ expect(planCamera(prev,{kind:'TWO_SHOT',userIds:['0','8']},'DISTANT',byUser,16,layout.straightLength,4000).transition).toBe('CUT');
+});
+
+test('wide custom avatars still dolly out to a nearby pair without an abrupt cut',()=>{
+  const layout=makeLayout(6),byUser=new Map(layout.seats.map((seat,i)=>[String(i),seat]));
+  const extents=new Map([['0',{halfWidth:1.6,topY:2.4,bottomY:0.5}],['1',{halfWidth:1.6,topY:2.4,bottomY:0.5}]]);
+  const solo:Shot={kind:'SINGLE',userIds:['0']},pose=shotPose(solo,byUser,layout.straightLength,extents);
+  const previous:CameraPlan={id:1,shot:solo,reason:'TEST',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
+  const next=planCamera(previous,{kind:'TWO_SHOT',userIds:['0','1']},'NEARBY_DIALOGUE',byUser,6,layout.straightLength,2000,extents);
+  expect(next.transition).toBe('MOVE');
+  expect(next.durationMs).toBe(1600);
+});

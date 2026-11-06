@@ -19,13 +19,13 @@ export class DiagnosticsPanel {
     try{await this.client.command(value);await this.refresh();}catch(e){$('diagnostics-message').textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{this.busy=false;}
   }
   private async download(path:string,name:string):Promise<void>{
-    try{const response=await this.client.authorizedFetch(path),url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+    try{const response=await this.client.localFetch(path),url=URL.createObjectURL(await response.blob()),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
     catch(e){$('diagnostics-message').textContent=e instanceof Error?e.message:'書き出しに失敗しました';}
   }
   private async refresh():Promise<void>{
-    if(!this.client.connected||this.client.role!=='control')return;
+    if(!this.client.connected)return;
     try{
-      const d:RuntimeDiagnostics=await (await this.client.authorizedFetch('/api/diagnostics')).json();this.current=d;
+      const d:RuntimeDiagnostics=await (await this.client.localFetch('/api/diagnostics')).json();this.current=d;
       $('renderer-status').textContent=d.render?`${d.render.status} · フレーム間隔 ${d.render.frameMs.toFixed(1)}ms · ${d.render.drawCalls} draws · ${d.render.triangles.toLocaleString()} triangles`:'映像ページの接続待ち';
       $('recording-status').textContent=`${d.recording.active?'記録中':'停止'} · ${d.recording.eventCount}イベント${d.recording.limitReached?' · 記録上限に達しました':''}`;
       $<HTMLButtonElement>('record-start').disabled=d.source==='replay'||d.recording.active;$<HTMLButtonElement>('record-stop').disabled=!d.recording.active;

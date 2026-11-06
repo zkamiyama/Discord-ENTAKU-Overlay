@@ -4,7 +4,7 @@ Dockの「スタジオを編集」から、GLB、GLTFと関連ファイル、ま
 
 ## 既存のThree.js機能を使う範囲
 
-モデル・テクスチャ・バッファ・対応する拡張の解釈はGLTFLoaderへ委ねます。LoadingManager.setURLModifierで、取り込んだファイルを認証済みBlob URLに対応付けます。Draco・KTX2・Meshoptの公式デコーダーを同梱します。標準の読込に外部CDNは不要です。任意の独自拡張まで受け入れる意味ではありません。
+モデル・テクスチャ・バッファ・対応する拡張の解釈はGLTFLoaderへ委ねます。LoadingManager.setURLModifierで、取り込んだファイルをローカルBlob URLに対応付けます。Draco・KTX2・Meshoptの公式デコーダーを同梱します。標準の読込に外部CDNは不要です。任意の独自拡張まで受け入れる意味ではありません。
 
 `models/room.gltf`から`../textures/wood.png`を参照する構成にも対応します。`../`そのものではなく、取り込み範囲の外へ出る参照を拒否します。HTTPS URLの自動取得や`file:`での任意ファイル参照は行いません。URL素材を使う場合はあらかじめプロジェクトへ保存して相対参照にしてください。GLBの埋め込み画像と既知形式のdata URIは扱えます。
 

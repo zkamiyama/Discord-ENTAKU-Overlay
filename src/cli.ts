@@ -12,7 +12,6 @@ import { IpcVoiceProvider } from './discord/ipc-voice-provider.ts';
 import { StreamKitCompatAuth } from './discord/auth-provider.ts';
 import { discover, ipcCandidates } from './discord/discovery.ts';
 import { errorCode } from './discord/errors.ts';
-import { loadAccessKeys, newAccessKeys } from './server/security.ts';
 import { startServer, type WebAssets } from './server/app.ts';
 import { demoEvents } from './replay/demo.ts';
 import { parseReplay, ReplayPlayer } from './replay/player.ts';
@@ -36,7 +35,6 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   }
   const assets=embeddedAssets??JSON.parse(await readFile(resolve('.generated/web-assets.json'),'utf8')) as WebAssets;
   const dataDir=resolve(options.dataDir??(compiled?join(dirname(process.execPath),'data'):join(process.cwd(),'data')));
-  const keys=options.safeMode?newAccessKeys():await loadAccessKeys(dataDir);
   const store=new SessionStore(join(dataDir,'sessions',options.mode));
   const replay=options.replayPath?await (async()=>{if((await stat(options.replayPath!)).size>16*1024*1024)throw new Error('REPLAY_TOO_LARGE');return parseReplay(await readFile(options.replayPath!,'utf8'));})():null;
   const sessions=replay?.session?[replay.session]:options.safeMode||options.mode==='replay'?[]:await store.loadAll();
@@ -66,7 +64,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     if(!provider||retrying||stopping)return;retrying=true;
     void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
-  const app=startServer({engine,keys,assets,avatarStore,studioStore,port:options.port,now,onChange:persist,
+  const app=startServer({engine,assets,avatarStore,studioStore,port:options.port,now,onChange:persist,
     ...(player?{tick:()=>{
       const time=performance.now(),elapsed=time-replayTick;replayTick=time;
       if(!replayPaused&&!replaySeeking)player.advanceTo(Math.min(player.replay.durationMs,player.elapsedMs+elapsed*replayRate));
@@ -83,9 +81,8 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     provider=new IpcVoiceProvider(auth,event=>{engine.apply(event,now());app.broadcast();persist();},now);
     provider.start();
   }
-  // Local capabilities are printed once for OBS setup, never put into diagnostics or event logs.
   console.log(`ENTAKU development server (${options.mode})\nOverlay: ${app.urls.overlay}\nDock:    ${app.urls.dock}`);
-  console.log('Keep these local URLs private. Press Ctrl+C to stop.');
+  console.log('Local-only service. Press Ctrl+C to stop.');
   if(!options.noOpen)openBrowser(app.urls.dock);
   const persistenceTimer=setInterval(persist,1000);
   await new Promise<void>(resolveStopped=>{

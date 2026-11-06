@@ -4,7 +4,7 @@ import { studioFixture } from '../tests/helpers/gltf.ts';
 test('ZIP GLTF with relative buffer and texture loads through GLTFLoader, previews and survives Dock reload',async({page,context})=>{
   const errors:string[]=[],external:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
   const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
   overlay.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith('http://127.0.0.1:31339/'))external.push(r.url());});
   overlay.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
@@ -27,7 +27,7 @@ test('ZIP GLTF with relative buffer and texture loads through GLTFLoader, previe
   expect(external).toEqual([]);expect(errors).toEqual([]);
 });
 test('missing external texture is reported without applying a broken program scene',async({page})=>{
-  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
   await page.locator('#studio-open').click();
   const files=studioFixture();delete (files as Record<string,Uint8Array>)['textures/cutout.png'];
   await page.locator('#studio-files').setInputFiles({name:'incomplete.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(files))});
@@ -35,7 +35,7 @@ test('missing external texture is reported without applying a broken program sce
   await page.locator('#studio-cancel').click();
 });
 test('an enclosing studio blocker falls back to a transparent safe wide shot',async({page,context})=>{
- await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
  await page.locator('#studio-open').click();
  await page.getByText('シーンJSON',{exact:true}).click();

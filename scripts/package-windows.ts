@@ -43,7 +43,7 @@ for(const path of tracked){
   if(path.startsWith('docs/')||path.startsWith('examples/'))add(path,content);
 }
 add('BUILD-INFO.json',strToU8(JSON.stringify({application:'Discord ENTAKU Overlay',version:VERSION,sourceCommit,bun:Bun.version,target:'windows-x64-baseline',signed:false,releaseStage:'candidate'},null,2)+'\n'));
-add('data/README.txt',strToU8('Settings and custom assets are created here at runtime.\nKeep access-keys.json and personal data private.\n'));
+add('data/README.txt',strToU8('Settings and custom assets are created here at runtime.\nKeep personal data private. Local page access requires no key.\n'));
 const sums=Object.entries(files).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([path,bytes])=>`${createHash('sha256').update(bytes).digest('hex')}  ${path.slice(root.length)}`).join('\n')+'\n';
 add('SHA256SUMS.txt',strToU8(sums));
 await mkdir('dist',{recursive:true});

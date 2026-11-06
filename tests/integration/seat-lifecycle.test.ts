@@ -69,10 +69,10 @@ test('a new demo guest does not reuse a restored reserved Discord ID', async () 
   const sessions = engine.sessions();
   const restored = new AppEngine({ source: 'demo', serverEpoch: 'b', sessions });
   restored.apply(snapshot([], '200', 0)); restored.apply(ready(0));
-  const app = startServer({ engine: restored, keys: { read: '1'.repeat(64), control: '2'.repeat(64) }, assets: {}, port: 0, now: () => 100 });
+  const app = startServer({ engine: restored, assets: {}, port: 0, now: () => 100 });
   try {
     const origin = `http://127.0.0.1:${app.server.port}`;
-    const response = await fetch(origin + '/api/commands', { method: 'POST', headers: { Origin: origin, Authorization: `Bearer ${'2'.repeat(64)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'demo-add', requestId: 'new', expectedRevision: 0 }) });
+    const response = await fetch(origin + '/api/commands', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'demo-add', requestId: 'new', expectedRevision: 0 }) });
     expect(response.status).toBe(200);
     restored.tick(700);
     expect(restored.snapshot().session.reservations.map(r => r.userId)).toEqual(['1001', '1002']);

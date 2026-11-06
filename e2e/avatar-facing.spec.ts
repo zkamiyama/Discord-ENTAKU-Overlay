@@ -10,7 +10,7 @@ async function centerPixel(page:Page):Promise<number[]>{
   },bytes.toString('base64'));
 }
 for(const independentBack of [false,true])test(`avatar rear darkens with independent back=${independentBack}`,async({page})=>{
-  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
   const solid=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=64;c.height=128;const x=c.getContext('2d')!;x.fillStyle='rgb(200,40,40)';x.fillRect(0,0,64,128);return c.toDataURL('image/png').split(',')[1]!;});
   await page.locator('.person').first().getByRole('button',{name:'画像を調整',exact:true}).click();
   await page.locator('#avatar-file').setInputFiles({name:'red.png',mimeType:'image/png',buffer:Buffer.from(solid,'base64')});
