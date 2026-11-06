@@ -38,3 +38,11 @@ test('ZIP import uses bounded inflate and rejects missing resources, duplicates 
  expect(resolveStudioReference('models/room.gltf','../shared/mesh.bin')).toBe('shared/mesh.bin');
  expect(resolveStudioReference('room.gltf','./a%20b.png')).toBe('a b.png');
 });
+test('literal percent file names survive import and ZIP expansion is bounded even with a forged size',async()=>{
+ const store=new StudioStore();
+ const b=await store.importFiles([{path:'room.gltf',bytes:json({asset:{version:'2.0'},images:[{uri:'100%25.png'}]})},{path:'100%.png',bytes:new Uint8Array([1])}]);
+ expect((await store.file(b.bundleId,'100%.png')).bytes).toEqual(new Uint8Array([1]));
+ const bomb=zipSync({'bomb.bin':new Uint8Array(33*1024*1024)},{level:6});
+ new DataView(bomb.buffer,bomb.byteOffset,bomb.byteLength).setUint32(22,1,true);
+ expect(()=>unpackStudioZip(bomb)).toThrow();
+});

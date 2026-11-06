@@ -46,7 +46,7 @@ export function unpackStudioZip(bytes: Uint8Array): StudioFile[] {
     file.start();
   });
   archive.register(UnzipInflate);
-  try { archive.push(bytes,true); } catch (e) { throw e instanceof Error && e.message.startsWith('STUDIO_') ? e : new Error('STUDIO_ARCHIVE_INVALID'); }
+  try { for(let offset=0;offset<bytes.length;offset+=4096){archive.push(bytes.subarray(offset,offset+4096),offset+4096>=bytes.length);if(failure)throw failure;} } catch (e) { throw e instanceof Error && e.message.startsWith('STUDIO_') ? e : new Error('STUDIO_ARCHIVE_INVALID'); }
   if (failure) throw failure;
   if (pending || !files.length) throw new Error('STUDIO_ARCHIVE_INVALID');
   return files;
@@ -88,7 +88,7 @@ export class StudioStore {
     // Only inspect resource references. GLTFLoader remains responsible for model interpretation.
     const document=inspectGltfEntry(source,entry);
     for (const path of document.externalPaths) if (!files.has(path)) throw new Error('STUDIO_DEPENDENCY_MISSING');
-    const metadata=[...files].map(([path,bytes])=>({path,hash:hash(bytes),byteLength:bytes.byteLength,mime:mime(path)})).sort((a,b)=>a.path.localeCompare(b.path,'en'));
+    const metadata=[...files].map(([path,bytes])=>({path,hash:hash(bytes),byteLength:bytes.byteLength,mime:mime(path)})).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
     const bundleId=hash(JSON.stringify({entry,files:metadata}));
     const bundle: StudioBundle={schemaVersion:1,bundleId,entry,files:metadata,byteLength:total};
     const existing=await this.list();

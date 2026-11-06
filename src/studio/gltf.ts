@@ -48,9 +48,12 @@ export function inspectGltfEntry(bytes:Uint8Array,entryPath:string):GLTFDocument
   if(data.getUint32(0,true)!==0x46546c67 || data.getUint32(4,true)!==2 || data.getUint32(8,true)!==bytes.length)throw new Error('STUDIO_GLTF_INVALID');
   const chunkLength=data.getUint32(12,true),chunkType=data.getUint32(16,true);
   if(chunkType!==0x4e4f534a || chunkLength>bytes.length-20 || chunkLength%4!==0)throw new Error('STUDIO_GLTF_INVALID');
-  if(bytes.length>20+chunkLength){
-    const offset=20+chunkLength;
-    if(bytes.length<offset+8 || data.getUint32(offset+4,true)!==0x004e4942 || data.getUint32(offset,true)!==bytes.length-offset-8)throw new Error('STUDIO_GLTF_INVALID');
+  // Unknown GLB chunks are legal; only enforce bounded framing here.
+  for(let offset=20+chunkLength;offset<bytes.length;){
+    if(bytes.length-offset<8)throw new Error('STUDIO_GLTF_INVALID');
+    const length=data.getUint32(offset,true);
+    if(length%4!==0||length>bytes.length-offset-8)throw new Error('STUDIO_GLTF_INVALID');
+    offset+=8+length;
   }
   const text=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(20,20+chunkLength)).replace(/\u0000+$/g,'').trimEnd();
   return inspect(text,entryPath,'glb');
@@ -63,5 +66,5 @@ export function resolveStudioReference(entry: string, uri: string): string {
   const base = root + safeStudioPath(entry).split('/').map(encodeURIComponent).join('/');
   const url = new URL(uri, base);
   if (url.origin !== 'https://studio.invalid' || !url.pathname.startsWith('/bundle/') || url.search || url.hash) throw new Error('STUDIO_PATH_REJECTED');
-  return safeStudioPath(url.pathname.slice('/bundle/'.length));
+  try{return safeStudioPath(decodeURIComponent(url.pathname.slice('/bundle/'.length)));}catch{throw new Error('STUDIO_PATH_REJECTED');}
 }

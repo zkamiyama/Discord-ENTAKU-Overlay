@@ -107,17 +107,16 @@ export function validateStudioScene(value: unknown): StudioScene {
 /** URLs are never fetched implicitly. Local paths are safe, relocatable bundle members. */
 export function safeStudioPath(value: unknown): string {
   if (typeof value !== 'string' || value.length > 256 || !value || value.startsWith('/') || value.includes('\\')) throw new Error('STUDIO_PATH_REJECTED');
-  let decoded: string;
-  try { decoded = decodeURIComponent(value); } catch { throw new Error('STUDIO_PATH_REJECTED'); }
-  if (decoded !== value && /%2f|%5c/i.test(value)) throw new Error('STUDIO_PATH_REJECTED');
-  if (/[\x00-\x1f\x7f]/.test(decoded) || decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('?') || decoded.includes('#') || decoded.includes(':')) throw new Error('STUDIO_PATH_REJECTED');
+  // File names are literal. URI decoding happens once in the URL resolver, not again here.
+  const decoded=value;
+  if (/%(?:2e|2f|5c|00)/i.test(value) || /[\x00-\x1f\x7f]/.test(value) || value.includes('?') || value.includes('#') || value.includes(':')) throw new Error('STUDIO_PATH_REJECTED');
   const parts=decoded.split('/');
   if (parts.some(part => !part || part === '.' || part === '..' || part.length > 120)) throw new Error('STUDIO_PATH_REJECTED');
   return parts.join('/');
 }
 
 export function studioAssetUrlAllowed(value: string): boolean {
-  return value.startsWith('data:') && /^data:(?:image\/(?:png|jpeg|webp|ktx2)|application\/(?:octet-stream|gltf-buffer));base64,/i.test(value);
+  return value.startsWith('data:') && /^data:(?:image\/(?:png|jpeg|webp|avif|ktx2)|application\/(?:octet-stream|gltf-buffer));base64,/i.test(value);
 }
 
 function validateStudioCamera(value:unknown):StudioCamera{
