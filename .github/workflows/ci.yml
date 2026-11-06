@@ -2,6 +2,9 @@ name: CI
 on: [push, pull_request]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   check:
     strategy:
@@ -16,3 +19,28 @@ jobs:
           bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - run: bun run build:exe
+      - run: bun run smoke:exe
+      - if: matrix.os == 'windows-latest'
+        run: bun run package:windows
+      - if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: entaku-windows-development
+          path: dist/Discord-ENTAKU-Overlay-*-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e

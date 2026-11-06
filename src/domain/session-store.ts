@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, writeFile, copyFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, writeFile, copyFile, unlink, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { SeatSession } from '../contracts/domain.ts';
@@ -12,6 +12,7 @@ export class SessionStore {
     const sessions: SeatSession[] = [];
     for (const name of entries) {
       try {
+        if ((await stat(join(this.directory, name))).size > 1024 * 1024) throw new Error();
         const text = await readFile(join(this.directory, name), 'utf8');
         if (Buffer.byteLength(text) > 1024 * 1024) throw new Error();
         const s = validateSession(JSON.parse(text));

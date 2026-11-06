@@ -53,10 +53,10 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
       persistChain=persistChain.then(()=>store.save(session)).catch(()=>{saved.delete(session.channelId);storageFailed=true;console.error('SESSION_WRITE_FAILED: reserved seats could not be saved.');});
     }
   };
-  let provider:IpcVoiceProvider|null=null,retrying=false;
+  let provider:IpcVoiceProvider|null=null,retrying=false,stopping=false;
   const retry=()=>{
-    if(!provider||retrying)return;retrying=true;
-    void provider.stop().then(()=>provider?.start()).finally(()=>{retrying=false;});
+    if(!provider||retrying||stopping)return;retrying=true;
+    void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
   const app=startServer({engine,keys,assets,port:options.port,now,onChange:persist,
     ...(player?{tick:()=>player.advanceTo(Math.min(player.replay.durationMs,performance.now()-start))}:{}),
@@ -72,7 +72,6 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   console.log('Keep these local URLs private. Press Ctrl+C to stop.');
   if(!options.noOpen)openBrowser(app.urls.dock);
   const persistenceTimer=setInterval(persist,1000);
-  let stopping=false;
   await new Promise<void>(resolveStopped=>{
     const shutdown=()=>{
       if(stopping)return;stopping=true;clearInterval(persistenceTimer);
