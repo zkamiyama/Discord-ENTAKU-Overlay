@@ -68,7 +68,12 @@ export function startServer(options: ServerOptions) {
           else if (c.type === 'new-session' && c.confirm === true) engine.control({ type: 'new-session' }, c.expectedRevision as number, current);
           else if (c.type === 'retry' && options.retry) options.retry();
           else if (engine.snapshot().source === 'demo' && c.type === 'demo-add') {
-            const id = String(++demoId);
+            const occupied = new Set([
+              ...engine.snapshot().participants.map(p => p.userId),
+              ...engine.sessions().flatMap(s => [...s.reservations.map(r => r.userId), ...s.waitingUserIds]),
+            ]);
+            while (occupied.has(String(++demoId))) { /* Do not reuse a restored reservation. */ }
+            const id = String(demoId);
             applyDemo({ type: 'participant-upsert', participant: demoParticipant(id), sourceGeneration: 1, receivedAtMs: current });
           } else if (engine.snapshot().source === 'demo' && typeof c.userId === 'string') {
             const person = engine.snapshot().participants.find(p => p.userId === c.userId);
@@ -84,7 +89,7 @@ export function startServer(options: ServerOptions) {
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL'].includes(error.message) ? error.message : 'COMMAND_REJECTED';
+          const code = error instanceof Error && ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED'].includes(error.message) ? error.message : 'COMMAND_REJECTED';
           return json({ error: code }, 422);
         }
       }
