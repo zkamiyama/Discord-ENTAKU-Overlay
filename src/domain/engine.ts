@@ -173,7 +173,7 @@ export class AppEngine {
       if (command.shot.kind === 'TWO_SHOT') throw new Error('MANUAL_PAIR_NOT_AVAILABLE');
       const decision = this.director.manual(command.shot, this.now);
       if (decision.changed) this.camera = planCamera(this.camera, decision.shot, decision.reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now);
-    } else if (command.type === 'release') { this.allocator.release(command.userId); this.allocate(); }
+    } else if (command.type === 'release') { this.allocator.release(command.userId, this.presentIds()); this.allocate(); }
     else {
       if (!this.channel) throw new Error('NO_CHANNEL');
       this.allocator = new SeatAllocator(newSession(this.channel.channelId, this.options.sessionId?.() ?? crypto.randomUUID()));

@@ -33,8 +33,7 @@ export class IpcVoiceProvider {
         this.status('authorizing');
         const allowPrompt=interactive;interactive=false;
         await this.auth.authenticate(this.client,allowPrompt);
-        await this.session(this.client);
-        failures=0;
+        await this.session(this.client,()=>{failures=0;});
       } catch(error) {
         if(!this.running)break;
         const code=errorCode(error);
@@ -43,12 +42,12 @@ export class IpcVoiceProvider {
         failures++;
       } finally {this.client?.close();this.client=null;}
       if(this.running) {
-        const delay=Math.max(2000,Math.min(15000,1000*2**Math.min(failures,4)))*(0.8+Math.random()*0.4);
+        const delay=Math.min(15000,Math.max(2000,1000*2**Math.min(failures,4)*(0.8+Math.random()*0.4)));
         await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.wake=null;resolve();},delay);this.wake=()=>{clearTimeout(timer);this.wake=null;resolve();};});
       }
     }
   }
-  private async session(client:RpcClient):Promise<void> {
+  private async session(client:RpcClient,onReady:()=>void):Promise<void> {
     let channelId:string|null=null,syncing=true,queue:Packet[]=[],refreshing=false;
     let timer:ReturnType<typeof setInterval>|undefined,burst:ReturnType<typeof setTimeout>|undefined;
     const send=(event:Omit<Extract<ProviderEvent,{type:'snapshot'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'participant-upsert'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'participant-left'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'speaking'}>,'sourceGeneration'|'receivedAtMs'>):void=>{
@@ -88,6 +87,7 @@ export class IpcVoiceProvider {
       send({type:'snapshot',...snapshot});
       syncing=false;for(const packet of queue)handle(packet);queue=[];
       if(client.isClosed)throw await client.whenClosed;
+      onReady();
       this.status(snapshot.channel?.kind==='unsupported'?'degraded':'ready',snapshot.channel?.kind==='unsupported'?'UNSUPPORTED_CHANNEL':undefined);
       if(snapshot.channel?.kind==='guild-voice') {
         await refresh(); // Reconcile membership after the subscription/snapshot race.

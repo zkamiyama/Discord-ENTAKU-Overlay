@@ -48,8 +48,11 @@ export class SeatAllocator {
     if (changed) this.session.revision++;
     return { changed, grew: this.session.capacity > capacity };
   }
-  release(userId: string): void {
-    if (this.present.has(userId)) throw new Error('CANNOT_RELEASE_PRESENT_USER');
+  release(userId: string, currentPresentIds?: readonly string[]): void {
+    // Membership updates may still be waiting in the layout debounce window.
+    if (currentPresentIds && currentPresentIds.some(id => !validId(id))) throw new Error('INVALID_PARTICIPANTS');
+    const currentPresent = currentPresentIds ? new Set(currentPresentIds) : this.present;
+    if (currentPresent.has(userId)) throw new Error('CANNOT_RELEASE_PRESENT_USER');
     const index = this.session.reservations.findIndex(r => r.userId === userId);
     if (index < 0) throw new Error('RESERVATION_NOT_FOUND');
     this.session.reservations.splice(index, 1);

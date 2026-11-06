@@ -6,9 +6,9 @@
 
 ADRを先にmainへpushし、IPC、席、カメラ、状態ストア、Replay、サーバー、UI、配布を別コミットで実装した。操作画面名はDock、ルートは`/dock`に統一した。
 
-単体・結合テスト50件がローカルで成功している。ChromiumのE2E 2件では、Dockからの発話操作、SINGLEへの切替、退出時の席数維持、復帰時の席復元、Dock再読み込み後の状態、未認証時の遮断を確認した。
+単体・結合テスト52件がローカルで成功している。ChromiumのE2E 2件では、Dockからの発話操作、SINGLEへの切替、退出時の席数維持、復帰時の席復元、Dock再読み込み後の状態、未認証時の遮断を確認した。
 
-Linuxの単独実行ファイルは、空のPATHとアプリ一個だけの一時フォルダーで、HTTPと埋め込みWeb素材まで検証した。Windows x64 exeも生成し、Windowsプロセスとしてオフラインdoctorの起動を確認した。これらは実Discord認証・OBSの検証とは別である。GitHub ActionsではLinux/Windowsのテストと単独バイナリsmokeを実行する。
+Linuxの単独実行ファイルは、空のPATHとアプリ一個だけの一時フォルダーで、HTTPと埋め込みWeb素材まで検証した。Windows x64 exeも生成し、Windowsプロセスとしてオフラインdoctorの起動を確認した。Windows CIでも、空のPATHと実行ファイルだけでHTTP・埋め込みWeb素材まで成功した。これらは実Discord認証・OBSの検証とは別である。GitHub ActionsではLinux/Windowsのテストと単独バイナリsmokeを実行する。
 
 日本語UIはOSフォントを利用する。日本語フォントを持たないLinuxテスト環境では字形が欠ける場合がある。フォントファイルは配布しない。Windows/OBS本体での日本語表示も受け入れ試験に残す。
 

@@ -44,3 +44,17 @@ test('Dock edits require revision and reject absent targets or releasing a prese
   expect(()=>e.control({type:'shot',shot:{kind:'SINGLE',userIds:['2']}},1,0)).toThrow('TARGET_NOT_PRESENT');
   expect(()=>e.control({type:'release',userId:'1'},1,0)).toThrow('CANNOT_RELEASE_PRESENT_USER');
 });
+test('a just-left guest can be released before the layout debounce expires', () => {
+  const e=setup(); e.apply(snapshot(['1']));
+  e.apply({type:'participant-left',userId:'1',sourceGeneration:1,receivedAtMs:100});
+  expect(e.control({type:'release',userId:'1'},0,110)).toBe(1);
+  expect(e.snapshot().session.reservations).toHaveLength(0);
+});
+test('a returning guest cannot lose the reserved seat inside the debounce window', () => {
+  const e=setup(); e.apply(snapshot(['1']));
+  e.apply({type:'participant-left',userId:'1',sourceGeneration:1,receivedAtMs:100}); e.tick(600);
+  const oldSeat=e.snapshot().session.reservations[0]?.seatId;
+  e.apply({type:'participant-upsert',participant:p('1'),sourceGeneration:1,receivedAtMs:700});
+  expect(()=>e.control({type:'release',userId:'1'},0,710)).toThrow('CANNOT_RELEASE_PRESENT_USER');
+  expect(e.snapshot().session.reservations[0]?.seatId).toBe(oldSeat);
+});
