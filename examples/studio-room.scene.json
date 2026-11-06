@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "revision": 0,
+  "tableAnchor": {
+    "position": [
+      0,
+      0,
+      0
+    ],
+    "yawDeg": 0
+  },
+  "tableEnvelope": {
+    "maxStraightLength": 16,
+    "overflow": "hide-studio"
+  },
+  "objects": [
+    {
+      "id": "floor",
+      "kind": "plane",
+      "size": [
+        40,
+        40
+      ],
+      "color": "#253043",
+      "transform": {
+        "position": [
+          0,
+          -0.02,
+          0
+        ],
+        "yawDeg": 0,
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "backdrop",
+      "kind": "box",
+      "size": [
+        36,
+        5,
+        0.2
+      ],
+      "color": "#35465c",
+      "transform": {
+        "position": [
+          0,
+          2.5,
+          -7
+        ],
+        "yawDeg": 0,
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "fill",
+      "kind": "point-light",
+      "position": [
+        -4,
+        5,
+        3
+      ],
+      "color": "#c9ddff",
+      "intensity": 25
+    }
+  ],
+  "camera": {
+    "blockers": [
+      {
+        "id": "backdrop",
+        "min": [
+          -18,
+          0,
+          -7.1
+        ],
+        "max": [
+          18,
+          5,
+          -6.9
+        ]
+      }
+    ]
+  }
+}
