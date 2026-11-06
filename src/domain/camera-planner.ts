@@ -76,7 +76,7 @@ export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   const t=Math.max(0,Math.min(1,(now-plan.startMs)/plan.durationMs)),s=t*t*t*(t*(t*6-15)+10);
   return {position:lerp(plan.from.position,plan.to.position,s),target:lerp(plan.from.target,plan.to.target,s),fov:plan.from.fov+(plan.to.fov-plan.from.fov)*s};
 }
-/** Default scene only. Imported studio blockers are a separate, not-yet-implemented milestone. */
+/** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
 export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map()):CameraPlan {
   const from=samplePlan(previous,now),to=shotPose(shot,byUser,straightLength,extents);
   let move=false;

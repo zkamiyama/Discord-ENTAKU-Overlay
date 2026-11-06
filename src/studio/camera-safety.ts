@@ -26,8 +26,9 @@ export function protectStudioCamera(plan:CameraPlan,scene:StudioScene,defaultWid
     }
     return plan;
   }
-  const manual=scene.camera?.safeWide;
-  const custom=manual?{position:vec(manual.position).applyMatrix4(inverse).toArray() as [number,number,number],target:vec(manual.target).applyMatrix4(inverse).toArray() as [number,number,number],fov:manual.fov}:null;
+  // Blockers are world-space; all camera poses, including safeWide, are table-local.
+  // The overlay applies tableAnchor once when rendering the camera.
+  const custom=scene.camera?.safeWide?structuredClone(scene.camera.safeWide):null;
   const pose=custom&&clear(custom)&&wideFits(custom)?custom:defaultWide;
   return {...plan,shot:{kind:'WIDE',userIds:[]},to:pose,transition:'CUT',durationMs:0,studioHidden:!clear(pose),safetyReason:clear(pose)?'STUDIO_SHOT_BLOCKED':'STUDIO_HIDDEN_FOR_CAMERA'};
 }
