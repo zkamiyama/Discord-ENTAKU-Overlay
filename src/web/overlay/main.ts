@@ -43,14 +43,14 @@ function imageMaterial(texture:THREE.Texture):THREE.ShaderMaterial {
 function placeholder(user:Participant):THREE.CanvasTexture {
   const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d')!;
   const hue=[...user.userId].reduce((a,b)=>a+b.charCodeAt(0),0)*31%360;
-  x.fillStyle=`hsl(${hue} 26% 30%)`;x.fillRect(0,0,256,256);x.fillStyle='#eff4fa';x.font='600 105px sans-serif';x.textAlign='center';x.textBaseline='middle';
+  x.fillStyle=`hsl(${hue} 26% 30%)`;x.fillRect(0,0,256,256);x.fillStyle='#eff4fa';x.font='600 105px Meiryo, "Yu Gothic", "Noto Sans CJK JP", sans-serif';x.textAlign='center';x.textBaseline='middle';
   x.fillText([...user.displayName][0]??'?',128,132);
   const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
 function labelTexture(name:string):THREE.CanvasTexture {
   const c=document.createElement('canvas');c.width=768;c.height=192;const x=c.getContext('2d')!;
   x.fillStyle='#ecf3f8';x.textAlign='center';x.textBaseline='middle';
-  let size=76;do{x.font=`600 ${size}px sans-serif`;if(x.measureText(name).width<700)break;size-=2;}while(size>28);
+  let size=76;do{x.font=`600 ${size}px Meiryo, "Yu Gothic", "Noto Sans CJK JP", sans-serif`;if(x.measureText(name).width<700)break;size-=2;}while(size>28);
   const label=[...name].length>24?[...name].slice(0,23).join('')+'…':name;x.fillText(label,384,100);
   const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
@@ -61,8 +61,8 @@ class Avatar {
   constructor(user:Participant){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
-    this.outline=new THREE.Mesh(new THREE.RingGeometry(.283,.355,64),new THREE.ShaderMaterial({
-      uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float r=length(vUv-.5)*2.;float a=(1.-smoothstep(.80,1.,r))*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
+    this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
+      uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float d=length(vUv-.5)*.64-.28;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
     this.root.add(this.outline);
     const base=new THREE.Mesh(new THREE.BoxGeometry(.62,.16,.035),new THREE.MeshStandardMaterial({color:0x243244,roughness:.45}));this.plate.add(base);
     this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label);

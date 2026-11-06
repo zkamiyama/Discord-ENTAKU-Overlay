@@ -96,6 +96,7 @@ export function startServer(options: ServerOptions) {
         try { const data = await avatars.get(person.avatarUrl); return new Response(new Blob([data as Uint8Array<ArrayBuffer>]), { headers: headers('image/png') }); }
         catch { return json({ error: 'AVATAR_UNAVAILABLE' }, 502); }
       }
+      if (request.method === 'GET' && url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
       if (request.method === 'GET' && url.pathname === '/') return Response.redirect(`http://127.0.0.1:${server.port}/dock`, 302);
       const asset = options.assets[url.pathname];
       if (request.method === 'GET' && asset) return new Response(asset.body, { headers: headers(asset.type) });

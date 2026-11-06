@@ -5,7 +5,9 @@
   "type": "module",
   "license": "MIT",
   "packageManager": "bun@1.4.4",
-  "engines": { "bun": "1.4.4" },
+  "engines": {
+    "bun": "1.4.4"
+  },
   "scripts": {
     "dev": "bun run scripts/build-web.ts && bun run src/cli.ts --demo",
     "start": "bun run src/cli.ts",
@@ -15,12 +17,18 @@
     "check": "bun run typecheck && bun test tests",
     "build:web": "bun run scripts/build-web.ts",
     "build:exe": "bun run scripts/build-executable.ts",
-    "package:windows": "bun run scripts/package-windows.ts"
+    "package:windows": "bun run scripts/package-windows.ts",
+    "test:e2e": "bun run build:web && playwright test",
+    "smoke:exe": "bun run scripts/smoke-executable.ts"
   },
-  "dependencies": { "three": "0.187.0" },
+  "dependencies": {
+    "three": "0.187.0"
+  },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@types/bun": "1.4.4",
     "@types/three": "0.187.0",
+    "fflate": "0.8.3",
     "typescript": "7.0.2"
   }
 }

@@ -1,0 +1,38 @@
+import { expect, test } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+test('Dock drives overlay, detects speech, reserves seats and restores a returning guest', async ({ page, context }) => {
+  const errors:string[]=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/dock#key='+'2'.repeat(64));
+  await expect(page.locator('#transport')).toHaveText('接続済み');
+  await expect(page.locator('.person')).toHaveCount(6);
+  const overlayUrl=await page.locator('#overlay-url').inputValue();
+  expect(overlayUrl).toContain('/overlay#key=');
+  const overlay=await context.newPage();overlay.on('pageerror',error=>errors.push(error.message));
+  overlay.on('console',msg=>{if(msg.type()==='error')errors.push(msg.text());});
+  await overlay.goto(overlayUrl);
+  await overlay.waitForFunction(()=>{const c=document.querySelector('canvas');return !!c&&c.width>=1280;});
+  await page.waitForTimeout(2000);
+  await mkdir('.work',{recursive:true});
+  await overlay.screenshot({path:'.work/preview-overlay.png',omitBackground:true});
+  const first=page.locator('.person').first();
+  const initialSeat=(await first.locator('.person-state').innerText()).split(' · ')[0];
+  await first.getByRole('button',{name:'発話 ON',exact:true}).click();
+  await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});
+  await overlay.screenshot({path:'.work/preview-speaker.png',omitBackground:true});
+  await first.getByRole('button',{name:'退出',exact:true}).click();
+  await expect(page.locator('#counts')).toHaveText('5人 / 6席');
+  await first.getByRole('button',{name:'復帰',exact:true}).click();
+  await expect(page.locator('#counts')).toHaveText('6人 / 6席');
+  expect((await first.locator('.person-state').innerText()).split(' · ')[0]).toBe(initialSeat);
+  await page.getByRole('button',{name:'構図固定',exact:true}).click();
+  await expect(page.locator('#mode')).toHaveText('HOLD');
+  await page.reload();await expect(page.locator('#mode')).toHaveText('HOLD');
+  await page.screenshot({path:'.work/preview-dock.png',fullPage:true});
+  expect(errors).toEqual([]);
+});
+test('Dock without a capability never receives participants', async ({ page }) => {
+  await page.goto('/dock');
+  await expect(page.locator('#transport')).toHaveText('認証キー付きURLを設定してください');
+  await expect(page.locator('.person')).toHaveCount(0);
+});

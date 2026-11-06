@@ -59,5 +59,5 @@ P0の実機確認を待つ間も、Replay経由で席・カメラ・描画を開
 
 - Discord RPC: https://docs.discord.com/developers/topics/rpc
 - Discord OAuth2 scopes: https://docs.discord.com/developers/topics/oauth2
-- Bun standalone executables: https://bun.sh/docs/bundler/executables
+- Bun standalone executables: https://bun.sh/docs/compiler/executables
 - 原仕様: Discord Roundtable Studio 実装仕様書 v0.1.0（2026-11-06）。リポジトリへの取り込み時にDock表記へ修正する。

@@ -3,8 +3,14 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["bun"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "bun"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "useUnknownInCatchVariables": true,
@@ -14,5 +20,11 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ]
 }

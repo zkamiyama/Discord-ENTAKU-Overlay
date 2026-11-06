@@ -1,0 +1,32 @@
+import { copyFile, chmod, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+const directory=await mkdtemp(join(tmpdir(),'entaku-standalone-'));
+const executable=join(directory,process.platform==='win32'?'ENTAKU-Overlay.exe':'entaku-overlay');
+const env={...process.env,PATH:''}; // No Bun, Node, package manager or browser is on the child PATH.
+let server:ReturnType<typeof Bun.spawn>|null=null;
+async function run(args:string[]):Promise<string>{
+  const child=Bun.spawn([executable,...args],{cwd:directory,env,stdout:'pipe',stderr:'pipe'});
+  const timeout=setTimeout(()=>child.kill(),10000);
+  try{const out=await new Response(child.stdout).text();const code=await child.exited;if(code!==0)throw new Error('COMPILED_COMMAND_FAILED');return out;}
+  finally{clearTimeout(timeout);}
+}
+try{
+  await copyFile(resolve(process.platform==='win32'?'dist/ENTAKU-Overlay.exe':'dist/entaku-overlay'),executable);
+  if(process.platform!=='win32')await chmod(executable,0o755);
+  if(!(await run(['--help'])).includes('ENTAKU'))throw new Error('COMPILED_HELP_FAILED');
+  const doctor=JSON.parse(await run(['--doctor']));
+  if(doctor.compiled!==true||doctor.platform!==process.platform||doctor.authorization!=='not-attempted')throw new Error('COMPILED_DOCTOR_FAILED');
+  const child=Bun.spawn([executable,'--demo','--no-open','--safe-mode','--port','0'],{cwd:directory,env,stdout:'pipe',stderr:'pipe'});server=child;
+  const timer=setTimeout(()=>child.kill(),15000);
+  const reader=child.stdout.getReader();let text='';
+  try{
+    for(;;){const {value,done}=await reader.read();if(done)throw new Error('COMPILED_SERVER_EXITED');text+=new TextDecoder().decode(value);if(/Dock:/.test(text))break;}
+    const origin=/Overlay: (http:\/\/127\.0\.0\.1:\d+)/.exec(text)?.[1];if(!origin)throw new Error('COMPILED_SERVER_ADDRESS_MISSING');
+    const health=await fetch(origin+'/api/health',{signal:AbortSignal.timeout(5000)});
+    const overlay=await fetch(origin+'/overlay',{signal:AbortSignal.timeout(5000)});
+    const bundle=await fetch(origin+'/static/overlay.js',{signal:AbortSignal.timeout(5000)});
+    if(!health.ok||!overlay.ok||!bundle.ok||(await bundle.text()).length<100000)throw new Error('EMBEDDED_WEB_ASSETS_MISSING');
+    console.log(`Standalone smoke passed: ${process.platform}, PATH empty, copied executable only, HTTP + embedded assets, no Discord authorization.`);
+  }finally{clearTimeout(timer);reader.releaseLock();child.kill();await child.exited;server=null;}
+}finally{server?.kill();await rm(directory,{recursive:true,force:true});}

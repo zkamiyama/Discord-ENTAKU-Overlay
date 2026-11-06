@@ -1,5 +1,6 @@
 import type { CameraPlan, CameraPose, SeatTransform, Shot, Vec3 } from '../contracts/domain.ts';
 import { TABLE } from './defaults.ts';
+import { perimeter, pointAtDistance } from '../geometry/capsule.ts';
 export const add = (a: Vec3, b: Vec3): Vec3 => [a[0]+b[0],a[1]+b[1],a[2]+b[2]];
 export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 export const mul = (a: Vec3, n: number): Vec3 => [a[0]*n,a[1]*n,a[2]*n];
@@ -13,8 +14,19 @@ const front = (seat: SeatTransform, camera: Vec3): boolean => {
   return dot(unit([direction[0],0,direction[2]]),seat.inward) >= Math.cos(radians(70));
 };
 export function widePose(straightLength: number): CameraPose {
-  const radius=Math.hypot(straightLength/2+2.5,2.5,1.2), distance=radius/Math.sin(radians(22.5))*1.08;
-  return {position:[0,0.8+Math.sin(radians(38))*distance,Math.cos(radians(38))*distance],target:[0,0.8,0],fov:45};
+  // Fit sampled default-avatar bounds in camera space, not an oversized bounding sphere.
+  const elevation=radians(38),sin=Math.sin(elevation),cos=Math.cos(elevation);
+  const tanV=Math.tan(radians(22.5)),tanH=tanV*16/9,usable=.86;
+  const railRadius=TABLE.innerRadius+TABLE.ringWidth+TABLE.avatarOffset;
+  const total=perimeter(railRadius,straightLength);let distance=3;
+  for(let i=0;i<72;i++) {
+    const p=pointAtDistance(railRadius,straightLength,total*i/72);
+    for(const dx of [-.35,.35])for(const dz of [-.35,.35])for(const y of [-.8,.8]) {
+      const x=p.x+dx,z=p.z+dz,nearOffset=y*sin+z*cos,vertical=y*cos-z*sin;
+      distance=Math.max(distance,nearOffset+Math.max(Math.abs(x)/(tanH*usable),Math.abs(vertical)/(tanV*usable)));
+    }
+  }
+  return {position:[0,.8+sin*distance,cos*distance],target:[0,.8,0],fov:45};
 }
 export function pairPose(a: SeatTransform,b: SeatTransform): CameraPose | null {
   const target=mul(add(a.faceAnchor,b.faceAnchor),0.5), inward=unit(add(a.inward,b.inward));
@@ -27,7 +39,7 @@ export function shotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, 
   if(shot.kind==='WIDE') return widePose(straightLength);
   const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength);
   if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b)??widePose(straightLength):widePose(straightLength);}
-  return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:a.faceAnchor,fov:35};
+  return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:35};
 }
 export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   if(plan.durationMs===0)return plan.to;
