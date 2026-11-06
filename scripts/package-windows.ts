@@ -3,7 +3,13 @@ import { zipSync } from 'fflate';
 import { buildExecutable } from './build-executable.ts';
 const clean=Bun.spawn(['git','status','--porcelain'],{stdout:'pipe',stderr:'pipe'});
 const changes=await new Response(clean.stdout).text();
-if(await clean.exited!==0||changes.trim())throw new Error('COMMIT_CHANGES_BEFORE_PACKAGING');
+const cleanExit=await clean.exited;
+if(cleanExit!==0)throw new Error('GIT_STATUS_FAILED');
+if(changes.trim()){
+  // Paths only, never file contents. Helps distinguish generated files from source edits.
+  console.error(changes);
+  throw new Error('COMMIT_CHANGES_BEFORE_PACKAGING');
+}
 const binary=await buildExecutable('bun-windows-x64-baseline');
 const git=Bun.spawn(['git','ls-files','-z'],{stdout:'pipe',stderr:'pipe'});
 const list=await new Response(git.stdout).text();if(await git.exited!==0)throw new Error('SOURCE_MANIFEST_FAILED');
