@@ -79,6 +79,8 @@ export class RpcClient {
     }
   }
 
+  get isClosed(): boolean { return this.closed; }
+
   onEvent(listener: (packet: Packet) => void): () => void {
     this.events.add(listener);
     return () => { this.events.delete(listener); };
