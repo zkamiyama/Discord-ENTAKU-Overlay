@@ -1,0 +1,26 @@
+{
+  "name": "discord-entaku-overlay",
+  "version": "0.1.0-dev.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "bun@1.4.4",
+  "engines": { "bun": "1.4.4" },
+  "scripts": {
+    "dev": "bun run scripts/build-web.ts && bun run src/cli.ts --demo",
+    "start": "bun run src/cli.ts",
+    "doctor": "bun run src/cli.ts --doctor",
+    "test": "bun test tests",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun test tests",
+    "build:web": "bun run scripts/build-web.ts",
+    "build:exe": "bun run scripts/build-executable.ts",
+    "package:windows": "bun run scripts/package-windows.ts"
+  },
+  "dependencies": { "three": "0.187.0" },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "@types/three": "0.187.0",
+    "typescript": "7.0.2"
+  }
+}
