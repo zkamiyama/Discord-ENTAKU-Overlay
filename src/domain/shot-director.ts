@@ -19,6 +19,11 @@ export class ShotDirector {
   private silenceSince: number | null = null;
   private missingSince: number | null = null;
 
+  reset(): void {
+    this.shot = wide(); this.holdUntil = -Infinity; this.crowdSince = null;
+    this.crowdActive = false; this.crowdReleaseUntil = -Infinity;
+    this.silenceSince = null; this.missingSince = null;
+  }
   current(): Shot { return structuredClone(this.shot); }
   setMode(mode: DirectorMode): void { this.mode = mode; this.missingSince = null; }
   manual(shot: Shot, now: number): Decision { this.mode = 'MANUAL'; return this.choose(shot, 'MANUAL_OVERRIDE', now); }

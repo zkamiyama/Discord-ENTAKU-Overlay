@@ -35,5 +35,6 @@ export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
   participants: Participant[]; session: SeatSession; straightLength: number; seats: SeatTransform[];
+  layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; startMs: number; durationMs: number };
   mode: DirectorMode; decision: Decision; camera: CameraPlan; source: 'demo' | 'replay' | 'ipc';
 }
