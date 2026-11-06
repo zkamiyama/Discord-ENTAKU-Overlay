@@ -58,3 +58,16 @@ test('a returning guest cannot lose the reserved seat inside the debounce window
   expect(()=>e.control({type:'release',userId:'1'},0,710)).toThrow('CANNOT_RELEASE_PRESENT_USER');
   expect(e.snapshot().session.reservations[0]?.seatId).toBe(oldSeat);
 });
+test('manual shot requested during layout growth executes after the safety wide instead of being lost', () => {
+  const e=setup();e.apply(snapshot(['1','2','3','4','5']));
+  e.control({type:'shot',shot:{kind:'SINGLE',userIds:['1']}},0,100);
+  expect(e.snapshot().camera.shot.kind).toBe('WIDE');
+  e.tick(2000);expect(e.snapshot().camera.shot).toEqual({kind:'SINGLE',userIds:['1']});
+  e.tick(10000);expect(e.snapshot().camera.shot).toEqual({kind:'SINGLE',userIds:['1']});
+});
+test('AUTO cancels a queued manual shot during layout growth', () => {
+  const e=setup();e.apply(snapshot(['1','2','3','4','5']));
+  e.control({type:'shot',shot:{kind:'SINGLE',userIds:['1']}},0,100);
+  e.control({type:'mode',mode:'AUTO'},1,150);
+  e.tick(2000);expect(e.snapshot().camera.shot.kind).toBe('WIDE');
+});

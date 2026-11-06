@@ -3,4 +3,14 @@
 <main><section class="panel"><div class="heading"><h2>カメラ</h2><span id="mode" class="badge">—</span></div><div class="controls"><button id="auto">自動</button><button id="hold">構図固定</button><button id="wide">ワイド</button></div><dl><div><dt>ショット</dt><dd id="shot">—</dd></div><div><dt>判断理由</dt><dd id="reason">—</dd></div><div><dt>最短維持の残り</dt><dd id="remaining">—</dd></div></dl></section>
 <section class="panel"><div class="heading"><h2>参加者</h2><span id="counts" class="badge">—</span></div><p class="hint" id="seat-counts" aria-live="polite"></p><p class="hint" id="source">—</p><div id="participants"></div><button id="add" hidden>デモ参加者を追加</button></section>
 <section class="panel"><h2>接続とセッション</h2><p id="connection">—</p><p id="error" class="error" role="alert"></p><div class="controls"><button id="retry">再認証・再接続</button><button id="new-session">席予約をリセット</button></div><label for="overlay-url">OBSブラウザソースのURL</label><input id="overlay-url" readonly spellcheck="false"><button id="copy">URLをコピー</button><a id="open-overlay" target="_blank" rel="noopener noreferrer">映像ページを開く</a><p class="hint">URLにはローカル表示用キーを含みます。共有・配信画面への表示を避けてください。</p></section>
-<footer>開発版 · カスタムアバター編集とGLBスタジオは未実装です。</footer></main></body></html>
+<footer>開発版 · カスタム画像の顔位置を調整できます。GLBスタジオは未実装です。</footer></main><dialog id="avatar-editor" aria-labelledby="avatar-editor-title"><form id="avatar-form">
+<div class="heading"><h2 id="avatar-editor-title">カスタム画像</h2><span id="avatar-person"></span></div>
+<p class="hint">画像の顔をドラッグで囲みます。顔高0.28mを基準に大きさをそろえます。</p>
+<label for="avatar-file">PNG / 静止WebP</label><input id="avatar-file" type="file" accept="image/png,image/webp">
+<canvas id="avatar-preview" width="480" height="480" aria-label="顔の矩形を指定する画像プレビュー"></canvas>
+<p id="avatar-size" class="hint"></p>
+<div class="avatar-fields"><label>顔の左位置（%）<input id="face-x" type="number" min="0" max="100" step="any"></label><label>顔の上位置（%）<input id="face-y" type="number" min="0" max="100" step="any"></label><label>顔の幅（%）<input id="face-w" type="number" min="0.001" max="100" step="any"></label><label>顔の高さ（%）<input id="face-h" type="number" min="0.001" max="100" step="any"></label><label>倍率<input id="avatar-scale" type="number" min="0.25" max="3" step="0.05"></label><label>横位置（m）<input id="avatar-offset-x" type="number" min="-0.5" max="0.5" step="0.01"></label><label>縦位置（m）<input id="avatar-offset-y" type="number" min="-0.5" max="0.5" step="0.01"></label></div>
+<p class="hint">初期実装では顔を中心とした左右の占有幅が0.98m以内です。広すぎる場合は保存せずに知らせます。独立した背面画像・3Dプレビューは未対応です。</p>
+<p id="avatar-feedback" role="status" aria-live="polite"></p>
+<div class="controls"><button id="avatar-apply" type="submit" disabled>適用</button><button id="avatar-reset" type="button">Discordアイコンへ戻す</button><button id="avatar-cancel" type="button">キャンセル</button></div>
+</form></dialog></body></html>

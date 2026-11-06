@@ -1,3 +1,4 @@
+import type { StoredImage } from '../../assets/store.ts';
 import type { AppSnapshot } from '../../contracts/domain.ts';
 export class StudioClient {
   state: AppSnapshot | null = null;
@@ -51,12 +52,21 @@ export class StudioClient {
   }
   now(): number { return performance.now() + this.offset; }
   private ping(): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'ping', clientTime: performance.now() })); }
-  async command(command: Record<string,unknown>): Promise<void> {
+  async command(command: Record<string,unknown>, expectedRevision = this.state?.revision): Promise<void> {
     if (this.role !== 'control' || !this.state) throw new Error('操作用キーで接続してください');
     const response = await fetch('/api/commands', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.key}` },
-      body: JSON.stringify({ ...command, requestId: crypto.randomUUID(), expectedRevision: this.state.revision }) });
+      body: JSON.stringify({ ...command, requestId: crypto.randomUUID(), expectedRevision }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'COMMAND_FAILED');
+  }
+  async importImage(file: Blob): Promise<StoredImage> {
+    if(this.role!=='control')throw new Error('CONTROL_AUTH_REQUIRED');
+    const response=await fetch('/api/assets',{method:'POST',headers:{Authorization:`Bearer ${this.key}`,'Content-Type':file.type},body:file});
+    const value=await response.json();if(!response.ok)throw new Error(value.error??'ASSET_IMPORT_FAILED');return value as StoredImage;
+  }
+  async customImage(assetId:string):Promise<ImageBitmap>{
+    const response=await fetch(`/api/assets/${encodeURIComponent(assetId)}`,{headers:{Authorization:`Bearer ${this.key}`}});
+    if(!response.ok)throw new Error('ASSET_NOT_FOUND');return createImageBitmap(await response.blob());
   }
   async avatar(userId: string): Promise<ImageBitmap> {
     const response = await fetch(`/api/avatars/${encodeURIComponent(userId)}`, { headers: { Authorization: `Bearer ${this.key}` } });

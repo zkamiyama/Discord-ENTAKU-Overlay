@@ -1,6 +1,8 @@
+import { AvatarEditor } from './avatar-editor.ts';
 import { StudioClient } from '../shared/client.ts';
 import { dockPeople, type DockPerson } from './people.ts';
 const client=new StudioClient();
+const editor=new AvatarEditor(client);
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false;
 async function command(value:Record<string,unknown>){if(busy)return;busy=true;errors.textContent='';try{await client.command(value);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}}
@@ -12,19 +14,20 @@ get('new-session').onclick=()=>{if(confirm('退出者の席予約を消し、現
 get('add').onclick=()=>void command({type:'demo-add'});
 get('copy').onclick=()=>{const text=get<HTMLInputElement>('overlay-url').value;void navigator.clipboard.writeText(text).catch(()=>{get<HTMLInputElement>('overlay-url').select();errors.textContent='URL欄を選択しました。コピーしてください。';});};
 client.onConnection=status=>{get('transport').textContent=status;};
-interface Row { element:HTMLElement; name:HTMLElement; status:HTMLElement; focus:HTMLButtonElement; speak:HTMLButtonElement; presence:HTMLButtonElement; release:HTMLButtonElement; user:DockPerson }
+interface Row { element:HTMLElement; name:HTMLElement; status:HTMLElement; focus:HTMLButtonElement; speak:HTMLButtonElement; presence:HTMLButtonElement; release:HTMLButtonElement; edit:HTMLButtonElement; user:DockPerson }
 const rows=new Map<string,Row>();
 function row(user:DockPerson):Row {
  const element=document.createElement('div');element.className='person';
  const heading=document.createElement('div');heading.className='person-header';const name=document.createElement('span');name.className='person-name';const status=document.createElement('span');status.className='person-state';heading.append(name,status);
  const buttons=document.createElement('div');buttons.className='person-buttons';
  const button=(text:string)=>{const b=document.createElement('button');b.textContent=text;buttons.append(b);return b;};
- const focus=button('この人を撮る'),speak=button('発話 ON'),presence=button('退出'),release=button('予約を解放');element.append(heading,buttons);
- const result={element,name,status,focus,speak,presence,release,user};
+ const focus=button('この人を撮る'),speak=button('発話 ON'),presence=button('退出'),release=button('予約を解放'),edit=button('画像を調整');element.append(heading,buttons);
+ const result={element,name,status,focus,speak,presence,release,edit,user};
  focus.onclick=()=>void command({type:'single',userId:user.userId});
  speak.onclick=()=>void command({type:'demo-speaking',userId:user.userId,active:result.user.speaking!=='active'});
  presence.onclick=()=>void command({type:'demo-presence',userId:user.userId,present:result.user.presence!=='present'});
  release.onclick=()=>{if(confirm(`${result.user.name}の席予約を解放しますか？`))void command({type:'release',userId:user.userId,confirm:true});};
+ edit.onclick=()=>void editor.open(result.user.userId,result.user.name);
  get('participants').append(element);return result;
 }
 client.onState=state=>{

@@ -1,3 +1,5 @@
+import { AvatarStore } from '../assets/store.ts';
+import { MAX_IMAGE_BYTES } from '../assets/image.ts';
 import type { ServerWebSocket } from 'bun';
 import { AppEngine } from '../domain/engine.ts';
 import type { AccessKeys } from './security.ts';
@@ -12,6 +14,7 @@ export interface ServerOptions {
   engine: AppEngine; keys: AccessKeys; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
   retry?: () => void;
+  avatarStore?: AvatarStore;
 }
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob: data:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 function headers(type = 'application/json'): Record<string,string> {
@@ -24,6 +27,12 @@ export function startServer(options: ServerOptions) {
   const clients = new Set<ServerWebSocket<SocketData>>();
   const replies = new Map<string, { body: string; result: unknown }>();
   const avatars = new AvatarCache();
+  const customAssets = options.avatarStore ?? new AvatarStore();
+  let mutationQueue = Promise.resolve();
+  const serial = <T>(work:()=>Promise<T>):Promise<T> => {
+    const result=mutationQueue.then(work);mutationQueue=result.then(()=>{},()=>{});return result;
+  };
+  const assetErrors = new Set(['IMAGE_TOO_LARGE','IMAGE_DIMENSIONS_REJECTED','INVALID_IMAGE','ANIMATED_IMAGE_REJECTED','IMAGE_FORMAT_REJECTED','ASSET_STORE_FULL','ASSET_NOT_FOUND','INVALID_AVATAR_PROFILE','INVALID_FACE_RECT','FACE_RECT_TOO_SMALL','INVALID_AVATAR_TRANSFORM','AVATAR_TOO_WIDE','AVATAR_TOO_TALL','AVATAR_SETTINGS_WRITE_FAILED','TOO_MANY_AVATAR_PROFILES']);
   let demoId = 1000, broadcastAt = -Infinity;
   const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {
     if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
@@ -37,7 +46,7 @@ export function startServer(options: ServerOptions) {
   };
   const applyDemo = (event: ProviderEvent): void => { engine.apply(event, now()); options.onChange?.(); };
   const server = Bun.serve<SocketData>({
-    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: 65536,
+    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: MAX_IMAGE_BYTES + 32768,
     async fetch(request, server) {
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
       const url = new URL(request.url);
@@ -47,10 +56,26 @@ export function startServer(options: ServerOptions) {
         return server.upgrade(request, { data: { role: null, messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: '0.1.0-dev.1', protocolVersion: 1 });
+      if (request.method === 'POST' && url.pathname === '/api/assets') {
+        if (!validOrigin(request,server.port!) || bearerRole(request,keys)!=='control') return json({error:'CONTROL_AUTH_REQUIRED'},403);
+        if (!['image/png','image/webp'].includes(request.headers.get('content-type')??'')) return json({error:'IMAGE_FORMAT_REJECTED'},415);
+        if(Number(request.headers.get('content-length')??0)>MAX_IMAGE_BYTES)return json({error:'IMAGE_TOO_LARGE'},413);
+        return serial(async()=>{
+          try { const data=new Uint8Array(await request.arrayBuffer());return json(await customAssets.importImage(data),201); }
+          catch(e){const code=e instanceof Error&&assetErrors.has(e.message)?e.message:'ASSET_IMPORT_FAILED';return json({error:code},code==='IMAGE_TOO_LARGE'?413:422);}
+        });
+      }
+      const customMatch=/^\/api\/assets\/([a-f0-9]{64})$/.exec(url.pathname);
+      if(request.method==='GET'&&customMatch){
+        if(!bearerRole(request,keys))return json({error:'AUTH_REQUIRED'},403);
+        try{const {info,bytes}=await customAssets.get(customMatch[1]!);return new Response(new Blob([bytes as Uint8Array<ArrayBuffer>]),{headers:headers(info.mime)});}
+        catch{return json({error:'ASSET_NOT_FOUND'},404);}
+      }
       if (request.method === 'POST' && url.pathname === '/api/commands') {
         if (!validOrigin(request, server.port!)) return json({ error: 'ORIGIN_REJECTED' }, 403);
         if (bearerRole(request, keys) !== 'control') return json({ error: 'CONTROL_AUTH_REQUIRED' }, 403);
         if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON_REQUIRED' }, 415);
+        return serial(async()=>{
         try {
           const raw = await request.text(); if (Buffer.byteLength(raw) > 16384) return json({ error: 'COMMAND_TOO_LARGE' }, 413);
           const body: unknown = JSON.parse(raw);
@@ -61,7 +86,15 @@ export function startServer(options: ServerOptions) {
           if (prior) return prior.body === raw ? json(prior.result) : json({ error: 'REQUEST_ID_CONFLICT' }, 409);
           if (c.expectedRevision !== engine.snapshot().revision) return json({ error: 'REVISION_CONFLICT', revision: engine.snapshot().revision }, 409);
           const current = now();
-          if (c.type === 'mode' && ['AUTO','MANUAL','HOLD'].includes(String(c.mode))) engine.control({ type: 'mode', mode: c.mode as DirectorMode }, c.expectedRevision as number, current);
+          if(c.type==='avatar-set'){
+            const profile=await customAssets.validateDraft(c.profile);
+            const profiles=[...engine.snapshot().avatarProfiles.filter(p=>p.userId!==profile.userId),profile];
+            await customAssets.saveProfiles(profiles);
+            engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
+          } else if(c.type==='avatar-reset'&&typeof c.userId==='string'&&/^\d{1,20}$/.test(c.userId)){
+            const profiles=engine.snapshot().avatarProfiles.filter(p=>p.userId!==c.userId);
+            await customAssets.saveProfiles(profiles);engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
+          } else if (c.type === 'mode' && ['AUTO','MANUAL','HOLD'].includes(String(c.mode))) engine.control({ type: 'mode', mode: c.mode as DirectorMode }, c.expectedRevision as number, current);
           else if (c.type === 'wide') engine.control({ type: 'shot', shot: { kind: 'WIDE', userIds: [] } }, c.expectedRevision as number, current);
           else if (c.type === 'single' && typeof c.userId === 'string') engine.control({ type: 'shot', shot: { kind: 'SINGLE', userIds: [c.userId] } }, c.expectedRevision as number, current);
           else if (c.type === 'release' && typeof c.userId === 'string' && c.confirm === true) engine.control({ type: 'release', userId: c.userId }, c.expectedRevision as number, current);
@@ -89,9 +122,10 @@ export function startServer(options: ServerOptions) {
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED'].includes(error.message) ? error.message : 'COMMAND_REJECTED';
+          const code = error instanceof Error && (assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
           return json({ error: code }, 422);
         }
+        });
       }
       const avatarMatch = /^\/api\/avatars\/(\d{1,20})$/.exec(url.pathname);
       if (request.method === 'GET' && avatarMatch) {

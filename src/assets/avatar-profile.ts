@@ -17,7 +17,7 @@ export function validateProfile(input: unknown): AvatarProfile {
   if (![p.scale, p.offsetX, p.offsetY].every(v => typeof v === 'number' && Number.isFinite(v)) || p.scale < .25 || p.scale > 3 || Math.abs(p.offsetX) > .5 || Math.abs(p.offsetY) > .5) throw new Error('INVALID_AVATAR_TRANSFORM');
   const clean: AvatarProfile = { userId: p.userId, assetId: p.assetId, image: { width: p.image.width, height: p.image.height, mime: p.image.mime }, faceRect: [r[0], r[1], r[2], r[3]], scale: p.scale, offsetX: p.offsetX, offsetY: p.offsetY };
   const bounds = avatarBounds(clean);
-  if (bounds.right - bounds.left + 2 * Math.abs(clean.offsetX) > MAX_AVATAR_WIDTH + 1e-9) throw new Error('AVATAR_TOO_WIDE');
+  if (2 * (Math.max(Math.abs(bounds.left), Math.abs(bounds.right)) + Math.abs(clean.offsetX)) > MAX_AVATAR_WIDTH + 1e-9) throw new Error('AVATAR_TOO_WIDE');
   if (bounds.top - bounds.bottom > 4 || bounds.top + 1.25 + clean.offsetY > 3) throw new Error('AVATAR_TOO_TALL');
   return clean;
 }

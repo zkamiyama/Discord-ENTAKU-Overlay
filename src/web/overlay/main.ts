@@ -1,3 +1,5 @@
+import { CustomAvatarVisual } from './custom-avatar.ts';
+import type { AvatarProfile } from '../../assets/avatar-profile.ts';
 import * as THREE from 'three';
 import type { AppSnapshot, Participant, SeatTransform } from '../../contracts/domain.ts';
 import { StudioClient } from '../shared/client.ts';
@@ -58,7 +60,8 @@ class Avatar {
   root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
   outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; label:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;
   user:Participant; opacity=0; glow=0; yaw=0; disposed=false; textureVersion=0; avatarUrl?:string;
-  constructor(user:Participant){
+  custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
+  constructor(user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
     this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
@@ -66,12 +69,29 @@ class Avatar {
     this.root.add(this.outline);
     const base=new THREE.Mesh(new THREE.BoxGeometry(.62,.16,.035),new THREE.MeshStandardMaterial({color:0x243244,roughness:.45}));this.plate.add(base);
     this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label);
-    scene.add(this.root,this.plate);this.update(user);
+    scene.add(this.root,this.plate);this.update(user,profile);
   }
-  update(user:Participant):void {
+  update(user:Participant,profile?:AvatarProfile):void {
+    const key=JSON.stringify(profile??null);
+    if(key!==this.profileKey){
+      this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
+      if(!profile){this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
+      else void client.customImage(profile.assetId).then(bitmap=>{
+        try{
+          if(this.disposed||generation!==this.customVersion)return;
+          const next=new CustomAvatarVisual(bitmap,profile);
+          this.custom?.dispose();this.custom=next;this.root.add(next.root);this.body.visible=this.outline.visible=false;
+        }finally{bitmap.close();}
+      }).catch(()=>{
+        if(this.disposed||generation!==this.customVersion)return;
+        this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;
+        // Rendering remains usable; diagnostic code contains no path, URL or capability.
+        console.warn('CUSTOM_AVATAR_UNAVAILABLE');
+      });
+    }
     if(this.user.displayName!==user.displayName){this.label.material.map?.dispose();this.label.material.map=labelTexture(user.displayName);this.label.material.needsUpdate=true;}
     this.user=user;
-    if(user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
+    if(!profile&&user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
       if(user.avatarUrl)void client.avatar(user.userId).then(bitmap=>{
         if(this.disposed||version!==this.textureVersion){bitmap.close();return;}
         const texture=new THREE.Texture(bitmap);texture.needsUpdate=true;texture.colorSpace=THREE.SRGBColorSpace;
@@ -85,25 +105,27 @@ class Avatar {
     const target=visible?(this.user.presence==='stale'?.45:1):0;
     this.opacity+=(target-this.opacity)*(1-Math.exp(-dt/.2));this.root.visible=this.plate.visible=this.opacity>.005;
     this.root.position.fromArray(seat.faceAnchor);
-    const dx=camera.position.x-seat.faceAnchor[0],dz=camera.position.z-seat.faceAnchor[2];
+    if(this.profile){this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX;this.root.position.z-=Math.sin(seat.baseYawRad)*this.profile.offsetX;this.root.position.y+=this.profile.offsetY;}
+    const dx=camera.position.x-this.root.position.x,dz=camera.position.z-this.root.position.z;
     let delta=Math.atan2(dx,dz)-seat.baseYawRad;delta=Math.atan2(Math.sin(delta),Math.cos(delta));
     const front=Math.cos(delta),aim=front>0?THREE.MathUtils.clamp(delta,-Math.PI/6,Math.PI/6)*THREE.MathUtils.smoothstep(front,0,.25):0;
     this.yaw+=(aim-this.yaw)*(1-Math.exp(-dt/.15));this.root.rotation.y=seat.baseYawRad+this.yaw;
     this.body.material.uniforms.opacity!.value=this.opacity;
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
-    this.outline.material.uniforms.strength!.value=this.glow*this.opacity*(.85+.15*Math.sin(time*.008));
+    const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
+    this.outline.material.uniforms.strength!.value=intensity;this.custom?.update(this.opacity,intensity);
     this.plate.position.set(seat.position[0]+seat.inward[0]*.66,.85,seat.position[2]+seat.inward[2]*.66);this.plate.rotation.y=seat.baseYawRad;
   }
   dispose():void {
-    this.disposed=true;scene.remove(this.root,this.plate);
+    this.disposed=true;this.custom?.dispose();this.custom=null;scene.remove(this.root,this.plate);
     this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
     const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
     this.plate.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.map?.dispose();o.material.dispose();}});
   }
 }
 const avatars=new Map<string,Avatar>();let state:AppSnapshot|null=null;
-client.onState=next=>{state=next;for(const p of next.participants){const avatar=avatars.get(p.userId);if(avatar)avatar.update(p);else avatars.set(p.userId,new Avatar(p));}
+client.onState=next=>{state=next;for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar(p,profile));}
   const ids=new Set(next.participants.map(p=>p.userId));for(const [id,avatar]of avatars)if(!ids.has(id)){avatar.dispose();avatars.delete(id);}
 };
 let previous=performance.now(),lastLength=-1;

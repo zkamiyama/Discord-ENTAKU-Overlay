@@ -5,6 +5,7 @@ export interface DirectorContext {
   presentIds: readonly string[];
   sourceReady: boolean;
   layoutMoving: boolean;
+  layoutReason?: string;
   canPair: (a: string, b: string) => boolean;
 }
 const wide = (): Shot => ({ kind: 'WIDE', userIds: [] });
@@ -39,7 +40,7 @@ export class ShotDirector {
 
     if (!context.sourceReady || context.layoutMoving) {
       this.crowdSince = null; this.crowdActive = false; this.crowdReleaseUntil = -Infinity;
-      return this.choose(wide(), !context.sourceReady ? 'SOURCE_LOST' : 'LAYOUT_GROWTH', now);
+      return this.choose(wide(), !context.sourceReady ? 'SOURCE_LOST' : context.layoutReason??'LAYOUT_GROWTH', now);
     }
     const missing = this.shot.userIds.some(id => !ids.includes(id));
     if (missing) {

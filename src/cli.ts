@@ -1,3 +1,4 @@
+import { AvatarStore } from './assets/store.ts';
 import { dirname, join, resolve } from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
@@ -37,8 +38,10 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   const store=new SessionStore(join(dataDir,'sessions',options.mode));
   const replay=options.replayPath?await (async()=>{if((await stat(options.replayPath!)).size>16*1024*1024)throw new Error('REPLAY_TOO_LARGE');return parseReplay(await readFile(options.replayPath!,'utf8'));})():null;
   const sessions=replay?.session?[replay.session]:options.safeMode||options.mode==='replay'?[]:await store.loadAll();
+  const avatarStore=new AvatarStore(options.safeMode||options.mode==='replay'?null:dataDir);
+  const avatarProfiles=await avatarStore.initialize();
   const start=performance.now();
-  const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,
+  const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,avatarProfiles,
     ...(options.mode==='replay'?{utcNow:()=>new Date(0).toISOString(),sessionId:()=> 'replay-session'}:{})});
   const player=replay?new ReplayPlayer(replay,engine):null;
   const now=()=>player?player.elapsedMs:performance.now()-start;
@@ -58,7 +61,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     if(!provider||retrying||stopping)return;retrying=true;
     void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
-  const app=startServer({engine,keys,assets,port:options.port,now,onChange:persist,
+  const app=startServer({engine,keys,assets,avatarStore,port:options.port,now,onChange:persist,
     ...(player?{tick:()=>player.advanceTo(Math.min(player.replay.durationMs,performance.now()-start))}:{}),
     ...(options.mode==='ipc'?{retry}:{})});
   if(options.mode==='ipc'){

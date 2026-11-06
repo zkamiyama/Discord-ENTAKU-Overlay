@@ -36,3 +36,43 @@ test('Dock without a capability never receives participants', async ({ page }) =
   await expect(page.locator('#transport')).toHaveText('認証キー付きURLを設定してください');
   await expect(page.locator('.person')).toHaveCount(0);
 });
+
+test('custom image draft calibrates a face, applies an alpha silhouette and resets without a page error', async ({ page, context }) => {
+  const errors:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/dock#key='+'2'.repeat(64));
+  await expect(page.locator('#transport')).toHaveText('接続済み');
+  const first=page.locator('.person').first();
+  const overlay=await context.newPage();
+  overlay.on('pageerror',e=>errors.push(e.message));
+  overlay.on('console',msg=>{if(msg.type()==='error'||msg.text().includes('CUSTOM_AVATAR_UNAVAILABLE'))errors.push(msg.text());});
+  await overlay.goto(await page.locator('#overlay-url').inputValue());
+  await first.getByRole('button',{name:'画像を調整',exact:true}).click();
+  await expect(page.locator('#avatar-editor')).toBeVisible();
+  const { png }=await import('../tests/helpers/png.ts');
+  await page.locator('#avatar-file').setInputFiles({name:'synthetic-cutout.png',mimeType:'image/png',buffer:png()});
+  await expect(page.locator('#avatar-size')).toContainText('64×128px');
+  await expect(page.locator('#avatar-apply')).toBeEnabled();
+  await page.locator('#avatar-cancel').click();
+  // Selection alone must not apply the asset.
+  await first.getByRole('button',{name:'画像を調整',exact:true}).click();
+  await expect(page.locator('#avatar-size')).toContainText('PNG / 静止WebP');
+  await page.locator('#avatar-file').setInputFiles({name:'synthetic-cutout.png',mimeType:'image/png',buffer:png()});
+  await expect(page.locator('#avatar-size')).toContainText('64×128px');
+  await page.locator('#avatar-offset-y').fill('0.1');
+  await page.locator('#avatar-apply').click();
+  await expect(page.locator('#avatar-editor')).not.toBeVisible();
+  await first.getByRole('button',{name:'この人を撮る',exact:true}).click();
+  await expect(page.locator('#shot')).toHaveText('SINGLE');
+  if(await first.getByRole('button',{name:'発話 ON',exact:true}).count())await first.getByRole('button',{name:'発話 ON',exact:true}).click();
+  await page.waitForTimeout(1200);
+  await overlay.screenshot({path:'.work/preview-custom-avatar.png',omitBackground:true});
+  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.locator('.person').first().getByRole('button',{name:'画像を調整',exact:true}).click();
+  await expect(page.locator('#avatar-size')).toContainText('64×128px');
+  await expect(page.locator('#avatar-offset-y')).toHaveValue('0.1');
+  await page.screenshot({path:'.work/preview-avatar-editor.png',fullPage:true});
+  page.once('dialog',d=>void d.accept());await page.locator('#avatar-reset').click();
+  await expect(page.locator('#avatar-editor')).not.toBeVisible();
+  await expect.poll(()=>errors).toEqual([]);
+});

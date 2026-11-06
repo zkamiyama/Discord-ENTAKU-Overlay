@@ -1,3 +1,4 @@
+import type { AvatarProfile } from '../assets/avatar-profile.ts';
 export type SpeakingState = 'active' | 'inactive' | 'unknown';
 export type Presence = 'present' | 'absent' | 'stale';
 export type ConnectionStatus = 'disconnected' | 'discovering' | 'authorizing' | 'subscribing' | 'syncing' | 'ready' | 'degraded' | 'auth-required';
@@ -34,6 +35,7 @@ export interface CameraPlan {
 export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
+  avatarProfiles: AvatarProfile[];
   participants: Participant[]; session: SeatSession; straightLength: number; seats: SeatTransform[];
   layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; startMs: number; durationMs: number };
   mode: DirectorMode; decision: Decision; camera: CameraPlan; source: 'demo' | 'replay' | 'ipc';
