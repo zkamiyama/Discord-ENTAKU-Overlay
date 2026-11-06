@@ -11,6 +11,7 @@ export class StudioClient {
   private offset = 0;
   private bestRtt = Infinity;
   private lastMessage=0;
+  private stateReceivedAt=0;
   private watchdog?:ReturnType<typeof setInterval>;
   private epoch = '';
   private retry?: ReturnType<typeof setTimeout>;
@@ -43,7 +44,7 @@ export class StudioClient {
           const state = message.state as AppSnapshot;
           if (state.serverEpoch !== this.epoch) { this.epoch = state.serverEpoch; this.bestRtt = Infinity; }
           if (this.bestRtt === Infinity) this.offset = state.serverNowMs - performance.now();
-          this.state = state; this.onState(state);
+          this.state = state; this.stateReceivedAt=performance.now(); this.onState(state);
         } else if (message.type === 'pong') {
           const rtt = performance.now() - message.clientTime;
           if (rtt >= 0 && rtt < this.bestRtt) { this.bestRtt = rtt; this.offset = message.serverTime - (performance.now() + message.clientTime) / 2; }
@@ -55,7 +56,7 @@ export class StudioClient {
       if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), 2000);
     };
   }
-  now(): number { return performance.now() + this.offset; }
+  now(): number { return this.state?.source==='replay'?this.state.serverNowMs+(performance.now()-this.stateReceivedAt)*(this.state.clockRate??1):performance.now()+this.offset; }
   private ping(): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'ping', clientTime: performance.now() })); }
   async command(command: Record<string,unknown>, expectedRevision = this.state?.revision): Promise<void> {
     if (this.role !== 'control' || !this.state) throw new Error('操作用キーで接続してください');

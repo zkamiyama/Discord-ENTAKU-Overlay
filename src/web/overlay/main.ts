@@ -1,5 +1,6 @@
+import { StudioVisual } from '../studio/visual.ts';
 import { CustomAvatarVisual } from './custom-avatar.ts';
-import type { AvatarProfile } from '../../assets/avatar-profile.ts';
+import { avatarFramingBounds,type AvatarProfile } from '../../assets/avatar-profile.ts';
 import * as THREE from 'three';
 import type { AppSnapshot, Participant, SeatTransform } from '../../contracts/domain.ts';
 import { StudioClient } from '../shared/client.ts';
@@ -12,7 +13,9 @@ const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0, 0); renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
-const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(45, 16/9, .05, 200);
+const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, .05, 200);
+scene.add(stage);
+const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
 scene.add(new THREE.HemisphereLight(0xeaf3ff, 0x283342, 2));
 const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3,6,4); scene.add(key);
 const rimLight = new THREE.DirectionalLight(0x99b9ff, 1.5); rimLight.position.set(-3,3,-4); scene.add(rimLight);
@@ -24,7 +27,7 @@ class Ring {
     this.geometry.setAttribute('uv',new THREE.BufferAttribute(this.data.uvs,2));
     this.geometry.setIndex(new THREE.BufferAttribute(this.data.indices,1));
     this.mesh=new THREE.Mesh(this.geometry,new THREE.MeshStandardMaterial({color,roughness:.55,metalness:.15}));
-    scene.add(this.mesh);this.update(0);
+    stage.add(this.mesh);this.update(0);
   }
   update(length:number):void {
     updateRingData(this.data,this.inner,this.outer,length,this.bottom,this.top);
@@ -69,24 +72,25 @@ class Avatar {
     this.root.add(this.outline);
     const base=new THREE.Mesh(new THREE.BoxGeometry(.62,.16,.035),new THREE.MeshStandardMaterial({color:0x243244,roughness:.45}));this.plate.add(base);
     this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label);
-    scene.add(this.root,this.plate);this.update(user,profile);
+    stage.add(this.root,this.plate);this.update(user,profile);
   }
   update(user:Participant,profile?:AvatarProfile):void {
     const key=JSON.stringify(profile??null);
     if(key!==this.profileKey){
       this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
-      if(!profile){this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
-      else void client.customImage(profile.assetId).then(bitmap=>{
+      if(!profile){avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
+      else void Promise.all([client.customImage(profile.assetId),profile.back?client.customImage(profile.back.assetId):Promise.resolve(undefined)]).then(async([bitmap,back])=>{
         try{
           if(this.disposed||generation!==this.customVersion)return;
-          const next=new CustomAvatarVisual(bitmap,profile);
-          this.custom?.dispose();this.custom=next;this.root.add(next.root);this.body.visible=this.outline.visible=false;
-        }finally{bitmap.close();}
+          const next=await CustomAvatarVisual.create(bitmap,profile,back);
+          if(this.disposed||generation!==this.customVersion){next.dispose();return;}
+          avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=next;this.root.add(next.root);this.body.visible=this.outline.visible=false;
+        }finally{bitmap.close();back?.close();}
       }).catch(()=>{
         if(this.disposed||generation!==this.customVersion)return;
         this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;
         // Rendering remains usable; diagnostic code contains no path, URL or capability.
-        console.warn('CUSTOM_AVATAR_UNAVAILABLE');
+        avatarFailures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
       });
     }
     if(this.user.displayName!==user.displayName){this.label.material.map?.dispose();this.label.material.map=labelTexture(user.displayName);this.label.material.needsUpdate=true;}
@@ -114,39 +118,49 @@ class Avatar {
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
-    this.outline.material.uniforms.strength!.value=intensity;this.custom?.update(this.opacity,intensity);
+    this.outline.material.uniforms.strength!.value=intensity;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0);
     this.plate.position.set(seat.position[0]+seat.inward[0]*.66,.85,seat.position[2]+seat.inward[2]*.66);this.plate.rotation.y=seat.baseYawRad;
   }
   dispose():void {
-    this.disposed=true;this.custom?.dispose();this.custom=null;scene.remove(this.root,this.plate);
+    this.disposed=true;avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;stage.remove(this.root,this.plate);
     this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
     const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
     this.plate.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.map?.dispose();o.material.dispose();}});
   }
 }
+const avatarFailures=new Set<string>();
 const avatars=new Map<string,Avatar>();let state:AppSnapshot|null=null;
-client.onState=next=>{state=next;for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar(p,profile));}
+client.onState=next=>{state=next;void studioVisual.update(next.studio);for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar(p,profile));}
   const ids=new Set(next.participants.map(p=>p.userId));for(const [id,avatar]of avatars)if(!ids.has(id)){avatar.dispose();avatars.delete(id);}
 };
-let previous=performance.now(),lastLength=-1;
+let previous=performance.now(),lastLength=-1,reportAt=0,frameMs=16.7;
+let contextLost=false;canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;});canvas.addEventListener('webglcontextrestored',()=>{location.reload();});
 function resize(){const w=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),h=w*9/16;renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(w,h);}
 window.addEventListener('resize',resize);resize();
 function frame(time:number):void{
-  requestAnimationFrame(frame);const dt=Math.min((time-previous)/1000,.05);previous=time;
+  requestAnimationFrame(frame);frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
   const serverNow=client.now();let length=state?.straightLength??0;
   let progress=1;const motion=state?.layoutMotion;
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);}
   if(Math.abs(length-lastLength)>.00001){for(const ring of table)ring.update(length);lastLength=length;}
-  const pose=state&&client.connected?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0);
+  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[]);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
   if(state)for(const reservation of state.session.reservations){
     const target=state.seats[reservation.slotIndex],avatar=avatars.get(reservation.userId);if(!target||!avatar)continue;
     let seat=target;const old=motion?.fromSeats[reservation.slotIndex];
     if(old&&progress<1){const position=target.position.map((x,i)=>THREE.MathUtils.lerp(old.position[i]!,x,progress)) as [number,number,number];
-      seat={...target,position,faceAnchor:[position[0],1.25,position[2]],baseYawRad:old.baseYawRad+Math.atan2(Math.sin(target.baseYawRad-old.baseYawRad),Math.cos(target.baseYawRad-old.baseYawRad))*progress};}
+      seat={...target,position,faceAnchor:[position[0],1.25,position[2]],baseYawRad:old.baseYawRad+Math.atan2(Math.sin(target.baseYawRad-old.baseYawRad),Math.cos(target.baseYawRad-old.baseYawRad))*progress};
+      seat={...seat,inward:[Math.sin(seat.baseYawRad),0,Math.cos(seat.baseYawRad)]};}
     avatar.render(seat,dt,time,client.connected&&state.connection==='ready');
   }
   if(state){const assigned=new Set(state.session.reservations.map(r=>r.userId));for(const [id,avatar]of avatars)if(!assigned.has(id)){avatar.root.visible=avatar.plate.visible=false;}}
-  renderer.render(scene,camera);
+  if(state){
+    stage.position.fromArray(state.studio.tableAnchor.position);stage.rotation.y=THREE.MathUtils.degToRad(state.studio.tableAnchor.yawDeg);stage.updateMatrixWorld(true);
+    const target=stage.localToWorld(new THREE.Vector3().fromArray(pose.target));stage.localToWorld(camera.position);camera.lookAt(target);
+    const studioStatus=studioVisual.setLength(length);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
+    canvas.dataset.studioRevision=String(state.studio.revision);
+  }
+  if(!contextLost)renderer.render(scene,camera);
+  if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles);}
 }
 requestAnimationFrame(frame);client.connect();

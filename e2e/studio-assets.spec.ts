@@ -1,0 +1,47 @@
+import { expect,test } from '@playwright/test';
+import { zipSync } from 'fflate';
+import { studioFixture } from '../tests/helpers/gltf.ts';
+test('ZIP GLTF with relative buffer and texture loads through GLTFLoader, previews and survives Dock reload',async({page,context})=>{
+  const errors:string[]=[],external:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
+  overlay.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith('http://127.0.0.1:31339/'))external.push(r.url());});
+  overlay.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
+  await overlay.goto(await page.locator('#overlay-url').inputValue());
+  await page.locator('#studio-open').click();
+  await page.locator('#studio-files').setInputFiles({name:'room.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(studioFixture()))});
+  await page.locator('#studio-import').click();
+  await expect(page.locator('#studio-feedback')).toHaveText('プレビューの内容を確認して「適用」してください。');
+  await expect(page.locator('#studio-object option')).toHaveCount(1);
+  expect(await overlay.locator('#scene').getAttribute('data-studio-revision')).toBe('0');
+  await page.locator('#studio-y').fill('1');await page.locator('#studio-y').blur();
+  await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
+  await expect(page.locator('#studio-editor')).not.toBeVisible();
+  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-revision','1');
+  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','READY');
+  await overlay.screenshot({path:'.work/preview-custom-studio.png',omitBackground:true});
+  await page.reload();await expect(page.locator('#studio-current')).toContainText('1オブジェクト');
+  await page.locator('#studio-open').click();await expect(page.locator('#studio-y')).toHaveValue('1');
+  await page.locator('#studio-reset').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
+  expect(external).toEqual([]);expect(errors).toEqual([]);
+});
+test('missing external texture is reported without applying a broken program scene',async({page})=>{
+  await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.locator('#studio-open').click();
+  const files=studioFixture();delete (files as Record<string,Uint8Array>)['textures/cutout.png'];
+  await page.locator('#studio-files').setInputFiles({name:'incomplete.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(files))});
+  await page.locator('#studio-import').click();await expect(page.locator('#studio-feedback')).toHaveText('STUDIO_DEPENDENCY_MISSING');
+  await page.locator('#studio-cancel').click();
+});
+test('an enclosing studio blocker falls back to a transparent safe wide shot',async({page,context})=>{
+ await page.goto('/dock#key='+'2'.repeat(64));await expect(page.locator('#transport')).toHaveText('接続済み');
+ const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await page.locator('#studio-open').click();
+ await page.getByText('シーンJSON',{exact:true}).click();
+ const scene=JSON.parse(await page.locator('#studio-json').inputValue());scene.camera={blockers:[{id:'blocked',min:[-100,-100,-100],max:[100,100,100]}]};
+ await page.locator('#studio-json').fill(JSON.stringify(scene));await page.locator('#studio-json-load').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','CAMERA_SAFE_FALLBACK');
+ await expect(page.locator('#shot')).toHaveText('WIDE');
+ await page.locator('#studio-open').click();await page.locator('#studio-reset').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
+});

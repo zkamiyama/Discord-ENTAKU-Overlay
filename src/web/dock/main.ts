@@ -1,8 +1,12 @@
+import { DiagnosticsPanel } from './diagnostics-panel.ts';
+import { StudioEditor } from './studio-editor.ts';
 import { AvatarEditor } from './avatar-editor.ts';
 import { StudioClient } from '../shared/client.ts';
 import { dockPeople, type DockPerson } from './people.ts';
 const client=new StudioClient();
 const editor=new AvatarEditor(client);
+new StudioEditor(client);
+new DiagnosticsPanel(client);
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false;
 async function command(value:Record<string,unknown>){if(busy)return;busy=true;errors.textContent='';try{await client.command(value);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}}
@@ -31,7 +35,9 @@ function row(user:DockPerson):Row {
  get('participants').append(element);return result;
 }
 client.onState=state=>{
- get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('reason').textContent=state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
+ get('studio-current').textContent=`シーン ${state.studio.revision} · ${state.studio.objects.length}オブジェクト`;
+
+ get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
  const count=state.participants.filter(p=>p.presence==='present').length;
  get('counts').textContent=`${count}人 / ${state.session.capacity}席`;
  get('connection').textContent=`${state.connection} · ${state.channel?.name??'VC未選択'}${state.errorCode?' · '+state.errorCode:''}`;
@@ -44,7 +50,8 @@ client.onState=state=>{
  for(const user of people){let r=rows.get(user.userId);if(!r){r=row(user);rows.set(user.userId,r);}r.user=user;r.name.textContent=user.name;
   const hasSeat=user.slotIndex!==undefined;
   const presence=user.presence==='present'?(user.speaking==='active'?'発話中':user.speaking==='unknown'?'発話状態未確定':'無音'):user.presence==='absent'?(hasSeat?'退出・予約中':'退出・予約なし'):'在席確認待ち';
-  r.status.textContent=`${hasSeat?'席 '+(user.slotIndex!+1):user.presence==='present'?'待機':'席なし'} · ${presence}`;
+  const speech=state.speech.find(s=>s.userId===user.userId);
+  r.status.textContent=`${hasSeat?'席 '+(user.slotIndex!+1):user.presence==='present'?'待機':'席なし'} · ${presence}${speech&&user.speaking==='active'?' · '+(speech.activeMs/1000).toFixed(1)+'秒'+(speech.qualified?' / 候補':''):''}`;
   r.element.dataset.userId=user.userId;r.element.dataset.speaking=user.speaking;r.element.dataset.presence=user.presence;
   r.focus.disabled=user.presence!=='present'||!hasSeat;
   r.speak.hidden=r.presence.hidden=state.source!=='demo'||!user.participant;
