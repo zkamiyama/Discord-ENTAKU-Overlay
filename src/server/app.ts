@@ -158,6 +158,7 @@ export function startServer(options: ServerOptions) {
             const profiles=engine.snapshot().avatarProfiles.filter(p=>p.userId!==c.userId);
             await customAssets.saveProfiles(profiles);engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
           } else if (c.type === 'mode' && ['AUTO','MANUAL','HOLD'].includes(String(c.mode))) engine.control({ type: 'mode', mode: c.mode as DirectorMode }, c.expectedRevision as number, current);
+          else if(c.type==='moderators'&&Array.isArray(c.userIds)&&c.userIds.every(id=>typeof id==='string'))engine.control({type:'moderators',userIds:c.userIds as string[]},c.expectedRevision as number,current);
           else if (c.type === 'wide') engine.control({ type: 'shot', shot: { kind: 'WIDE', userIds: [] } }, c.expectedRevision as number, current);
           else if (c.type === 'single' && typeof c.userId === 'string') engine.control({ type: 'shot', shot: { kind: 'SINGLE', userIds: [c.userId] } }, c.expectedRevision as number, current);
           else if (c.type === 'release' && typeof c.userId === 'string' && c.confirm === true) engine.control({ type: 'release', userId: c.userId }, c.expectedRevision as number, current);
@@ -185,7 +186,7 @@ export function startServer(options: ServerOptions) {
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && (/^STUDIO_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
+          const code = error instanceof Error && (/^STUDIO_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
           return json({ error: code }, 422);
         }
         });

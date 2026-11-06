@@ -10,6 +10,12 @@ export async function buildWeb(): Promise<WebAssets> {
     assets[`/static/${page}.css`]={body:await readFile(`src/web/${page}/style.css`,'utf8'),type:'text/css; charset=utf-8'};
     assets[`/${page}`]={body:await readFile(`src/web/${page}/index.html`,'utf8'),type:'text/html; charset=utf-8'};
   }
+  const names=['camera','microphone','microphone-slash','crown','users','dots-three','trash','sign-out','sign-in','arrows-out','pause','play','gear-six','image','cube','copy','arrow-square-out','arrow-counter-clockwise','record','download-simple','chart-line','desktop','plus','x'];
+  const symbols=await Promise.all(names.map(async name=>{
+    const svg=await readFile(`node_modules/@phosphor-icons/core/assets/regular/${name}.svg`,'utf8');
+    return `<symbol id="${name}" viewBox="0 0 256 256">${svg.replace(/^[\s\S]*?<svg[^>]*>/,'').replace(/<\/svg>[\s\S]*$/,'')}</symbol>`;
+  }));
+  assets['/static/icons.svg']={body:`<svg xmlns="http://www.w3.org/2000/svg">${symbols.join('')}</svg>`,type:'image/svg+xml'};
   const worker=await Bun.build({entrypoints:['src/web/workers/alpha-field.ts'],target:'browser',format:'esm',minify:true,naming:'avatar-field.js'});
   if(!worker.success)throw new Error('WORKER_BUILD_FAILED');
   assets['/static/avatar-field.js']={body:await worker.outputs[0]!.text(),type:'text/javascript; charset=utf-8'};

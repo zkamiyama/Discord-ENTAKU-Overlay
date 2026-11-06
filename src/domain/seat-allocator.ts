@@ -18,7 +18,11 @@ export function validateSession(input: unknown): SeatSession {
   for (const id of s.waitingUserIds) { if (!validId(id) || users.has(id)) throw new Error('INVALID_WAITING_LIST'); users.add(id); }
   const pitch=s.seatPitch??TABLE.seatPitch;
   if(!Number.isFinite(pitch)||pitch<TABLE.seatPitch||pitch>3)throw new Error('INVALID_SEAT_PITCH');
-  return {...structuredClone(s),seatPitch:pitch};
+  const moderatorIds=s.moderatorIds??[];
+  if(!Array.isArray(moderatorIds)||moderatorIds.length>2||new Set(moderatorIds).size!==moderatorIds.length||moderatorIds.some(id=>!validId(id)||!s.reservations.some(r=>r.userId===id)))throw new Error('INVALID_MODERATORS');
+  const floor=s.straightLengthFloor??0;
+  if(!Number.isFinite(floor)||floor<0||floor>100)throw new Error('INVALID_LAYOUT_FLOOR');
+  return {...structuredClone(s),seatPitch:pitch,moderatorIds:[...moderatorIds],straightLengthFloor:floor};
 }
 export function newSession(channelId: string, sessionId: string, minSeats: number = TABLE.minSeats): SeatSession {
   return validateSession({ schemaVersion: 1, sessionId, channelId, revision: 0, minSeats, capacity: minSeats, peakPresentCount: 0, reservations: [], waitingUserIds: [] });
@@ -32,6 +36,14 @@ export class SeatAllocator {
     if(!Number.isFinite(pitch)||pitch<0||pitch>3)throw new Error('INVALID_SEAT_PITCH');
     if(pitch<=(this.session.seatPitch??TABLE.seatPitch)+1e-9)return false;
     this.session.seatPitch=pitch;this.session.revision++;return true;
+  }
+  retainLength(length:number):void {
+    if(!Number.isFinite(length)||length<0||length>100)throw new Error('INVALID_LAYOUT_FLOOR');
+    if(length>(this.session.straightLengthFloor??0)+1e-8){this.session.straightLengthFloor=length;this.session.revision++;}
+  }
+  setModerators(ids:readonly string[]):void {
+    if(ids.length<1||ids.length>2||new Set(ids).size!==ids.length||ids.some(id=>!this.session.reservations.some(r=>r.userId===id)))throw new Error('INVALID_MODERATORS');
+    this.session.moderatorIds=[...ids];this.session.revision++;
   }
   updatePresent(ids: readonly string[], utc: string): { changed: boolean; grew: boolean } {
     if (ids.some(id => !validId(id)) || new Set(ids).size !== ids.length || !Number.isFinite(Date.parse(utc))) throw new Error('INVALID_PARTICIPANTS');
@@ -51,6 +63,9 @@ export class SeatAllocator {
       this.session.capacity = Math.max(this.session.capacity, slotIndex + 1);
       this.session.reservations.push({ userId, seatId: `seat-${slotIndex}`, slotIndex, reservedAtUtc: utc });
     }
+    if(!this.session.moderatorIds?.length&&this.session.reservations.length){
+      this.session.moderatorIds=[this.session.reservations.slice().sort((a,b)=>a.slotIndex-b.slotIndex)[0]!.userId];
+    }
     const changed = JSON.stringify(this.session) !== before;
     if (changed) this.session.revision++;
     return { changed, grew: this.session.capacity > capacity };
@@ -63,6 +78,7 @@ export class SeatAllocator {
     const index = this.session.reservations.findIndex(r => r.userId === userId);
     if (index < 0) throw new Error('RESERVATION_NOT_FOUND');
     this.session.reservations.splice(index, 1);
+    this.session.moderatorIds=this.session.moderatorIds?.filter(id=>id!==userId);
     this.session.revision++;
   }
 }

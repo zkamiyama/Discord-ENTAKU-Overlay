@@ -1,4 +1,4 @@
-import { Box3, Matrix4, Ray, Vector3 } from 'three';
+import { Box3, Matrix4, Ray, Vector3, QuadraticBezierCurve3 } from 'three';
 import type { CameraPlan, CameraPose, Vec3 } from '../contracts/domain.ts';
 import type { StudioScene } from './manifest.ts';
 const vec=(v:Vec3)=>new Vector3().fromArray(v);
@@ -17,10 +17,10 @@ export function protectStudioCamera(plan:CameraPlan,scene:StudioScene,defaultWid
   const clear=(pose:CameraPose)=>boxes.every(box=>!box.clone().expandByScalar(.12).containsPoint(vec(pose.position))&&!segmentHit(pose.position,pose.target,box));
   if(clear(plan.to)){
     if(plan.transition==='MOVE'){
-      let safe=boxes.every(box=>!segmentHit(plan.from.position,plan.to.position,box.clone().expandByScalar(.12)));
+      let safe=true;let previous=plan.from.position;
       for(let i=0;safe&&i<=12;i++){
-        const t=i/12,position=vec(plan.from.position).lerp(vec(plan.to.position),t).toArray() as [number,number,number],target=vec(plan.from.target).lerp(vec(plan.to.target),t).toArray() as [number,number,number];
-        safe=clear({position,target,fov:plan.to.fov});
+        const t=i/12,position=(plan.via?new QuadraticBezierCurve3(vec(plan.from.position),vec(plan.via),vec(plan.to.position)).getPoint(t):vec(plan.from.position).lerp(vec(plan.to.position),t)).toArray() as [number,number,number],target=vec(plan.from.target).lerp(vec(plan.to.target),t).toArray() as [number,number,number];
+        safe=clear({position,target,fov:plan.to.fov})&&boxes.every(box=>!segmentHit(previous,position,box.clone().expandByScalar(.12)));previous=position;
       }
       if(!safe)return {...plan,transition:'CUT',durationMs:0,safetyReason:'STUDIO_PATH_BLOCKED'};
     }
@@ -30,5 +30,5 @@ export function protectStudioCamera(plan:CameraPlan,scene:StudioScene,defaultWid
   // The overlay applies tableAnchor once when rendering the camera.
   const custom=scene.camera?.safeWide?structuredClone(scene.camera.safeWide):null;
   const pose=custom&&clear(custom)&&wideFits(custom)?custom:defaultWide;
-  return {...plan,shot:{kind:'WIDE',userIds:[]},to:pose,transition:'CUT',durationMs:0,studioHidden:!clear(pose),safetyReason:clear(pose)?'STUDIO_SHOT_BLOCKED':'STUDIO_HIDDEN_FOR_CAMERA'};
+  return {...plan,shot:{kind:'WIDE',userIds:[]},composition:'WIDE',foregroundUserId:undefined,to:pose,transition:'CUT',durationMs:0,studioHidden:!clear(pose),safetyReason:clear(pose)?'STUDIO_SHOT_BLOCKED':'STUDIO_HIDDEN_FOR_CAMERA'};
 }

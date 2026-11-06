@@ -5,12 +5,15 @@ import {demoEvents} from '../../src/replay/demo.ts';
 import {parseReplay,ReplayPlayer} from '../../src/replay/player.ts';
 test('provider recordings redact identities and replay without authentication or network data',async()=>{
  const engine=new AppEngine({source:'demo',serverEpoch:'private-epoch'});for(const e of demoEvents())engine.apply(e);
+ const hostIds=engine.snapshot().participants.slice(0,2).map(p=>p.userId);
+ engine.control({type:'moderators',userIds:hostIds},engine.snapshot().revision,100);
  const recording=new ProviderRecording();recording.start(engine.snapshot(100));
  const user=engine.snapshot().participants[0]!;
  recording.append({type:'speaking',userId:user.userId,state:'active',sourceGeneration:42,receivedAtMs:500},500);
  recording.append({type:'speaking',userId:user.userId,state:'inactive',sourceGeneration:42,receivedAtMs:2000},2000);
  recording.stop(3000);const text=recording.export(3000);
  expect(text).not.toContain(user.displayName);expect(text).not.toContain('avatarUrl');expect(text).not.toContain('private-epoch');
+ const header=JSON.parse(text.split('\n')[0]!);expect(header.session.moderatorIds).toHaveLength(2);for(const id of hostIds)expect(text).not.toContain(id);
  const replay=parseReplay(text),replayEngine=new AppEngine({source:'replay',serverEpoch:'play',sessions:replay.session?[replay.session]:[]});
  const player=new ReplayPlayer(replay,replayEngine);player.advanceTo(replay.durationMs);
  const end=replayEngine.snapshot().session.reservations;

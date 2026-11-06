@@ -35,3 +35,11 @@ test('custom safe wide stays table-local when the studio anchor moves and rotate
   expect(result.studioHidden).toBe(false);expect(scene).toEqual(before);
  }
 });
+
+
+test('curved camera lift clears a low barrier that blocks its straight chord',()=>{
+ const scene=structuredClone(DEFAULT_STUDIO_SCENE);scene.camera={blockers:[{id:'low',min:[-.05,0,.9],max:[.05,1.65,1.1]}]};
+ const curved={...plan(),via:[0,3,1] as const};
+ expect(protectStudioCamera(plan(),scene,pose).transition).toBe('CUT');
+ expect(protectStudioCamera(curved,scene,pose).transition).toBe('MOVE');
+});

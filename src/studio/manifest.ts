@@ -22,6 +22,7 @@ export interface StudioScene {
   tableEnvelope: { maxStraightLength: number; overflow: 'hide-studio' | 'warn-only' };
   objects: StudioObject[];
   camera?: StudioCamera;
+  broadcast?:{enabled:boolean;title:string;subtitle:string};
 }
 export const DEFAULT_STUDIO_SCENE: StudioScene = {
   schemaVersion: 1,
@@ -29,6 +30,7 @@ export const DEFAULT_STUDIO_SCENE: StudioScene = {
   tableAnchor: { position: [0, 0, 0], yawDeg: 0 },
   tableEnvelope: { maxStraightLength: 16, overflow: 'hide-studio' },
   objects: [],
+  broadcast:{enabled:true,title:'円卓討論',subtitle:'ENTAKU STUDIO'},
 };
 export const MAX_STUDIO_OBJECTS = 64;
 export const MAX_GLB_BYTES = 32 * 1024 * 1024;
@@ -65,7 +67,7 @@ function transform(v: unknown): StudioTransform {
   return { position: vec3(x.position,-100,100), yawDeg: finite(x.yawDeg,-360,360), scale: vec3(x.scale,0.01,20) };
 }
 export function validateStudioScene(value: unknown): StudioScene {
-  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera']);
+  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast']);
   if (scene.schemaVersion !== 1) throw new Error('STUDIO_SCHEMA_UNSUPPORTED');
   const rev=finite(scene.revision,0,Number.MAX_SAFE_INTEGER);
   if (!Number.isSafeInteger(rev)) throw new Error('STUDIO_SCENE_INVALID');
@@ -101,6 +103,7 @@ export function validateStudioScene(value: unknown): StudioScene {
     tableEnvelope:{maxStraightLength:finite(envelope.maxStraightLength,0,100),overflow:envelope.overflow},
     objects,
     ...(scene.camera===undefined?{}:{camera:validateStudioCamera(scene.camera)}),
+    ...(scene.broadcast===undefined?{}:{broadcast:validateBroadcast(scene.broadcast)}),
   };
 }
 
@@ -132,4 +135,10 @@ function validateStudioCamera(value:unknown):StudioCamera{
   const wide=object(c.safeWide,['position','target','fov']);const position=vec3(wide.position,-200,200),target=vec3(wide.target,-200,200);
   if(Math.hypot(...position.map((v,i)=>v-target[i]!))<.1)throw new Error('STUDIO_CAMERA_INVALID');
   return {blockers,safeWide:{position,target,fov:finite(wide.fov,20,80)}};
+}
+
+function validateBroadcast(value:unknown):NonNullable<StudioScene['broadcast']>{
+ const b=object(value,['enabled','title','subtitle']);
+ if(typeof b.enabled!=='boolean'||typeof b.title!=='string'||typeof b.subtitle!=='string'||b.title.length>24||b.subtitle.length>40)throw new Error('STUDIO_SCENE_INVALID');
+ return {enabled:b.enabled,title:b.title,subtitle:b.subtitle};
 }

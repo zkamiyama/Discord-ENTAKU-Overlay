@@ -77,7 +77,7 @@ export class AvatarEditor {
     $<HTMLSelectElement>('avatar-selection-target').value='face';$<HTMLInputElement>('avatar-back-file').value='';
     this.feedback('');this.dialog.showModal();
     this.preview=new PreviewStage($<HTMLCanvasElement>('avatar-3d-preview'));
-    this.preview.controls.target.set(0,1.25,1.9);this.preview.camera.position.set(0,1.7,0);this.preview.controls.update();
+    this.preview.controls.target.set(0,1.25,3.4);this.preview.camera.position.set(0,1.7,1.5);this.preview.controls.update();
     this.preview.onFrame=()=>this.previewVisual?.update(1,.85+.15*Math.sin(performance.now()*.006));this.draw();
     if(profile){
       const version=++this.generation;this.setBusy(true);
@@ -148,7 +148,7 @@ export class AvatarEditor {
       const profile=validateProfile(this.draft());
       void CustomAvatarVisual.create(bitmap,profile,this.backBitmap??undefined).then(visual=>{
         if(generation!==this.previewGeneration){visual.dispose();return;}
-        this.previewVisual?.dispose();this.previewVisual=visual;visual.root.position.set(-profile.offsetX,1.25+profile.offsetY,1.9);visual.root.rotation.y=Math.PI;
+        this.previewVisual?.dispose();this.previewVisual=visual;visual.root.position.set(-profile.offsetX,1.25+profile.offsetY,3.4);visual.root.rotation.y=Math.PI;
         preview.scene.add(visual.root);this.previewPending=false;$<HTMLButtonElement>('avatar-apply').disabled=this.busy||!this.validDraft();
       }).catch(e=>{if(generation===this.previewGeneration){this.previewPending=false;this.report(e);$<HTMLButtonElement>('avatar-apply').disabled=true;}});
     },150);

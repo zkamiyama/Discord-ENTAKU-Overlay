@@ -11,7 +11,7 @@ test('capacity 1..32 fits chord distance and normalized inward directions', () =
   }
 });
 test('rail wraps, uses inward normals on straight sections, and rejects invalid widths', () => {
-  expect(pointAtDistance(2,4,1)).toEqual({x:-1,z:2,inwardX:0,inwardZ:-1});
+  expect(pointAtDistance(2,4,1)).toEqual({x:2,z:1,inwardX:-1,inwardZ:0});
   expect(pointAtDistance(2,4,0).x).toBeCloseTo(pointAtDistance(2,4,perimeter(2,4)).x,8);
   expect(() => solveStraightLength(4,2,4)).toThrow('INVALID_PITCH');
   expect(() => makeLayout(0)).toThrow('INVALID_SEAT_COUNT');

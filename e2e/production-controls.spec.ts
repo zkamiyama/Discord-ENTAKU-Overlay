@@ -1,10 +1,11 @@
+import {personAction} from './controls.ts';
 import {expect,test} from '@playwright/test';
 import {png} from '../tests/helpers/png.ts';
 test('front and independent back images preview, persist and restore without expanding a reduced image layout',async({page,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('.person').first().getByRole('button',{name:'画像を調整',exact:true}).click();
+ await personAction(page,page.locator('.person').first(),'画像を調整');
  await page.locator('#avatar-file').setInputFiles({name:'front.png',mimeType:'image/png',buffer:png()});
  await expect(page.locator('#avatar-apply')).toBeEnabled();
  await page.locator('#avatar-editor details').first().locator('summary').click();
@@ -12,7 +13,7 @@ test('front and independent back images preview, persist and restore without exp
  await expect(page.locator('#avatar-back-preview')).toBeVisible();await expect(page.locator('#avatar-apply')).toBeEnabled();
  await page.locator('#avatar-scale').fill('3');await expect(page.locator('#avatar-apply')).toBeEnabled();await page.locator('#avatar-apply').click();
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');
- await page.locator('.person').first().getByRole('button',{name:'画像を調整',exact:true}).click();
+ await personAction(page,page.locator('.person').first(),'画像を調整');
  await expect(page.locator('#avatar-apply')).toBeEnabled();await expect(page.locator('#avatar-scale')).toHaveValue('3');
  if(!await page.locator('#avatar-back-preview').isVisible())await page.locator('#avatar-editor details').first().locator('summary').click();await expect(page.locator('#avatar-back-preview')).toBeVisible();
  await page.screenshot({path:'.work/preview-avatar-front-back.png',fullPage:true});
@@ -21,7 +22,7 @@ test('front and independent back images preview, persist and restore without exp
 });
 test('Dock records anonymized speaking metadata and exports diagnostics without capabilities',async({page})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
- page.once('dialog',d=>void d.accept());await page.locator('#record-start').click();await expect(page.locator('#recording-status')).toContainText('記録中');
+ page.once('dialog',d=>void d.accept());await page.locator('#diagnostics-section > summary').click();await page.locator('#record-start').click();await expect(page.locator('#recording-status')).toContainText('記録中');
  const person=page.locator('.person').first();if(await person.getByRole('button',{name:'発話 OFF',exact:true}).count())await person.getByRole('button',{name:'発話 OFF',exact:true}).click();
  await person.getByRole('button',{name:'発話 ON',exact:true}).click();await page.waitForTimeout(1100);await page.locator('#record-stop').click();
  await expect(page.locator('#recording-status')).toContainText('停止');

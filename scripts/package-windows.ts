@@ -31,6 +31,7 @@ for(const [target,source] of Object.entries({
   'licenses/Bun-LICENSE.md':'licenses/Bun-LICENSE.md',
   'licenses/Apache-2.0.txt':'licenses/Apache-2.0.txt',
   'licenses/three-LICENSE.txt':'node_modules/three/LICENSE',
+  'licenses/Phosphor-LICENSE.txt':'node_modules/@phosphor-icons/core/LICENSE',
   'licenses/fflate-LICENSE.txt':'node_modules/fflate/LICENSE',
   'licenses/meshoptimizer-LICENSE.md':'node_modules/meshoptimizer/LICENSE.md',
   'licenses/Draco-README.md':'node_modules/three/examples/jsm/libs/draco/README.md',

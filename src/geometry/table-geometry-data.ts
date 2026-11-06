@@ -22,7 +22,7 @@ export function updateRingData(data: RingGeometryData, inner: number, outer: num
   if (![inner,outer,length,bottom,top].every(Number.isFinite) || inner <= 0 || outer <= inner || length < 0 || top <= bottom) throw new RangeError('INVALID_RING');
   let vertex = 0;
   const put = (p: Point, y: number, nx: number, ny: number, nz: number): void => {
-    data.positions.set([p.x,y,p.z],vertex*3);data.normals.set([nx,ny,nz],vertex*3);data.uvs.set([p.x,p.z],vertex*2);vertex++;
+    data.positions.set([p.z,y,-p.x],vertex*3);data.normals.set([nz,ny,-nx],vertex*3);data.uvs.set([p.x,p.z],vertex*2);vertex++;
   };
   for(let i=0;i<COUNT;i++) {
     const a=point(i,outer,length),b=point(i+1,outer,length),c=point(i+1,inner,length),d=point(i,inner,length);

@@ -21,18 +21,18 @@ export type ProviderEvent = { sourceGeneration: number; receivedAtMs: number } &
 export interface Reservation { userId: string; seatId: string; slotIndex: number; reservedAtUtc: string }
 export interface SeatSession {
   schemaVersion: 1; sessionId: string; channelId: string; revision: number;
-  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number;
+  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number; moderatorIds?: string[]; straightLengthFloor?: number;
   reservations: Reservation[]; waitingUserIds: string[];
 }
-export interface SeatTransform { slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
+export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
 export type Shot = { kind: 'WIDE'; userIds: [] } | { kind: 'SINGLE'; userIds: [string] } | { kind: 'TWO_SHOT'; userIds: [string, string] };
 export type DirectorMode = 'AUTO' | 'MANUAL' | 'HOLD';
 export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number }
 export interface CameraPose { position: Vec3; target: Vec3; fov: number }
 export interface CameraPlan {
   id: number; shot: Shot; reason: string; transition: 'CUT' | 'MOVE';
-  from: CameraPose; to: CameraPose; startMs: number; durationMs: number;
-  studioHidden?: boolean; safetyReason?: string;
+  via?: Vec3; from: CameraPose; to: CameraPose; startMs: number; durationMs: number;
+  studioHidden?: boolean; safetyReason?: string; composition?: 'WIDE' | 'SINGLE_OTS' | 'SINGLE_CLEAN' | 'TWO_SHOT' | 'MODERATOR_SINGLE' | 'MODERATOR_TWO'; foregroundUserId?: string; visibilityReason?: string;
 }
 export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;

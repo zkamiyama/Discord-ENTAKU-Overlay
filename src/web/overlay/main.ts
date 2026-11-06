@@ -1,3 +1,4 @@
+import {BroadcastDesk,deskProps} from '../studio/broadcast-desk.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
 import { StudioVisual } from '../studio/visual.ts';
 import { CustomAvatarVisual } from './custom-avatar.ts';
@@ -5,7 +6,6 @@ import { avatarFramingBounds,type AvatarProfile } from '../../assets/avatar-prof
 import * as THREE from 'three';
 import type { AppSnapshot, Participant, SeatTransform } from '../../contracts/domain.ts';
 import { StudioClient } from '../shared/client.ts';
-import { createRingData, updateRingData } from '../../geometry/table-geometry-data.ts';
 import { TABLE } from '../../domain/defaults.ts';
 import { samplePlan, widePose } from '../../domain/camera-planner.ts';
 
@@ -17,26 +17,10 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure
 const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, .05, 200);
 scene.add(stage);
 const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
-scene.add(new THREE.HemisphereLight(0xeaf3ff, 0x283342, 2));
+scene.add(new THREE.HemisphereLight(0xfff0da, 0x6b6b65, 1.7));
 const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3,6,4); scene.add(key);
-const rimLight = new THREE.DirectionalLight(0x99b9ff, 1.5); rimLight.position.set(-3,3,-4); scene.add(rimLight);
-class Ring {
-  data = createRingData(); geometry = new THREE.BufferGeometry(); mesh: THREE.Mesh;
-  constructor(private inner: number, private outer: number, private bottom: number, private top: number, color: number) {
-    this.geometry.setAttribute('position',new THREE.BufferAttribute(this.data.positions,3));
-    this.geometry.setAttribute('normal',new THREE.BufferAttribute(this.data.normals,3));
-    this.geometry.setAttribute('uv',new THREE.BufferAttribute(this.data.uvs,2));
-    this.geometry.setIndex(new THREE.BufferAttribute(this.data.indices,1));
-    this.mesh=new THREE.Mesh(this.geometry,new THREE.MeshStandardMaterial({color,roughness:.55,metalness:.15}));
-    stage.add(this.mesh);this.update(0);
-  }
-  update(length:number):void {
-    updateRingData(this.data,this.inner,this.outer,length,this.bottom,this.top);
-    this.geometry.getAttribute('position').needsUpdate=true;this.geometry.getAttribute('normal').needsUpdate=true;
-    this.geometry.computeBoundingSphere();
-  }
-}
-const table = [new Ring(.75,1.4,.69,.75,0xb8b4a6),new Ring(1.015,1.135,.12,.69,0x343d4b),new Ring(.955,1.195,.02,.12,0x222b38)];
+const rimLight = new THREE.DirectionalLight(0xffd5a1, 1.2); rimLight.position.set(-3,3,-4); scene.add(rimLight);
+const table=new BroadcastDesk(0);stage.add(table);
 const vertexShader = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 function imageMaterial(texture:THREE.Texture):THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({uniforms:{map:{value:texture},opacity:{value:1}},vertexShader,fragmentShader:`
@@ -55,7 +39,7 @@ function placeholder(user:Participant):THREE.CanvasTexture {
 }
 function labelTexture(name:string):THREE.CanvasTexture {
   const c=document.createElement('canvas');c.width=768;c.height=192;const x=c.getContext('2d')!;
-  x.fillStyle='#ecf3f8';x.textAlign='center';x.textBaseline='middle';
+  x.fillStyle='#142f60';x.textAlign='center';x.textBaseline='middle';
   let size=76;do{x.font=`600 ${size}px Meiryo, "Yu Gothic", "Noto Sans CJK JP", sans-serif`;if(x.measureText(name).width<700)break;size-=2;}while(size>28);
   const label=[...name].length>24?[...name].slice(0,23).join('')+'…':name;x.fillText(label,384,100);
   const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
@@ -71,8 +55,8 @@ class Avatar {
     this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
       uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float d=length(vUv-.5)*.64-.28;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
     this.root.add(this.outline);
-    const base=new THREE.Mesh(new THREE.BoxGeometry(.62,.16,.035),new THREE.MeshStandardMaterial({color:0x243244,roughness:.45}));this.plate.add(base);
-    this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label);
+    const base=new THREE.Mesh(new THREE.BoxGeometry(.64,.17,.035),new THREE.MeshStandardMaterial({color:0xf6f3e9,roughness:.7}));this.plate.add(base);
+    this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label,deskProps());
     stage.add(this.root,this.plate);this.update(user,profile);
   }
   update(user:Participant,profile?:AvatarProfile):void {
@@ -143,7 +127,7 @@ function frame(time:number):void{
   const serverNow=client.now();let length=state?.straightLength??0;
   let progress=1;const motion=state?.layoutMotion;
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);}
-  if(Math.abs(length-lastLength)>.00001){for(const ring of table)ring.update(length);lastLength=length;}
+  if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
   const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[]);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
   if(state)for(const reservation of state.session.reservations){
@@ -159,7 +143,7 @@ function frame(time:number):void{
     stage.position.fromArray(state.studio.tableAnchor.position);stage.rotation.y=THREE.MathUtils.degToRad(state.studio.tableAnchor.yawDeg);stage.updateMatrixWorld(true);
     const target=stage.localToWorld(new THREE.Vector3().fromArray(pose.target));stage.localToWorld(camera.position);camera.lookAt(target);
     const studioStatus=studioVisual.setLength(length);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
-    canvas.dataset.studioRevision=String(state.studio.revision);
+    canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
   }
   if(!contextLost)renderer.render(scene,camera);
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles);}

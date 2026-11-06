@@ -4,6 +4,7 @@ This application bundles JavaScript, WebAssembly decoders, and the Bun runtime. 
 
 | Component | Use | Notice |
 |---|---|---|
+| Phosphor Icons 2.1.1 | Selected SVG icons, no font files | MIT; `licenses/Phosphor-LICENSE.txt` in the distribution |
 | Three.js 0.187.0 | Rendering, GLTFLoader, LoadingManager, controls and math | MIT; `licenses/three-LICENSE.txt` in the distribution |
 | Draco | Unmodified glTF decoder shipped with Three.js | Apache-2.0; `licenses/Apache-2.0.txt`, `licenses/Draco-README.md`; Copyright the Draco Authors |
 | Basis Universal | Unmodified KTX2 transcoder shipped with Three.js | Apache-2.0; `licenses/Apache-2.0.txt`, `licenses/Basis-README.md`; Copyright 2019-2026 Binomial LLC |

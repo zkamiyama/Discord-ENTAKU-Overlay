@@ -18,7 +18,7 @@ export class ProviderRecording {
     if(this.active)throw new Error('RECORDING_ALREADY_ACTIVE');
     if(state.source==='replay')throw new Error('CANNOT_RECORD_REPLAY');
     this.rows=[];this.aliases.clear();this.generations.clear();this.bytes=0;this.origin=state.serverNowMs;this.end=this.origin;this.limitReached=false;this.active=true;
-    this.session={...structuredClone(state.session),sessionId:'recording-session',channelId:this.alias('channel',state.session.channelId),reservations:state.session.reservations.map(r=>({...r,userId:this.alias('user',r.userId),reservedAtUtc:new Date(0).toISOString()})),waitingUserIds:state.session.waitingUserIds.map(id=>this.alias('user',id))};
+    this.session={...structuredClone(state.session),sessionId:'recording-session',channelId:this.alias('channel',state.session.channelId),reservations:state.session.reservations.map(r=>({...r,userId:this.alias('user',r.userId),reservedAtUtc:new Date(0).toISOString()})),waitingUserIds:state.session.waitingUserIds.map(id=>this.alias('user',id)),moderatorIds:state.session.moderatorIds?.map(id=>this.alias('user',id))};
     const channel=state.channel?{channelId:this.alias('channel',state.channel.channelId),name:'Voice channel',kind:state.channel.kind}:null;
     this.push({type:'snapshot',channel,participants:state.participants.filter(p=>p.presence==='present').map(p=>this.person(p)),sourceGeneration:1,receivedAtMs:0},0);
     this.push({type:'connection',status:state.connection,sourceGeneration:1,receivedAtMs:0},0);

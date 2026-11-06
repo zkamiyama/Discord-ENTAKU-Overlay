@@ -35,6 +35,7 @@ export class StudioEditor {
       const url=URL.createObjectURL(new Blob([JSON.stringify(this.draft,null,2)],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='scene.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     };
+    for(const id of ['set-enabled','set-title','set-subtitle'])$(id).addEventListener('change',()=>{this.draft.broadcast={enabled:$<HTMLInputElement>('set-enabled').checked,title:$<HTMLInputElement>('set-title').value,subtitle:$<HTMLInputElement>('set-subtitle').value};this.changed();});
     $('studio-fit').onclick=()=>{if(this.visual)this.preview?.fit(this.visual.root);};
   }
   open():void{
@@ -42,7 +43,7 @@ export class StudioEditor {
     this.revision=this.client.state.revision;this.draft=structuredClone(this.client.state.studio);this.files=[];
     this.dialog.showModal();this.preview=new PreviewStage($<HTMLCanvasElement>('studio-preview'));
     this.visual=new StudioVisual(this.client,this.preview.renderer);this.preview.scene.add(this.visual.root);
-    this.preview.onFrame=()=>{this.visual?.setLength(this.client.state?.straightLength??0);};
+    this.preview.onFrame=()=>{const length=this.client.state?.straightLength??3;this.visual?.setLength(length);this.preview?.table.update(length);};
     this.changed();
   }
   private id(prefix:string):string{let i=1;while(this.draft.objects.some(o=>o.id===prefix+'_'+i))i++;return prefix+'_'+i;}
@@ -64,6 +65,7 @@ export class StudioEditor {
     }catch(e){this.report(e);}finally{this.lock(false);}
   }
   private fields():void{
+    $<HTMLInputElement>('set-enabled').checked=this.draft.broadcast?.enabled??false;$<HTMLInputElement>('set-title').value=this.draft.broadcast?.title??'円卓討論';$<HTMLInputElement>('set-subtitle').value=this.draft.broadcast?.subtitle??'ENTAKU STUDIO';
     const select=$<HTMLSelectElement>('studio-object');select.replaceChildren();
     for(const o of this.draft.objects){const option=document.createElement('option');option.value=o.id;option.textContent=`${o.id} (${o.kind})`;select.append(option);}
     if(!this.draft.objects.some(o=>o.id===this.selected))this.selected=this.draft.objects[0]?.id??'';select.value=this.selected;

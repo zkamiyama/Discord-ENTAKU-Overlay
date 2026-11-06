@@ -1,16 +1,8 @@
+import {BroadcastDesk} from './broadcast-desk.ts';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { createRingData, updateRingData } from '../../geometry/table-geometry-data.ts';
 import { disposeObject } from './loader.ts';
-export function makePreviewTable():THREE.Group{
-  const group=new THREE.Group();
-  for(const [inner,outer,bottom,top,color] of [[.75,1.4,.69,.75,0xb8b4a6],[1.015,1.135,.12,.69,0x343d4b],[.955,1.195,.02,.12,0x222b38]]){
-    const data=createRingData();updateRingData(data,inner!,outer!,0,bottom!,top!);
-    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(data.positions,3));g.setAttribute('normal',new THREE.BufferAttribute(data.normals,3));g.setIndex(new THREE.BufferAttribute(data.indices,1));
-    group.add(new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:color!,roughness:.6})));
-  }
-  return group;
-}
+export function makePreviewTable(length=3):BroadcastDesk{return new BroadcastDesk(length);}
 /** Only an open editor owns this renderer. Closing it releases its WebGL context. */
 export class PreviewStage {
   readonly renderer:THREE.WebGLRenderer;

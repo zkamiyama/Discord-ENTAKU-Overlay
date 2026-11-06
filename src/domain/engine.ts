@@ -1,9 +1,9 @@
 import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
-import { validateProfile, avatarFramingBounds, requiredAvatarPitch, type AvatarProfile } from '../assets/avatar-profile.ts';
+import { validateProfile, avatarFramingBounds, avatarEnvelopeBounds, requiredAvatarPitch, type AvatarProfile } from '../assets/avatar-profile.ts';
 import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, Participant, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
 import { TABLE } from './defaults.ts';
-import { makeLayout } from '../geometry/capsule.ts';
+import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
 import { SpeakerTracker } from './speaker-tracker.ts';
 import { ShotDirector } from './shot-director.ts';
@@ -88,7 +88,7 @@ export class AppEngine {
               this.allocators.set(nextId, allocator);
             }
             this.allocator = allocator;
-            this.layout = makeLayout(allocator.snapshot().capacity,allocator.snapshot().seatPitch);
+            this.layout = makeSessionLayout(allocator.snapshot());
             this.layoutMotion = undefined;
             this.layoutHoldUntil = -Infinity;
             this.forceWide('CHANNEL_CHANGED');
@@ -145,20 +145,22 @@ export class AppEngine {
     return [...this.participants.values()].filter(p => p.presence === 'present').map(p => p.userId);
   }
   private allocate(): void {
-    const oldLayout = this.layout;
-    const result = this.allocator.updatePresent(this.presentIds(), this.options.utcNow?.() ?? new Date().toISOString());
+    const oldLayout=this.layout;
+    this.allocator.updatePresent(this.presentIds(),this.options.utcNow?.()??new Date().toISOString());
     const pitch=Math.max(TABLE.seatPitch,...this.allocator.snapshot().reservations.map(r=>{const p=this.profiles.get(r.userId);return p?requiredAvatarPitch(p):TABLE.seatPitch;}));
-    const widened=this.allocator.expandPitch(pitch);
-    if (result.grew||widened) {
-      this.layout = makeLayout(this.allocator.snapshot().capacity,this.allocator.snapshot().seatPitch);
-      this.layoutMotion = { fromSeats: oldLayout.seats, fromStraightLength: oldLayout.straightLength, startMs: this.now, durationMs: TABLE.growthDurationMs };
-      this.layoutHoldUntil = this.now + TABLE.growthDurationMs + 500;this.layoutHoldReason='LAYOUT_GROWTH';
+    this.allocator.expandPitch(pitch);
+    const next=makeSessionLayout(this.allocator.snapshot());
+    this.allocator.retainLength(next.straightLength);
+    if(JSON.stringify(next)!==JSON.stringify(oldLayout)){
+      this.layout=next;
+      this.layoutMotion={fromSeats:oldLayout.seats,fromStraightLength:oldLayout.straightLength,startMs:this.now,durationMs:TABLE.growthDurationMs};
+      this.layoutHoldUntil=this.now+TABLE.growthDurationMs+500;this.layoutHoldReason='LAYOUT_GROWTH';
       this.forceWide('LAYOUT_GROWTH');
     }
-    this.membershipDue = null;
+    this.membershipDue=null;
   }
   private byUser(): Map<string, SeatTransform> {
-    return new Map(this.allocator.snapshot().reservations.map(r => {
+    return new Map(this.allocator.snapshot().reservations.filter(r=>this.participants.get(r.userId)?.presence==='present').map(r => {
       const seat=this.layout.seats[r.slotIndex]!,profile=this.profiles.get(r.userId);
       if(!profile)return [r.userId,seat];
       const yaw=seat.baseYawRad;
@@ -166,7 +168,7 @@ export class AppEngine {
     }));
   }
   private avatarExtents(): Map<string,AvatarExtent> {
-    return new Map([...this.profiles].map(([id,p])=>{const b=avatarFramingBounds(p);return [id,{halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)}];}));
+    return new Map([...this.profiles].map(([id,p])=>{const b=avatarFramingBounds(p),body=avatarEnvelopeBounds(p);return [id,{bodyHalfWidth:Math.max(-body.left,body.right),bodyTopY:1.25+p.offsetY+body.top,bodyBottomY:Math.max(0,1.25+p.offsetY+body.bottom),faceHalfHeight:.14*p.scale,faceHalfWidth:.14*p.scale*(p.faceRect[2]*p.image.width)/(p.faceRect[3]*p.image.height),halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)}];}));
   }
   setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
@@ -216,7 +218,7 @@ export class AppEngine {
       this.seq++;
     }
   }
-  control(command: { type: 'mode'; mode: DirectorMode } | { type: 'shot'; shot: Shot } | { type: 'release'; userId: string } | { type: 'new-session' }, expectedRevision: number, now: number): number {
+  control(command: { type: 'mode'; mode: DirectorMode } | { type: 'shot'; shot: Shot } | { type: 'release'; userId: string } | { type: 'new-session' } | { type:'moderators';userIds:string[] }, expectedRevision: number, now: number): number {
     if (expectedRevision !== this.revision) throw new Error('REVISION_CONFLICT');
     this.advance(now);
     if (command.type === 'mode') {this.pendingManual=null;this.director.setMode(command.mode);}
@@ -230,14 +232,20 @@ export class AppEngine {
         this.pendingManual=null;const decision=this.director.manual(command.shot,this.now);
         if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents()));
       }
+    } else if(command.type==='moderators'){
+      if(!this.channel)throw new Error('NO_CHANNEL');
+      this.allocator.setModerators(command.userIds);this.allocate();
     } else if (command.type === 'release') {
       if (this.connection !== 'ready' || this.channel?.channelId !== this.allocator.snapshot().channelId || this.participants.get(command.userId)?.presence === 'stale') throw new Error('MEMBERSHIP_UNCONFIRMED');
       this.allocator.release(command.userId, this.presentIds()); this.allocate();
     }
     else {
       if (!this.channel) throw new Error('NO_CHANNEL');
+      const previousHosts=(this.allocator.snapshot().moderatorIds??[]).filter(id=>this.presentIds().includes(id));
       this.allocator = new SeatAllocator(newSession(this.channel.channelId, this.options.sessionId?.() ?? crypto.randomUUID()));
       this.allocators.set(this.channel.channelId, this.allocator);
+      this.allocator.updatePresent(this.presentIds(),this.options.utcNow?.()??new Date().toISOString());
+      if(previousHosts.length)this.allocator.setModerators(previousHosts);
       this.layout = makeLayout(TABLE.minSeats); this.allocate();
       this.pendingManual=null; this.director.reset(); this.director.setMode('AUTO'); this.layoutHoldUntil = this.now + 1700;this.layoutHoldReason='NEW_SESSION'; this.forceWide('NEW_SESSION');
     }

@@ -1,3 +1,5 @@
+import {openSession} from './controls.ts';
+import {personAction} from './controls.ts';
 import { expect, test } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 test('Dock drives overlay, detects speech, reserves seats and restores a returning guest', async ({ page, context }) => {
@@ -16,15 +18,15 @@ test('Dock drives overlay, detects speech, reserves seats and restores a returni
   await mkdir('.work',{recursive:true});
   await overlay.screenshot({path:'.work/preview-overlay.png',omitBackground:true});
   const first=page.locator('.person').first();
-  const initialSeat=(await first.locator('.person-state').innerText()).split(' · ')[0];
+  const initialSeat=await first.getAttribute('data-slot');
   await first.getByRole('button',{name:'発話 ON',exact:true}).click();
   await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});
   await overlay.screenshot({path:'.work/preview-speaker.png',omitBackground:true});
-  await first.getByRole('button',{name:'退出',exact:true}).click();
+  await personAction(page,first,'退出');
   await expect(page.locator('#counts')).toHaveText('5人 / 6席');
-  await first.getByRole('button',{name:'復帰',exact:true}).click();
+  await personAction(page,first,'復帰');
   await expect(page.locator('#counts')).toHaveText('6人 / 6席');
-  expect((await first.locator('.person-state').innerText()).split(' · ')[0]).toBe(initialSeat);
+  expect(await first.getAttribute('data-slot')).toBe(initialSeat);
   await page.getByRole('button',{name:'構図固定',exact:true}).click();
   await expect(page.locator('#mode')).toHaveText('HOLD');
   await page.reload();await expect(page.locator('#mode')).toHaveText('HOLD');
@@ -49,7 +51,7 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
   overlay.on('pageerror',e=>errors.push(e.message));
   overlay.on('console',msg=>{if(msg.type()==='error'||msg.text().includes('CUSTOM_AVATAR_UNAVAILABLE'))errors.push(msg.text());});
   await overlay.goto(await page.locator('#overlay-url').inputValue());
-  await first.getByRole('button',{name:'画像を調整',exact:true}).click();
+  await personAction(page,first,'画像を調整');
   await expect(page.locator('#avatar-editor')).toBeVisible();
   const { png }=await import('../tests/helpers/png.ts');
   await page.locator('#avatar-file').setInputFiles({name:'synthetic-cutout.png',mimeType:'image/png',buffer:png()});
@@ -57,7 +59,7 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
   await expect(page.locator('#avatar-apply')).toBeEnabled();
   await page.locator('#avatar-cancel').click();
   // Selection alone must not apply the asset.
-  await first.getByRole('button',{name:'画像を調整',exact:true}).click();
+  await personAction(page,first,'画像を調整');
   await expect(page.locator('#avatar-size')).toContainText('PNG / 静止WebP');
   await page.locator('#avatar-file').setInputFiles({name:'synthetic-cutout.png',mimeType:'image/png',buffer:png()});
   await expect(page.locator('#avatar-size')).toContainText('64×128px');
@@ -70,7 +72,7 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
   await page.waitForTimeout(1200);
   await overlay.screenshot({path:'.work/preview-custom-avatar.png',omitBackground:true});
   await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');
-  await page.locator('.person').first().getByRole('button',{name:'画像を調整',exact:true}).click();
+  await personAction(page,page.locator('.person').first(),'画像を調整');
   await expect(page.locator('#avatar-size')).toContainText('64×128px');
   await expect(page.locator('#avatar-offset-y')).toHaveValue('0.1');
   await page.screenshot({path:'.work/preview-avatar-editor.png',fullPage:true});
@@ -82,7 +84,7 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
 test('narrow Dock accepts a static WebP and pointer selection writes normalized face coordinates', async ({ page }) => {
   await page.setViewportSize({width:360,height:800});
   await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
-  await page.locator('.person').nth(1).getByRole('button',{name:'画像を調整',exact:true}).click();
+  await personAction(page,page.locator('.person').nth(1),'画像を調整');
   const bytes=await page.evaluate(async()=>{
     const canvas=document.createElement('canvas');canvas.width=64;canvas.height=128;
     const context=canvas.getContext('2d')!;context.fillStyle='#f3ad80';context.fillRect(12,10,40,110);
@@ -101,7 +103,7 @@ test('narrow Dock accepts a static WebP and pointer selection writes normalized 
   await expect.poll(async()=>Number(await page.locator('#face-h').inputValue())).toBeCloseTo(25,0);
   await expect(page.locator('#avatar-apply')).toBeEnabled();
   await page.locator('#avatar-apply').click();await expect(page.locator('#avatar-editor')).not.toBeVisible();
-  await page.locator('.person').nth(1).getByRole('button',{name:'画像を調整',exact:true}).click();
+  await personAction(page,page.locator('.person').nth(1),'画像を調整');
   await expect(page.locator('#avatar-size')).toContainText('64×128px');
   page.once('dialog',d=>void d.accept());await page.locator('#avatar-reset').click();
   await expect(page.locator('#avatar-editor')).not.toBeVisible();
@@ -121,7 +123,7 @@ test('a nearby second speaker widens SINGLE into TWO_SHOT via MOVE', async ({ pa
     if(await off.count())await off.click();
   }
   page.once('dialog',dialog=>void dialog.accept());
-  await page.getByRole('button',{name:'席予約をリセット',exact:true}).click();
+  await openSession(page);await page.getByRole('button',{name:'席予約をリセット',exact:true}).click();
   await expect(page.locator('#mode')).toHaveText('AUTO');
   await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();
   await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:8000});
