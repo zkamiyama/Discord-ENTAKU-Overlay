@@ -1,3 +1,5 @@
+import {ExposureRenderer,createFallbackLights} from './exposure-renderer.ts';
+import {DEFAULT_EXPOSURE,type ExposureSettings} from '../../studio/exposure.ts';
 import {BroadcastDesk} from './broadcast-desk.ts';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -10,14 +12,15 @@ export class PreviewStage {
   readonly camera=new THREE.PerspectiveCamera(45,1,.05,500);
   readonly controls:OrbitControls;
   readonly table=makePreviewTable();
+  exposureSettings:ExposureSettings={...DEFAULT_EXPOSURE};authoredLights=0;exposureSource='preview';
+  private exposureRenderer:ExposureRenderer;
   private frame=0;private stopped=false;private previous=0;
   onFrame:()=>void=()=>{};
   constructor(readonly canvas:HTMLCanvasElement){
     this.renderer=new THREE.WebGLRenderer({canvas,antialias:true});
     this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));this.renderer.setClearColor(0x111925);
-    this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;
-    this.scene.add(new THREE.HemisphereLight(0xeaf3ff,0x283342,2));
-    const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(3,6,4);this.scene.add(light);
+    this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.AgXToneMapping;
+    const lights=createFallbackLights();this.scene.add(lights);this.exposureRenderer=new ExposureRenderer(this.renderer,lights);
     this.scene.add(new THREE.GridHelper(20,20,0x567086,0x293648),this.table);
     this.controls=new OrbitControls(this.camera,canvas);this.controls.enableDamping=true;this.controls.target.set(0,1,0);
     this.camera.position.set(5,4,6);this.controls.update();this.render(0);
@@ -36,7 +39,8 @@ export class PreviewStage {
     if(this.renderer.domElement.width!==Math.round(width*this.renderer.getPixelRatio())||this.renderer.domElement.height!==Math.round(height*this.renderer.getPixelRatio())){
       this.renderer.setSize(width,height,false);this.camera.aspect=width/height;this.camera.updateProjectionMatrix();
     }
-    this.controls.update();this.onFrame();this.renderer.render(this.scene,this.camera);
+    this.controls.update();this.onFrame();this.exposureRenderer.render(this.scene,this.camera,this.exposureSettings,this.exposureSource,this.authoredLights,time);
+    this.canvas.dataset.exposure=String(this.exposureRenderer.report.exposure);this.canvas.dataset.exposureStatus=this.exposureRenderer.report.exposureStatus;
   };
-  dispose():void{this.stopped=true;cancelAnimationFrame(this.frame);this.controls.dispose();disposeObject(this.scene);this.renderer.dispose();this.renderer.forceContextLoss();this.canvas.replaceWith(this.canvas.cloneNode(false));}
+  dispose():void{this.stopped=true;cancelAnimationFrame(this.frame);this.controls.dispose();this.exposureRenderer.dispose();disposeObject(this.scene);this.renderer.dispose();this.renderer.forceContextLoss();this.canvas.replaceWith(this.canvas.cloneNode(false));}
 }

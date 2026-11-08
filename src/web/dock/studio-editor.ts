@@ -1,3 +1,4 @@
+import {DEFAULT_EXPOSURE} from '../../studio/exposure.ts';
 import type { StudioClient } from '../shared/client.ts';
 import { DEFAULT_STUDIO_SCENE,validateStudioScene,type StudioObject,type StudioScene } from '../../studio/manifest.ts';
 import { StudioVisual } from '../studio/visual.ts';
@@ -43,7 +44,7 @@ export class StudioEditor {
     this.revision=this.client.state.revision;this.draft=structuredClone(this.client.state.studio);this.files=[];
     this.dialog.showModal();this.preview=new PreviewStage($<HTMLCanvasElement>('studio-preview'));
     this.visual=new StudioVisual(this.client,this.preview.renderer);this.preview.scene.add(this.visual.root);
-    this.preview.onFrame=()=>{const length=this.client.state?.straightLength??3;this.visual?.setLength(length);this.preview?.table.update(length);};
+    this.preview.onFrame=()=>{const length=this.client.state?.straightLength??3;this.visual?.setLength(length);this.preview?.table.update(length);if(this.preview){this.preview.exposureSettings=this.draft.exposure??DEFAULT_EXPOSURE;this.preview.authoredLights=this.visual?.root.visible?this.visual.authoredLights:0;this.preview.exposureSource=String(this.visual?.renderGeneration??0);}};
     this.changed();
   }
   private id(prefix:string):string{let i=1;while(this.draft.objects.some(o=>o.id===prefix+'_'+i))i++;return prefix+'_'+i;}

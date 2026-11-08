@@ -1,3 +1,5 @@
+import {ExposureRenderer,createFallbackLights,protectDisplayObject} from '../studio/exposure-renderer.ts';
+import {DEFAULT_EXPOSURE} from '../../studio/exposure.ts';
 import {BroadcastDesk,deskProps} from '../studio/broadcast-desk.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
 import { StudioVisual } from '../studio/visual.ts';
@@ -13,13 +15,13 @@ const client = new StudioClient();
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0, 0); renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.toneMapping = THREE.AgXToneMapping;
 const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, .05, 200);
 scene.add(stage);
 const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
-scene.add(new THREE.HemisphereLight(0xfff0da, 0x6b6b65, 1.7));
-const key = new THREE.DirectionalLight(0xffffff, 3); key.position.set(3,6,4); scene.add(key);
-const rimLight = new THREE.DirectionalLight(0xffd5a1, 1.2); rimLight.position.set(-3,3,-4); scene.add(rimLight);
+const fallbackLights=createFallbackLights();scene.add(fallbackLights);
+const exposureRenderer=new ExposureRenderer(renderer,fallbackLights);
+renderer.info.autoReset=false;
 const table=new BroadcastDesk(0);stage.add(table);
 const vertexShader = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 function imageMaterial(texture:THREE.Texture):THREE.ShaderMaterial {
@@ -55,8 +57,9 @@ class Avatar {
     this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
       uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float d=length(vUv-.5)*.64-.28;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
     this.root.add(this.outline);
-    const base=new THREE.Mesh(new THREE.BoxGeometry(.64,.17,.035),new THREE.MeshStandardMaterial({color:0xf6f3e9,roughness:.7}));this.plate.add(base);
+    const base=new THREE.Mesh(new THREE.BoxGeometry(.64,.17,.035),new THREE.MeshBasicMaterial({color:0xf6f3e9,toneMapped:false}));this.plate.add(base);
     this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label,deskProps());
+    protectDisplayObject(this.root);protectDisplayObject(this.label);protectDisplayObject(base);
     stage.add(this.root,this.plate);this.update(user,profile);
   }
   update(user:Participant,profile?:AvatarProfile):void {
@@ -123,7 +126,7 @@ let contextLost=false;canvas.addEventListener('webglcontextlost',event=>{event.p
 function resize(){const w=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),h=w*9/16;renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(w,h);}
 window.addEventListener('resize',resize);resize();
 function frame(time:number):void{
-  requestAnimationFrame(frame);frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
+  requestAnimationFrame(frame);renderer.info.reset();frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
   const serverNow=client.now();let length=state?.straightLength??0;
   let progress=1;const motion=state?.layoutMotion;
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);}
@@ -145,7 +148,11 @@ function frame(time:number):void{
     const studioStatus=studioVisual.setLength(length);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
     canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
   }
-  if(!contextLost)renderer.render(scene,camera);
-  if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles);}
+  if(!contextLost){
+    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time);
+    canvas.dataset.exposure=String(report.exposure);canvas.dataset.exposureStatus=report.exposureStatus;
+    canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
+  }
+  if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}
 }
 requestAnimationFrame(frame);client.connect();

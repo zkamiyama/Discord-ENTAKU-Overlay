@@ -180,7 +180,10 @@ export class AppEngine {
   }
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
-    const clean=validateStudioScene(scene);this.advance(now);this.studio=clean;
+    const clean=validateStudioScene(scene);this.advance(now);
+    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined});
+    const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;
+    if(exposureOnly){this.revision++;this.seq++;return;}
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);

@@ -9,10 +9,11 @@ export class StudioVisual {
   private signature='';
   private loaded:THREE.Group|null=null;private broadcast:BroadcastSet|null=null;
   private definition:StudioScene|null=null;
-  loading=false;error='';
+  loading=false;error='';authoredLights=0;
+  get renderGeneration():number{return this.generation;}
   constructor(private client:StudioClient,private renderer:THREE.WebGLRenderer){}
   async update(definition:StudioScene):Promise<void>{
-    const signature=JSON.stringify(definition);if(signature===this.signature)return;
+    const signature=JSON.stringify({...definition,revision:0,exposure:undefined});if(signature===this.signature){this.definition=definition;return;}
     this.signature=signature;this.definition=definition;
     const version=++this.generation,stage=new THREE.Group();let broadcast:BroadcastSet|null=null;this.loading=true;this.error='';
     try{
@@ -29,9 +30,10 @@ export class StudioVisual {
         object.name=item.id;stage.add(object);
         if(version!==this.generation){disposeObject(stage);return;}
       }
+      this.authoredLights=0;stage.traverseVisible(o=>{if(o instanceof THREE.Light&&o.intensity>0)this.authoredLights++;});
       if(this.loaded)disposeObject(this.loaded);this.loaded=stage;this.broadcast=broadcast;this.root.add(stage);
       this.root.updateMatrixWorld(true);
-    }catch(e){disposeObject(stage);if(version===this.generation){this.error=e instanceof Error?e.message:'STUDIO_LOAD_FAILED';if(this.loaded){disposeObject(this.loaded);this.loaded=null;}}}
+    }catch(e){disposeObject(stage);if(version===this.generation){this.authoredLights=0;this.error=e instanceof Error?e.message:'STUDIO_LOAD_FAILED';if(this.loaded){disposeObject(this.loaded);this.loaded=null;}}}
     finally{if(version===this.generation)this.loading=false;}
   }
   setLength(length:number):string{

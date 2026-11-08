@@ -1,3 +1,4 @@
+import { validateExposure, type ExposureSettings } from './exposure.ts';
 import type { Vec3 } from '../contracts/domain.ts';
 
 /** All distances are metres in the local, right-handed Three.js stage. */
@@ -22,6 +23,7 @@ export interface StudioScene {
   tableEnvelope: { maxStraightLength: number; overflow: 'hide-studio' | 'warn-only' };
   objects: StudioObject[];
   camera?: StudioCamera;
+  exposure?: ExposureSettings;
   broadcast?:{enabled:boolean;title:string;subtitle:string};
 }
 export const DEFAULT_STUDIO_SCENE: StudioScene = {
@@ -67,7 +69,7 @@ function transform(v: unknown): StudioTransform {
   return { position: vec3(x.position,-100,100), yawDeg: finite(x.yawDeg,-360,360), scale: vec3(x.scale,0.01,20) };
 }
 export function validateStudioScene(value: unknown): StudioScene {
-  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast']);
+  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast','exposure']);
   if (scene.schemaVersion !== 1) throw new Error('STUDIO_SCHEMA_UNSUPPORTED');
   const rev=finite(scene.revision,0,Number.MAX_SAFE_INTEGER);
   if (!Number.isSafeInteger(rev)) throw new Error('STUDIO_SCENE_INVALID');
@@ -104,6 +106,7 @@ export function validateStudioScene(value: unknown): StudioScene {
     objects,
     ...(scene.camera===undefined?{}:{camera:validateStudioCamera(scene.camera)}),
     ...(scene.broadcast===undefined?{}:{broadcast:validateBroadcast(scene.broadcast)}),
+    ...(scene.exposure===undefined?{}:{exposure:validateExposure(scene.exposure)}),
   };
 }
 

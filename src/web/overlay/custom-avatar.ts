@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { protectDisplayObject } from '../studio/exposure-renderer.ts';
 import { avatarBounds,backProfile,type AvatarProfile } from '../../assets/avatar-profile.ts';
 import { alphaField } from './alpha-field-client.ts';
 const vertexShader=`varying vec2 vUv;varying float vWorldY;
@@ -53,7 +54,7 @@ export class CustomAvatarVisual {
       #include <colorspace_fragment>
       }`,transparent:true,depthWrite:false,depthTest:true,side:materialSide,toneMapped:false,
     });
-    this.cards.push({geometry,image,distance,body,glow});const bodyMesh=new THREE.Mesh(geometry,body),glowMesh=new THREE.Mesh(geometry,glow);glowMesh.renderOrder=1;this.root.add(bodyMesh,glowMesh);
+    this.cards.push({geometry,image,distance,body,glow});const bodyMesh=new THREE.Mesh(geometry,body),glowMesh=new THREE.Mesh(geometry,glow);glowMesh.renderOrder=1;this.root.add(bodyMesh,glowMesh);protectDisplayObject(this.root);
   }
   update(opacity:number,strength:number,floorY=0):void{
     for(const c of this.cards){c.body.uniforms.opacity!.value=opacity;c.glow.uniforms.strength!.value=strength;c.body.uniforms.floorY!.value=c.glow.uniforms.floorY!.value=floorY;}

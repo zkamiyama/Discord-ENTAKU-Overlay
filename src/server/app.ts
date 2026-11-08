@@ -223,7 +223,8 @@ export function startServer(options: ServerOptions) {
           else if(p.type==='render-status'){
             const allowed=['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST'];
             if(!allowed.includes(String(p.status))||![p.frameMs,p.drawCalls,p.triangles].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<1e9))throw new Error();
-            reports.set(socket,{status:String(p.status),frameMs:p.frameMs as number,drawCalls:p.drawCalls as number,triangles:p.triangles as number,updatedAtMs:performance.now()});
+            const exposure=typeof p.exposure==='number'&&Number.isFinite(p.exposure)&&p.exposure>0&&p.exposure<=32&&['AUTO','MANUAL','EMPTY_METER','HDR_UNAVAILABLE','METER_FAILED'].includes(String(p.exposureStatus))&&typeof p.authoredLights==='number'&&Number.isSafeInteger(p.authoredLights)&&p.authoredLights>=0&&p.authoredLights<=10000&&typeof p.fallbackLights==='boolean'?{exposure:p.exposure,exposureStatus:String(p.exposureStatus),authoredLights:p.authoredLights,fallbackLights:p.fallbackLights}:{};
+            reports.set(socket,{status:String(p.status),frameMs:p.frameMs as number,drawCalls:p.drawCalls as number,triangles:p.triangles as number,updatedAtMs:performance.now(),...exposure});
           }
           else if (p.type === 'resync') send(socket, snapshot());
           else socket.close(1008, 'INVALID_MESSAGE');
