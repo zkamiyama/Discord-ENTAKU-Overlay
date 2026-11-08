@@ -1,6 +1,6 @@
 import {openSession} from './controls.ts';
 import {personAction} from './controls.ts';
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures.ts';
 import { mkdir } from 'node:fs/promises';
 test('Dock drives overlay, detects speech, reserves seats and restores a returning guest', async ({ page, context }) => {
   const errors:string[]=[];

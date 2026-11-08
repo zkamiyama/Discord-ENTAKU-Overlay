@@ -1,4 +1,4 @@
-import { expect,test } from '@playwright/test';
+import { expect,test } from './fixtures.ts';
 import { zipSync } from 'fflate';
 import { studioFixture } from '../tests/helpers/gltf.ts';
 test('ZIP GLTF with relative buffer and texture loads through GLTFLoader, previews and survives Dock reload',async({page,context})=>{

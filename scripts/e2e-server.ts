@@ -6,5 +6,6 @@ const engine=new AppEngine({source:'demo',serverEpoch:'e2e-only'});
 for(const event of demoEvents())engine.apply(event);
 // This entry point never reads Discord or persistent user data.
 const app=startServer({engine,assets:await Bun.file('.generated/web-assets.json').json(),port:31339,now:()=>performance.now()-start});
+console.log('ENTAKU_E2E_READY');
 const stop=()=>{void app.stop().then(()=>process.exit(0));};
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

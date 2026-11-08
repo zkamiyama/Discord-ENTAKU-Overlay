@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures.ts';
 import {personAction,openSession} from './controls.ts';
 test('compact Dock supports themes, keyboard menus and one/two moderator layouts',async({page,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));

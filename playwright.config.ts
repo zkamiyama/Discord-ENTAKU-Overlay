@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
-  testDir: './e2e', fullyParallel: false, workers: 1, timeout: 30000,
+  testDir: './e2e', fullyParallel: false, workers: 1, timeout: process.env.CI?90000:60000,
+  // Software WebGL compiles shaders much more slowly than a local GPU.
+  expect: {timeout: process.env.CI?20000:10000},
   use: { channel: 'chromium', locale: 'ja-JP', baseURL: 'http://127.0.0.1:31339', viewport: { width: 1280, height: 720 },
     launchOptions: { args: ['--enable-unsafe-swiftshader','--use-angle=swiftshader'] } },
-  webServer: { command: 'bun run scripts/e2e-server.ts', url: 'http://127.0.0.1:31339/api/health', reuseExistingServer: false, timeout: 15000 },
 });

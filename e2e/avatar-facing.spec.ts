@@ -1,5 +1,5 @@
 import {personAction} from './controls.ts';
-import {expect,test,type Page} from '@playwright/test';
+import {expect,test,type Page} from './fixtures.ts';
 async function centerPixel(page:Page):Promise<number[]>{
   const bytes=await page.locator('#avatar-3d-preview').screenshot();
   return page.evaluate(async base64=>{

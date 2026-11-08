@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures.ts';
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
 let probe='';

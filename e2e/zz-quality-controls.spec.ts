@@ -1,4 +1,4 @@
-import {expect,test,type Page} from '@playwright/test';
+import {expect,test,type Page} from './fixtures.ts';
 import {openSession} from './controls.ts';
 async function snapshot(page:Page){return page.evaluate(()=>new Promise<any>((resolve,reject)=>{const w=new WebSocket('ws://'+location.host+'/ws');const timer=setTimeout(()=>{w.close();reject(new Error('SNAPSHOT_TIMEOUT'));},5000);w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){clearTimeout(timer);w.close();resolve(m.state);}};}));}
 test('quality switches persist without changing the shot and rear arc is fixed during rendered desk growth',async({page,context})=>{

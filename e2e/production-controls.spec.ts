@@ -1,5 +1,5 @@
 import {personAction} from './controls.ts';
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures.ts';
 import {png} from '../tests/helpers/png.ts';
 test('front and independent back images preview, persist and restore without expanding a reduced image layout',async({page,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
