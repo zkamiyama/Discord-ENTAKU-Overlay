@@ -34,10 +34,20 @@ test('OTS uses a real opposite foreground and the rendered camera moves into a p
  const people=page.locator('.person');await people.nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#composition')).toHaveAttribute('data-composition','SINGLE_OTS',{timeout:8000});
  await expect(page.locator('#foreground')).toContainText('ハル');
+ // Wait for the Overlay's rendered state, not just the Dock's server snapshot.
+ const rendered=overlay.locator('#scene');
+ await expect(rendered).toHaveAttribute('data-composition','SINGLE_OTS');
+ const before=await rendered.getAttribute('data-camera-position');
+ expect(before).not.toBeNull();
  await overlay.screenshot({path:'.work/broadcast-ots.png'});
  await people.nth(2).getByRole('button',{name:'発話 ON',exact:true}).click();await expect(page.locator('#shot')).toHaveText('TWO_SHOT',{timeout:10000});
  await expect(page.locator('#camera-transition')).toHaveText('MOVE');
- const before=await overlay.locator('#scene').getAttribute('data-camera-position');await page.waitForTimeout(400);const after=await overlay.locator('#scene').getAttribute('data-camera-position');expect(after).not.toBe(before);
+ // A software renderer may need more than 400 ms for a frame. Capture the
+ // starting pose before the action, then assert that the rendered pose advances.
+ // Unit tests separately verify intermediate poses and exact MOVE endpoints.
+ await expect(rendered).toHaveAttribute('data-composition','TWO_SHOT');
+ await expect(rendered).toHaveAttribute('data-transition','MOVE');
+ await expect.poll(()=>rendered.getAttribute('data-camera-position'),{message:'Overlay must render a new camera position for the TWO_SHOT'}).not.toBe(before);
  await people.nth(1).getByRole('button',{name:'発話 OFF',exact:true}).click();await people.nth(2).getByRole('button',{name:'発話 OFF',exact:true}).click();
  await openSession(page);page.once('dialog',d=>void d.accept());await page.locator('#new-session').click();
 });
