@@ -1,0 +1,33 @@
+import {DEFAULT_QUALITY,validateQuality,type QualitySettings} from '../../studio/quality.ts';
+import type {AppSnapshot} from '../../contracts/domain.ts';
+import type {StudioClient} from '../shared/client.ts';
+const input=(id:string)=>document.getElementById(id) as HTMLInputElement;
+const fields:Record<string,keyof QualitySettings>={'quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates'};
+export class QualityPanel {
+ private busy=false;
+ constructor(private client:StudioClient){
+  for(const id of [...Object.keys(fields),'quality-ao','quality-reflections','quality-fxaa'])input(id).addEventListener('change',()=>void this.apply());
+  input('quality-default').onclick=()=>void this.preset({});
+  input('quality-low').onclick=()=>void this.preset({shadows:'off'});
+  input('quality-high').onclick=()=>void this.preset({shadows:'soft',shadowSize:2048,ao:'gtao',reflections:true,fxaa:true});
+ }
+ update(state:AppSnapshot):void{
+  if(this.busy)return;const q=state.studio.quality??DEFAULT_QUALITY;
+  for(const [id,key]of Object.entries(fields))if(document.activeElement!==input(id))input(id).value=String(q[key]);
+  input('quality-ao').checked=q.ao==='gtao';input('quality-reflections').checked=q.reflections;input('quality-fxaa').checked=q.fxaa;
+ }
+ private preset(value:Partial<QualitySettings>):Promise<void>{return this.save({...DEFAULT_QUALITY,nameplates:this.client.state?.studio.quality?.nameplates??'white',...value});}
+ private apply():Promise<void>{
+  const q:Record<string,unknown>={...DEFAULT_QUALITY};
+  for(const [id,key]of Object.entries(fields))q[key]=typeof DEFAULT_QUALITY[key]==='number'?Number(input(id).value):input(id).value;
+  q.ao=input('quality-ao').checked?'gtao':'off';q.reflections=input('quality-reflections').checked;q.fxaa=input('quality-fxaa').checked;
+  return this.save(q);
+ }
+ private async save(value:unknown):Promise<void>{
+  if(this.busy||!this.client.state)return;this.busy=true;input('quality-message').textContent='';
+  const controls=[...document.querySelectorAll<HTMLInputElement>('#quality-controls input,#quality-controls select,#quality-controls button')];controls.forEach(e=>e.disabled=true);
+  try{const state=this.client.state;await this.client.command({type:'studio-set',scene:{...state.studio,quality:validateQuality(value)}},state.revision);}
+  catch(e){input('quality-message').textContent=e instanceof Error?e.message:'画質設定を保存できません';}
+  finally{this.busy=false;controls.forEach(e=>e.disabled=false);if(this.client.state)this.update(this.client.state);}
+ }
+}

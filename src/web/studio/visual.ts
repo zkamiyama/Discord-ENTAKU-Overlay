@@ -13,7 +13,7 @@ export class StudioVisual {
   get renderGeneration():number{return this.generation;}
   constructor(private client:StudioClient,private renderer:THREE.WebGLRenderer){}
   async update(definition:StudioScene):Promise<void>{
-    const signature=JSON.stringify({...definition,revision:0,exposure:undefined});if(signature===this.signature){this.definition=definition;return;}
+    const signature=JSON.stringify({...definition,revision:0,exposure:undefined,quality:undefined});if(signature===this.signature){this.definition=definition;return;}
     this.signature=signature;this.definition=definition;
     const version=++this.generation,stage=new THREE.Group();let broadcast:BroadcastSet|null=null;this.loading=true;this.error='';
     try{
@@ -36,8 +36,8 @@ export class StudioVisual {
     }catch(e){disposeObject(stage);if(version===this.generation){this.authoredLights=0;this.error=e instanceof Error?e.message:'STUDIO_LOAD_FAILED';if(this.loaded){disposeObject(this.loaded);this.loaded=null;}}}
     finally{if(version===this.generation)this.loading=false;}
   }
-  setLength(length:number):string{
-    this.broadcast?.setLength(length);
+  setLength(length:number,offsetZ=0):string{
+    this.broadcast?.setLength(length,offsetZ);
     const overflow=!!this.definition&&length>this.definition.tableEnvelope.maxStraightLength;
     this.root.visible=!this.loading&&!this.error&&!(overflow&&this.definition?.tableEnvelope.overflow==='hide-studio');
     return this.error?'STUDIO_LOAD_FAILED':this.loading?'STUDIO_LOADING':overflow?'STUDIO_CAPACITY_OVERFLOW':'READY';

@@ -21,7 +21,7 @@ export type ProviderEvent = { sourceGeneration: number; receivedAtMs: number } &
 export interface Reservation { userId: string; seatId: string; slotIndex: number; reservedAtUtc: string }
 export interface SeatSession {
   schemaVersion: 1; sessionId: string; channelId: string; revision: number;
-  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number; moderatorIds?: string[]; straightLengthFloor?: number;
+  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number; moderatorIds?: string[]; straightLengthFloor?: number; growthAnchorLength?: number;
   reservations: Reservation[]; waitingUserIds: string[];
 }
 export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
@@ -40,7 +40,7 @@ export interface AppSnapshot {
   studio: StudioScene;
   speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean}>;
   avatarProfiles: AvatarProfile[];
-  participants: Participant[]; session: SeatSession; straightLength: number; seats: SeatTransform[];
-  layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; startMs: number; durationMs: number };
+  participants: Participant[]; session: SeatSession; straightLength: number; deskOffsetZ?: number; seats: SeatTransform[];
+  layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; fromDeskOffsetZ?: number; startMs: number; durationMs: number };
   mode: DirectorMode; decision: Decision; camera: CameraPlan; source: 'demo' | 'replay' | 'ipc';
 }

@@ -22,6 +22,7 @@ export function validateSession(input: unknown): SeatSession {
   if(!Array.isArray(moderatorIds)||moderatorIds.length>2||new Set(moderatorIds).size!==moderatorIds.length||moderatorIds.some(id=>!validId(id)||!s.reservations.some(r=>r.userId===id)))throw new Error('INVALID_MODERATORS');
   const floor=s.straightLengthFloor??0;
   if(!Number.isFinite(floor)||floor<0||floor>100)throw new Error('INVALID_LAYOUT_FLOOR');
+  if(s.growthAnchorLength!==undefined&&(!Number.isFinite(s.growthAnchorLength)||s.growthAnchorLength<0||s.growthAnchorLength>100))throw new Error('INVALID_GROWTH_ANCHOR');
   return {...structuredClone(s),seatPitch:pitch,moderatorIds:[...moderatorIds],straightLengthFloor:floor};
 }
 export function newSession(channelId: string, sessionId: string, minSeats: number = TABLE.minSeats): SeatSession {
@@ -36,6 +37,10 @@ export class SeatAllocator {
     if(!Number.isFinite(pitch)||pitch<0||pitch>3)throw new Error('INVALID_SEAT_PITCH');
     if(pitch<=(this.session.seatPitch??TABLE.seatPitch)+1e-9)return false;
     this.session.seatPitch=pitch;this.session.revision++;return true;
+  }
+  lockGrowthAnchor(length:number):void {
+    if(!Number.isFinite(length)||length<0||length>100)throw new Error('INVALID_GROWTH_ANCHOR');
+    if(this.session.growthAnchorLength===undefined){this.session.growthAnchorLength=length;this.session.revision++;}
   }
   retainLength(length:number):void {
     if(!Number.isFinite(length)||length<0||length>100)throw new Error('INVALID_LAYOUT_FLOOR');

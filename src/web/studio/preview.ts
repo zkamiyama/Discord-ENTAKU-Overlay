@@ -1,3 +1,4 @@
+import {DEFAULT_QUALITY,type QualitySettings} from '../../studio/quality.ts';
 import {ExposureRenderer,createFallbackLights} from './exposure-renderer.ts';
 import {DEFAULT_EXPOSURE,type ExposureSettings} from '../../studio/exposure.ts';
 import {BroadcastDesk} from './broadcast-desk.ts';
@@ -12,6 +13,7 @@ export class PreviewStage {
   readonly camera=new THREE.PerspectiveCamera(45,1,.05,500);
   readonly controls:OrbitControls;
   readonly table=makePreviewTable();
+  qualitySettings:QualitySettings={...DEFAULT_QUALITY};
   exposureSettings:ExposureSettings={...DEFAULT_EXPOSURE};authoredLights=0;exposureSource='preview';
   private exposureRenderer:ExposureRenderer;
   private frame=0;private stopped=false;private previous=0;
@@ -39,7 +41,7 @@ export class PreviewStage {
     if(this.renderer.domElement.width!==Math.round(width*this.renderer.getPixelRatio())||this.renderer.domElement.height!==Math.round(height*this.renderer.getPixelRatio())){
       this.renderer.setSize(width,height,false);this.camera.aspect=width/height;this.camera.updateProjectionMatrix();
     }
-    this.controls.update();this.onFrame();this.exposureRenderer.render(this.scene,this.camera,this.exposureSettings,this.exposureSource,this.authoredLights,time);
+    this.controls.update();this.onFrame();this.exposureRenderer.render(this.scene,this.camera,this.exposureSettings,this.exposureSource,this.authoredLights,time,this.qualitySettings);
     this.canvas.dataset.exposure=String(this.exposureRenderer.report.exposure);this.canvas.dataset.exposureStatus=this.exposureRenderer.report.exposureStatus;
   };
   dispose():void{this.stopped=true;cancelAnimationFrame(this.frame);this.controls.dispose();this.exposureRenderer.dispose();disposeObject(this.scene);this.renderer.dispose();this.renderer.forceContextLoss();this.canvas.replaceWith(this.canvas.cloneNode(false));}

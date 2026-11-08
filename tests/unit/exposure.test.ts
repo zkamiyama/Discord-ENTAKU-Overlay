@@ -39,7 +39,7 @@ test('exposure-only changes preserve the live shot and validate persisted settin
 
 test('unsupported HDR reports a manual fallback and display objects retain depth testing',async()=>{
  const THREE=await import('three');const {ExposureRenderer,protectDisplayObject}=await import('../../src/web/studio/exposure-renderer.ts');
- let draws=0;const renderer={extensions:{has:()=>false},render:()=>{draws++;}} as unknown as InstanceType<typeof THREE.WebGLRenderer>;
+ let draws=0;const renderer={shadowMap:{enabled:false,type:THREE.PCFShadowMap},extensions:{has:()=>false},render:()=>{draws++;}} as unknown as InstanceType<typeof THREE.WebGLRenderer>;
  const fallback=new THREE.Group(),exposure=new ExposureRenderer(renderer,fallback);
  const result=exposure.render(new THREE.Scene(),new THREE.PerspectiveCamera(),{...DEFAULT_EXPOSURE,manualExposure:.00255},'test',9,0);
  expect(result.exposureStatus).toBe('HDR_UNAVAILABLE');expect(result.exposure).toBe(.00255);expect(result.fallbackLights).toBe(false);

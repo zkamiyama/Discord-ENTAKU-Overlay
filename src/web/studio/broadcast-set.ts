@@ -25,5 +25,5 @@ export class BroadcastSet extends THREE.Group {
   const plinth=new THREE.Mesh(new THREE.BoxGeometry(5.5,.16,1.7),material(0xb7b2a1));plinth.position.set(0,.02,.8);this.rear.add(plinth);
   this.setLength(3);
  }
- setLength(length:number){this.rear.position.z=-length/2-3.7;this.floor.scale.y=length+14;for(const side of this.sides)side.scale.z=length+14;}
+ setLength(length:number,offsetZ=0){this.rear.position.z=offsetZ-length/2-3.7;this.floor.scale.y=length+14;this.floor.position.z=offsetZ;for(const side of this.sides){side.scale.z=length+14;side.position.z=offsetZ;}}
 }

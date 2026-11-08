@@ -53,7 +53,7 @@ export class StudioClient {
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'COMMAND_FAILED');
   }
-  reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean}):void{
+  reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number}):void{
     if(this.connected&&this.socket?.readyState===WebSocket.OPEN)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure}));
   }
   async localFetch(url:string,init:RequestInit={}):Promise<Response>{

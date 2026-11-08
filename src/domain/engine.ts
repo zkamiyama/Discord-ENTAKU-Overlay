@@ -146,14 +146,17 @@ export class AppEngine {
   }
   private allocate(): void {
     const oldLayout=this.layout;
+    const saved=this.allocator.snapshot();
+    if(saved.reservations.length)this.allocator.lockGrowthAnchor(makeSessionLayout(saved).straightLength);
     this.allocator.updatePresent(this.presentIds(),this.options.utcNow?.()??new Date().toISOString());
     const pitch=Math.max(TABLE.seatPitch,...this.allocator.snapshot().reservations.map(r=>{const p=this.profiles.get(r.userId);return p?requiredAvatarPitch(p):TABLE.seatPitch;}));
     this.allocator.expandPitch(pitch);
     const next=makeSessionLayout(this.allocator.snapshot());
+    if(this.allocator.snapshot().reservations.length)this.allocator.lockGrowthAnchor(next.straightLength);
     this.allocator.retainLength(next.straightLength);
     if(JSON.stringify(next)!==JSON.stringify(oldLayout)){
       this.layout=next;
-      this.layoutMotion={fromSeats:oldLayout.seats,fromStraightLength:oldLayout.straightLength,startMs:this.now,durationMs:TABLE.growthDurationMs};
+      this.layoutMotion={fromSeats:oldLayout.seats,fromStraightLength:oldLayout.straightLength,fromDeskOffsetZ:oldLayout.offsetZ??0,startMs:this.now,durationMs:TABLE.growthDurationMs};
       this.layoutHoldUntil=this.now+TABLE.growthDurationMs+500;this.layoutHoldReason='LAYOUT_GROWTH';
       this.forceWide('LAYOUT_GROWTH');
     }
@@ -181,7 +184,7 @@ export class AppEngine {
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=validateStudioScene(scene);this.advance(now);
-    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined});
+    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined});
     const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;
     if(exposureOnly){this.revision++;this.seq++;return;}
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
@@ -191,10 +194,10 @@ export class AppEngine {
   private protect(plan:CameraPlan):CameraPlan{
     const extents=this.avatarExtents();
     const points=[...this.byUser()].flatMap(([id,seat])=>avatarFramePoints(seat,extents.get(id)??{halfWidth:.35,topY:1.6,bottomY:.85}));
-    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values()),pose=>fitsCameraFrame(pose,points));
+    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values(),this.layout.offsetZ??0),pose=>fitsCameraFrame(pose,points));
   }
   private forceWide(reason: string): void {
-    this.camera = this.protect(planCamera(this.camera, { kind: 'WIDE', userIds: [] }, reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents()));
+    this.camera = this.protect(planCamera(this.camera, { kind: 'WIDE', userIds: [] }, reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0));
   }
   tick(now: number): void {
     this.advance(now);
@@ -206,7 +209,7 @@ export class AppEngine {
       const shot=this.pendingManual;this.pendingManual=null;
       if(shot.userIds.every(id=>present.includes(id))){
         const requested=this.director.manual(shot,this.now);
-        if(requested.changed)this.camera=this.protect(planCamera(this.camera,shot,requested.reason,byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents()));
+        if(requested.changed)this.camera=this.protect(planCamera(this.camera,shot,requested.reason,byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0));
         this.seq++;
       }
     }
@@ -216,7 +219,7 @@ export class AppEngine {
       canPair: (a, b) => !!byUser.get(a) && !!byUser.get(b) && pairPose(byUser.get(a)!, byUser.get(b)!,[a,b].flatMap(id=>extents.has(id)?[extents.get(id)!]:[])) !== null,
     });
     if (this.decision.changed) {
-      this.camera = this.protect(planCamera(this.camera, this.decision.shot, this.decision.reason, byUser, this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents()));
+      this.camera = this.protect(planCamera(this.camera, this.decision.shot, this.decision.reason, byUser, this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0));
       this.director.transitionEndsAt(this.now + this.camera.durationMs);
       this.seq++;
     }
@@ -233,7 +236,7 @@ export class AppEngine {
         this.pendingManual=structuredClone(command.shot);this.director.setMode('MANUAL');
       }else{
         this.pendingManual=null;const decision=this.director.manual(command.shot,this.now);
-        if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents()));
+        if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0));
       }
     } else if(command.type==='moderators'){
       if(!this.channel)throw new Error('NO_CHANNEL');
@@ -270,7 +273,7 @@ export class AppEngine {
       speech:this.presentIds().map(userId=>{const s=this.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified};}),
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.participants.values()],
-      session: this.allocator.snapshot(), straightLength: this.layout.straightLength, seats: this.layout.seats, layoutMotion: this.layoutMotion,
+      session: this.allocator.snapshot(), straightLength: this.layout.straightLength, deskOffsetZ:this.layout.offsetZ??0, seats: this.layout.seats, layoutMotion: this.layoutMotion,
       mode: this.director.mode, decision: this.decision, camera: this.camera, source: this.options.source,
     });
   }

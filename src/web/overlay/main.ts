@@ -1,5 +1,9 @@
+import {disposeObject} from '../studio/dispose.ts';
+import {DEFAULT_QUALITY} from '../../studio/quality.ts';
 import {ExposureRenderer,createFallbackLights,protectDisplayObject} from '../studio/exposure-renderer.ts';
 import {DEFAULT_EXPOSURE} from '../../studio/exposure.ts';
+import {NameplateVisual} from '../studio/nameplate.ts';
+import {platePosition} from '../../geometry/desk-props.ts';
 import {BroadcastDesk,deskProps} from '../studio/broadcast-desk.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
 import { StudioVisual } from '../studio/visual.ts';
@@ -39,16 +43,9 @@ function placeholder(user:Participant):THREE.CanvasTexture {
   x.fillText([...user.displayName][0]??'?',128,132);
   const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
-function labelTexture(name:string):THREE.CanvasTexture {
-  const c=document.createElement('canvas');c.width=768;c.height=192;const x=c.getContext('2d')!;
-  x.fillStyle='#142f60';x.textAlign='center';x.textBaseline='middle';
-  let size=76;do{x.font=`600 ${size}px Meiryo, "Yu Gothic", "Noto Sans CJK JP", sans-serif`;if(x.measureText(name).width<700)break;size-=2;}while(size>28);
-  const label=[...name].length>24?[...name].slice(0,23).join('')+'…':name;x.fillText(label,384,100);
-  const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
-}
 class Avatar {
   root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
-  outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; label:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;
+  outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
   user:Participant; opacity=0; glow=0; yaw=0; disposed=false; textureVersion=0; avatarUrl?:string;
   custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
   constructor(user:Participant,profile?:AvatarProfile){
@@ -57,9 +54,8 @@ class Avatar {
     this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
       uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float d=length(vUv-.5)*.64-.28;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
     this.root.add(this.outline);
-    const base=new THREE.Mesh(new THREE.BoxGeometry(.64,.17,.035),new THREE.MeshBasicMaterial({color:0xf6f3e9,toneMapped:false}));this.plate.add(base);
-    this.label=new THREE.Mesh(new THREE.PlaneGeometry(.59,.147),new THREE.MeshBasicMaterial({map:labelTexture(user.displayName),transparent:true,depthWrite:false}));this.label.position.z=.019;this.plate.add(this.label,deskProps());
-    protectDisplayObject(this.root);protectDisplayObject(this.label);protectDisplayObject(base);
+    this.nameplate=new NameplateVisual(user.displayName);this.plate.add(this.nameplate,deskProps());
+    protectDisplayObject(this.root);
     stage.add(this.root,this.plate);this.update(user,profile);
   }
   update(user:Participant,profile?:AvatarProfile):void {
@@ -81,7 +77,7 @@ class Avatar {
         avatarFailures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
       });
     }
-    if(this.user.displayName!==user.displayName){this.label.material.map?.dispose();this.label.material.map=labelTexture(user.displayName);this.label.material.needsUpdate=true;}
+    this.nameplate.setName(user.displayName,state?.studio.quality?.nameplates??'white');
     this.user=user;
     if(!profile&&user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
       if(user.avatarUrl)void client.avatar(user.userId).then(bitmap=>{
@@ -107,13 +103,13 @@ class Avatar {
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
     this.outline.material.uniforms.strength!.value=intensity;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0);
-    this.plate.position.set(seat.position[0]+seat.inward[0]*.66,.85,seat.position[2]+seat.inward[2]*.66);this.plate.rotation.y=seat.baseYawRad;
+    this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
   }
   dispose():void {
     this.disposed=true;avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;stage.remove(this.root,this.plate);
     this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
     const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
-    this.plate.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.map?.dispose();o.material.dispose();}});
+    disposeObject(this.plate);
   }
 }
 const avatarFailures=new Set<string>();
@@ -128,10 +124,11 @@ window.addEventListener('resize',resize);resize();
 function frame(time:number):void{
   requestAnimationFrame(frame);renderer.info.reset();frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
   const serverNow=client.now();let length=state?.straightLength??0;
-  let progress=1;const motion=state?.layoutMotion;
-  if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);}
+  let offsetZ=state?.deskOffsetZ??0;let progress=1;const motion=state?.layoutMotion;
+  if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);offsetZ=THREE.MathUtils.lerp(motion.fromDeskOffsetZ??0,offsetZ,progress);}
   if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
-  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[]);
+  table.position.z=offsetZ;
+  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
   if(state)for(const reservation of state.session.reservations){
     const target=state.seats[reservation.slotIndex],avatar=avatars.get(reservation.userId);if(!target||!avatar)continue;
@@ -145,12 +142,12 @@ function frame(time:number):void{
   if(state){
     stage.position.fromArray(state.studio.tableAnchor.position);stage.rotation.y=THREE.MathUtils.degToRad(state.studio.tableAnchor.yawDeg);stage.updateMatrixWorld(true);
     const target=stage.localToWorld(new THREE.Vector3().fromArray(pose.target));stage.localToWorld(camera.position);camera.lookAt(target);
-    const studioStatus=studioVisual.setLength(length);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
-    canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
+    const studioStatus=studioVisual.setLength(length,offsetZ);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
+    canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
   }
   if(!contextLost){
-    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time);
-    canvas.dataset.exposure=String(report.exposure);canvas.dataset.exposureStatus=report.exposureStatus;
+    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY);
+    canvas.dataset.exposure=String(report.exposure);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
     canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
   }
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}

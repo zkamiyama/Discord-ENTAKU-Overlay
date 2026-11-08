@@ -41,7 +41,7 @@ export function solveStraightLength(count: number, radius: number, pitch: number
   }
   throw new RangeError('NO_VALID_LAYOUT');
 }
-export interface DeskLayout { straightLength:number; seats:SeatTransform[] }
+export interface DeskLayout { straightLength:number; offsetZ?:number; seats:SeatTransform[] }
 /** Role placement, not equal spacing around a perimeter. Slots retain logical identity. */
 export function makeLayout(count:number,pitch:number=TABLE.seatPitch,moderatorSlots:readonly number[]=[0],floor=0):DeskLayout {
   if(!Number.isInteger(count)||count<1||count>32)throw new RangeError('INVALID_SEAT_COUNT');
@@ -77,5 +77,9 @@ export function makeLayout(count:number,pitch:number=TABLE.seatPitch,moderatorSl
 }
 export function makeSessionLayout(session:SeatSession):DeskLayout {
   const slots=(session.moderatorIds??[]).flatMap(id=>{const r=session.reservations.find(r=>r.userId===id);return r?[r.slotIndex]:[];});
-  return makeLayout(session.capacity,session.seatPitch,slots.length?slots:[0],session.straightLengthFloor??0);
+  const layout=makeLayout(session.capacity,session.seatPitch,slots.length?slots:[0],session.straightLengthFloor??0);
+  // The first occupied layout fixes the rear arc. Later growth is all towards +Z.
+  // Missing anchor on an older session initially preserves its existing placement.
+  const offsetZ=(layout.straightLength-(session.growthAnchorLength??layout.straightLength))/2;
+  return {...layout,offsetZ,seats:layout.seats.map(s=>({...s,position:[s.position[0],s.position[1],s.position[2]+offsetZ],faceAnchor:[s.faceAnchor[0],s.faceAnchor[1],s.faceAnchor[2]+offsetZ]}))};
 }

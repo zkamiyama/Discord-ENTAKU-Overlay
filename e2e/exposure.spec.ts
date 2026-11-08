@@ -69,3 +69,23 @@ test('GLTFLoader preserves high-unit model lights and auto exposure avoids a whi
   expect(manualWhite).toBeGreaterThan(autoWhite+.20);
  }finally{await apply(original);}
 });
+
+
+test('AO, SSR and FXAA preserve avatar RGB, transparent background and world-depth occlusion',async({page})=>{
+ test.setTimeout(90000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
+ await page.route('**/exposure-probe',route=>route.fulfill({contentType:'text/html',body:'<html><body style="margin:0"><canvas></canvas><script type="module" src="/static/exposure-probe.js"></script></body></html>'}));
+ await page.route('**/static/exposure-probe.js',route=>route.fulfill({contentType:'text/javascript',body:probe}));
+ await page.goto('/exposure-probe');await page.waitForFunction(()=>!!(window as any).exposureProbe);
+ const baseline=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.manual(.001);return {pixels:p.pixels(),memory:p.memory()};});
+ for(const q of [{ao:'gtao'},{reflections:true},{fxaa:true},{ao:'gtao',reflections:true,fxaa:true}]){
+  const a=await page.evaluate(q=>{const p=(window as any).exposureProbe;const r=p.quality(q);p.manual(1);return {report:r,pixels:p.pixels()};},q);
+  expect(a.report.qualityStatus).toBe('EFFECTS');
+  const b=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.manual(.0001);return p.pixels();});
+  for(const key of ['icon','avatar','label']){expect(a.pixels[key]).toEqual(b[key]);expect(b[key]).toEqual(baseline.pixels[key]);}
+  expect(b.alpha[3]).toBe(0);expect(Math.abs(b.occlusion[0]-b.occlusion[1])).toBeLessThan(4);
+ }
+ const end=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.quality({ao:'off',reflections:false,fxaa:false});p.manual(.001);return {pixels:p.pixels(),memory:p.memory()};});
+ expect(end.memory.textures).toBeLessThanOrEqual(baseline.memory.textures+1);
+ expect(errors).toEqual([]);
+});

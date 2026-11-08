@@ -1,3 +1,4 @@
+import {plateFramePoints} from '../geometry/desk-props.ts';
 import {Box3,Matrix4,PerspectiveCamera,Ray,Vector3} from 'three';
 import type {CameraPlan,CameraPose,SeatTransform,Shot,Vec3} from '../contracts/domain.ts';
 import type {AvatarExtent} from './camera-planner.ts';
@@ -23,8 +24,7 @@ function targets(seat:SeatTransform,extent:AvatarExtent):Vector3[]{
   const p=v(seat.faceAnchor).addScaledVector(right,x);p.y=y;points.push(p);
  }
  // The nameplate is as important as the face and sits nearer the camera.
- const plate=v(seat.position).addScaledVector(v(seat.inward),.66);plate.y=.86;
- for(const x of [-.29,0,.29])points.push(plate.clone().addScaledVector(right,x));
+ points.push(...plateFramePoints(seat).map(v));
  return points;
 }
 export function subjectsVisible(pose:CameraPose,ids:readonly string[],seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>):boolean {

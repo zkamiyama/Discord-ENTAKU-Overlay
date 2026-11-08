@@ -1,8 +1,10 @@
+import {QualityRenderer,type QualityStatus} from './quality-renderer.ts';
+import {DEFAULT_QUALITY,type QualitySettings} from '../../studio/quality.ts';
 import * as THREE from 'three';
 import {adaptExposure,clampExposure,DEFAULT_EXPOSURE,meterExposure,useFallbackLights,type ExposureSettings} from '../../studio/exposure.ts';
 export const DISPLAY_LAYER=1;
-/** Direct rendering (no full-frame output pass): built-in toneMapped=false preserves display RGB.
- * Put the same objects on a separate layer so they cannot influence exposure metering. */
+/** Display RGB stays unlit and untone-mapped in direct or composited rendering.
+ * The separate layer also keeps these objects out of exposure metering and screen effects. */
 export function protectDisplayObject(root:THREE.Object3D):void {
   root.traverse(object=>{
     object.layers.set(DISPLAY_LAYER);
@@ -18,10 +20,11 @@ export function createFallbackLights():THREE.Group {
   const rim=new THREE.DirectionalLight(0xffd5a1,1.2);rim.position.set(-3,3,-4);group.add(rim);return group;
 }
 export type ExposureStatus='AUTO'|'MANUAL'|'EMPTY_METER'|'HDR_UNAVAILABLE'|'METER_FAILED';
-export interface ExposureReport {exposure:number;exposureStatus:ExposureStatus;authoredLights:number;fallbackLights:boolean}
-/** Low-resolution HDR meter uses only Three.js render targets/readback. The output stays direct
- * to retain native transparency sorting and the common depth buffer for avatars and the desk. */
+export interface ExposureReport {exposure:number;exposureStatus:ExposureStatus;authoredLights:number;fallbackLights:boolean;qualityStatus?:QualityStatus;shadowLights?:number}
+/** Low-resolution HDR meter uses Three.js render targets/readback. QualityRenderer
+ * uses either direct rendering or depth-preserving effects followed by the display layer. */
 export class ExposureRenderer {
+  private readonly quality:QualityRenderer;
   private readonly target:THREE.WebGLRenderTarget;
   private readonly buffer:Uint16Array;
   private readonly linear:Float32Array;
@@ -31,6 +34,7 @@ export class ExposureRenderer {
   private readonly width=64;private readonly height=36;
   report:ExposureReport={exposure:1,exposureStatus:'AUTO',authoredLights:0,fallbackLights:true};
   constructor(private readonly renderer:THREE.WebGLRenderer,private readonly fallback:THREE.Group){
+    this.quality=new QualityRenderer(renderer,DISPLAY_LAYER);
     this.available=renderer.extensions.has('EXT_color_buffer_float')||renderer.extensions.has('EXT_color_buffer_half_float');
     this.target=new THREE.WebGLRenderTarget(this.width,this.height,{type:THREE.HalfFloatType,format:THREE.RGBAFormat,colorSpace:THREE.LinearSRGBColorSpace,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true,generateMipmaps:false});
     this.buffer=new Uint16Array(this.width*this.height*4);this.linear=new Float32Array(this.buffer.length);
@@ -68,7 +72,7 @@ export class ExposureRenderer {
       renderer.setClearColor(color,alpha);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest);
     }
   }
-  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now()):ExposureReport {
+  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY):ExposureReport {
     if(this.disposed)return this.report;
     const key=source+'|'+settings.mode+'|'+settings.lighting+'|'+authoredLights;
     if(key!==this.source){this.source=key;this.generation++;this.initialized=false;this.nextMeter=0;}
@@ -84,8 +88,8 @@ export class ExposureRenderer {
     this.lastFrame=now;
     const exposure=clampExposure(this.current*2**settings.compensationEV);
     this.renderer.toneMappingExposure=exposure;
-    this.renderer.render(scene,camera);
-    this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible};return this.report;
+    this.quality.render(scene,camera,quality,source+'|'+this.fallback.visible);
+    this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights};return this.report;
   }
-  dispose():void{this.disposed=true;this.generation++;if(!this.pending)this.target.dispose();}
+  dispose():void{this.quality.dispose();this.disposed=true;this.generation++;if(!this.pending)this.target.dispose();}
 }

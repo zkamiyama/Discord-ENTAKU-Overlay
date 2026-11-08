@@ -1,3 +1,4 @@
+import {plateFramePoints} from '../geometry/desk-props.ts';
 import {QuadraticBezierCurve3,Vector3,MathUtils} from 'three';
 import {chooseComposition,subjectsVisible} from './camera-composition.ts';
 import type { CameraPlan, CameraPose, SeatTransform, Shot, Vec3 } from '../contracts/domain.ts';
@@ -16,7 +17,7 @@ const front = (seat: SeatTransform, camera: Vec3): boolean => {
   return dot(unit([direction[0],0,direction[2]]),seat.inward) >= Math.cos(radians(70));
 };
 export interface AvatarExtent { halfWidth:number;topY:number;bottomY:number;bodyHalfWidth?:number;bodyTopY?:number;bodyBottomY?:number;faceHalfWidth?:number;faceHalfHeight?:number }
-export function widePose(straightLength: number, extents: Iterable<AvatarExtent> = []): CameraPose {
+export function widePose(straightLength: number, extents: Iterable<AvatarExtent> = [],offsetZ=0): CameraPose {
   // Fit sampled default-avatar bounds in camera space, not an oversized bounding sphere.
   const elevation=radians(24),sin=Math.sin(elevation),cos=Math.cos(elevation);
   const tanV=Math.tan(radians(22.5)),tanH=tanV*16/9,usable=.86;
@@ -31,7 +32,7 @@ export function widePose(straightLength: number, extents: Iterable<AvatarExtent>
       distance=Math.max(distance,nearOffset+Math.max(Math.abs(x)/(tanH*usable),Math.abs(vertical)/(tanV*usable)));
     }
   }
-  return {position:[0,.8+sin*distance,cos*distance],target:[0,.8,0],fov:45};
+  return {position:[0,.8+sin*distance,cos*distance+offsetZ],target:[0,.8,offsetZ],fov:45};
 }
 export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly AvatarExtent[] = []): CameraPose | null {
   const target=mul(add(a.faceAnchor,b.faceAnchor),0.5), inward=unit(add(a.inward,b.inward));
@@ -57,15 +58,14 @@ export function avatarFramePoints(seat:SeatTransform,extent:AvatarExtent):Vec3[]
   for(const x of [-extent.halfWidth,extent.halfWidth])for(const y of [Math.max(TABLE.topY+.05,extent.bottomY),extent.topY])for(const z of [-extent.halfWidth*.5,extent.halfWidth*.5]){
     const p=add(add(seat.faceAnchor,mul(right,x)),mul(seat.inward,z));points.push([p[0],y,p[2]]);
   }
-  const plate=add(seat.position,mul(seat.inward,.66));
-  for(const x of [-.32,.32])for(const y of [.77,.93])for(const z of [-.02,.02]){const p=add(add(plate,mul(right,x)),mul(seat.inward,z));points.push([p[0],y,p[2]]);}
+  points.push(...plateFramePoints(seat));
   return points;
 }
-function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map()): CameraPose {
-  if(shot.kind==='WIDE') return widePose(straightLength,extents.values());
-  const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength,extents.values());
-  if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b,shot.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]))??widePose(straightLength,extents.values()):widePose(straightLength,extents.values());}
-  const extent=extents.get(shot.userIds[0]);
+function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map(),offsetZ=0): CameraPose {
+  if(shot.kind==='WIDE') return widePose(straightLength,extents.values(),offsetZ);
+  const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength,extents.values(),offsetZ);
+  if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b,shot.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]))??widePose(straightLength,extents.values(),offsetZ):widePose(straightLength,extents.values(),offsetZ);}
+  const extent=extents.get(shot.userIds[0])??{halfWidth:.28,topY:1.53,bottomY:.97};
   if(extent){
     const bottom=Math.max(TABLE.topY+.05,extent.bottomY),top=Math.max(bottom+.28,extent.topY);
     const target:Vec3=[a.faceAnchor[0],(top+bottom)/2,a.faceAnchor[2]];
@@ -74,12 +74,12 @@ function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, st
       const pose={position:add(add(target,mul(a.inward,distance)),[0,.18,0]),target,fov:35};
       if(fitsCameraFrame(pose,points))return pose;
     }
-    return widePose(straightLength,extents.values());
+    return widePose(straightLength,extents.values(),offsetZ);
   }
   return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:35};
 }
-export function shotPose(shot:Shot,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map()):CameraPose {
- return chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents)).pose;
+export function shotPose(shot:Shot,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0):CameraPose {
+ return chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ)).pose;
 }
 export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   if(plan.durationMs===0||now>=plan.startMs+plan.durationMs)return plan.to;
@@ -89,10 +89,10 @@ export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   return {position,target:lerp(plan.from.target,plan.to.target,s),fov:plan.from.fov+(plan.to.fov-plan.from.fov)*s};
 }
 /** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
-export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map()):CameraPlan {
-  const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents));
+export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0):CameraPlan {
+  const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ));
   if(selected.visibilityReason==='NO_CLEAR_COMPOSITION'){
-    const from=samplePlan(previous,now),to=widePose(straightLength,extents.values());
+    const from=samplePlan(previous,now),to=widePose(straightLength,extents.values(),offsetZ);
     return {id:previous.id+1,shot:{kind:'WIDE',userIds:[]},reason,transition:'CUT',from,to,startMs:now,durationMs:0,composition:'WIDE',visibilityReason:'NO_CLEAR_COMPOSITION'};
   }
   const from=samplePlan(previous,now),to=selected.pose;

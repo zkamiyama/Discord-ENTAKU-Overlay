@@ -1,3 +1,4 @@
+import {DEFAULT_QUALITY,type QualitySettings} from '../../src/studio/quality.ts';
 import * as THREE from 'three';
 import {ExposureRenderer,createFallbackLights,protectDisplayObject} from '../../src/web/studio/exposure-renderer.ts';
 import {CustomAvatarVisual} from '../../src/web/overlay/custom-avatar.ts';
@@ -14,10 +15,12 @@ const blocker=new THREE.Mesh(new THREE.BoxGeometry(.6,.2,.1),new THREE.MeshStand
 const picture=document.createElement('canvas');picture.width=picture.height=128;const x=picture.getContext('2d')!;x.fillStyle='rgb(40,110,240)';x.fillRect(0,0,128,128);
 const bitmap=await createImageBitmap(picture);
 const avatar=await CustomAvatarVisual.create(bitmap,{userId:'1',assetId:'a'.repeat(64),image:{width:128,height:128,mime:'image/png'},faceRect:[.25,.25,.5,.5],scale:1,offsetX:0,offsetY:0});bitmap.close();avatar.root.position.set(.75,.2,0);avatar.update(1,0,-10);scene.add(avatar.root);
-let settings:ExposureSettings={...DEFAULT_EXPOSURE},source=0;
-function render(){return exposure.render(scene,camera,settings,String(source),1,performance.now());}
+let settings:ExposureSettings={...DEFAULT_EXPOSURE},quality:QualitySettings={...DEFAULT_QUALITY},source=0;
+function render(){return exposure.render(scene,camera,settings,String(source),1,performance.now(),quality);}
 function pixel(px:number,py:number,pz=0){render();const p=new THREE.Vector3(px,py,pz).project(camera),rgba=new Uint8Array(4);renderer.getContext().readPixels(Math.floor((p.x+1)*320),Math.floor((p.y+1)*180),1,1,renderer.getContext().RGBA,renderer.getContext().UNSIGNED_BYTE,rgba);return [...rgba];}
 const api={
+ quality(value:Partial<QualitySettings>){quality={...DEFAULT_QUALITY,...value};return render();},
+ memory(){return {...renderer.info.memory};},
  manual(value:number){settings={...settings,mode:'manual',manualExposure:value,compensationEV:0};return render();},
  auto(){settings={...DEFAULT_EXPOSURE};source++;return render();},
  compensate(value:number){settings={...settings,compensationEV:value};return render();},
