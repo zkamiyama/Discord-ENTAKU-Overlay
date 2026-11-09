@@ -48,10 +48,11 @@ test('custom image draft calibrates a face, applies an alpha silhouette and rese
   await page.goto('/dock');
   await expect(page.locator('#transport')).toHaveText('接続済み');
   const first=page.locator('.person').first();
-  const overlay=await context.newPage();
+  const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});
   overlay.on('pageerror',e=>errors.push(e.message));
   overlay.on('console',msg=>{if(msg.type()==='error'||msg.text().includes('CUSTOM_AVATAR_UNAVAILABLE'))errors.push(msg.text());});
   await overlay.goto(await page.locator('#overlay-url').inputValue());
+  await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
   await personAction(page,first,'画像を調整');
   await expect(page.locator('#avatar-editor')).toBeVisible();
   const { png }=await import('../tests/helpers/png.ts');

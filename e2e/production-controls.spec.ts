@@ -4,7 +4,11 @@ import {png} from '../tests/helpers/png.ts';
 test('front and independent back images preview, persist and restore without expanding a reduced image layout',async({page,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
- const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
+ // Control/persistence coverage uses a bounded software-GPU viewport. The
+ // dedicated pixel probes keep their own fixed resolutions and assertions.
+ const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});
+ overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
  await personAction(page,page.locator('.person').first(),'画像を調整');
  await page.locator('#avatar-file').setInputFiles({name:'front.png',mimeType:'image/png',buffer:png()});
  await expect(page.locator('#avatar-apply')).toBeEnabled();
