@@ -1,3 +1,5 @@
+import {PresetStore} from '../presets/store.ts';
+import {capturePreset,validatePreset,type Theme} from '../presets/schema.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
 import { ProviderRecording } from '../diagnostics/recording.ts';
 import type { RenderReport,ReplayControl,ReplayStatus,RuntimeDiagnostics } from '../contracts/diagnostics.ts';
@@ -21,6 +23,7 @@ export interface ServerOptions {
   retry?: () => void;
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
+  presets?: PresetStore;
   replay?:{status:()=>ReplayStatus;control:(command:ReplayControl)=>Promise<void>};
 }
 const CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; connect-src 'self' blob: data:; img-src 'self' blob: data:; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
@@ -42,6 +45,7 @@ export function startServer(options: ServerOptions) {
   const replies = new Map<string, { body: string; result: unknown }>();
   const avatars = new AvatarCache();
   const studioStore=options.studioStore??new StudioStore();
+  const presets=options.presets??new PresetStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
   let mutationQueue = Promise.resolve();
   const serial = <T>(work:()=>Promise<T>):Promise<T> => {
@@ -78,6 +82,9 @@ export function startServer(options: ServerOptions) {
       if(request.method==='GET'&&url.pathname==='/api/replay/export'){
         try{return new Response(recording.export(now()),{headers:headers('application/x-ndjson; charset=utf-8')});}
         catch{return json({error:'RECORDING_EMPTY'},422);}
+      }
+      if(request.method==='GET'&&url.pathname==='/api/presets'){
+        try{return json({items:await presets.list()});}catch{return json({error:'PRESET_INDEX_UNAVAILABLE'},500);}
       }
       if (request.method === 'GET' && url.pathname === '/api/studio/bundles') {
         try{return json(await studioStore.list());}catch{return json({error:'STUDIO_INDEX_UNAVAILABLE'},500);}
@@ -139,8 +146,31 @@ export function startServer(options: ServerOptions) {
           const prior = replies.get(c.requestId);
           if (prior) return prior.body === raw ? json(prior.result) : json({ error: 'REQUEST_ID_CONFLICT' }, 409);
           if (c.expectedRevision !== engine.snapshot().revision) return json({ error: 'REVISION_CONFLICT', revision: engine.snapshot().revision }, 409);
-          const current = now();
-          if(c.type==='record-start')recording.start(engine.snapshot(now()));
+          const current = now();let extra:Record<string,unknown>={};
+          if(c.type==='preset-save'){
+            const preset=capturePreset(engine.snapshot(),c.theme as Theme);
+            extra={presetName:await presets.create(c.name as string,preset),presetSignature:JSON.stringify(preset)};
+          }else if(c.type==='preset-apply'&&typeof c.name==='string'){
+            const p=await presets.read(c.name),before=engine.snapshot();
+            const scene=await studioStore.validateDraft(p.studio);
+            for(const o of scene.objects)if(o.kind==='model')for(const file of (await studioStore.bundle(o.bundleId)).files)await studioStore.file(o.bundleId,file.path);
+            const profiles=await Promise.all(p.avatarProfiles.map(a=>customAssets.validateDraft(a)));
+            const validated=validatePreset({...p,studio:scene,avatarProfiles:profiles});
+            if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
+            const oldScene=studioStore.snapshot(),oldProfiles=customAssets.snapshot(),oldPreferences=await presets.preferences();let savedScene=false,savedProfiles=false,savedPreferences=false;
+            try{
+              validated.studio=await studioStore.save(validated.studio);savedScene=true;
+              await customAssets.saveProfiles(validated.avatarProfiles);savedProfiles=true;
+              if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
+              await presets.preferences(validated);savedPreferences=true;
+              if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
+              engine.applyPreset(validated,c.expectedRevision as number,now());
+            }catch(e){
+              try{if(savedScene)await studioStore.save(oldScene);if(savedProfiles)await customAssets.saveProfiles(oldProfiles);if(savedPreferences)await presets.preferences(oldPreferences);}
+              catch{throw new Error('PRESET_ROLLBACK_FAILED');}throw e;
+            }
+            extra={presetName:c.name,theme:p.theme,presetSignature:JSON.stringify(capturePreset(engine.snapshot(),p.theme))};
+          }else if(c.type==='record-start')recording.start(engine.snapshot(now()));
           else if(c.type==='record-stop')recording.stop(now());
           else if(c.type==='replay-control'&&options.replay){
             if(!['play','pause','seek','rate'].includes(String(c.action)))throw new Error('INVALID_COMMAND');
@@ -158,6 +188,7 @@ export function startServer(options: ServerOptions) {
             const profiles=engine.snapshot().avatarProfiles.filter(p=>p.userId!==c.userId);
             await customAssets.saveProfiles(profiles);engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
           } else if (c.type === 'mode' && ['AUTO','MANUAL','HOLD'].includes(String(c.mode))) engine.control({ type: 'mode', mode: c.mode as DirectorMode }, c.expectedRevision as number, current);
+          else if(c.type==='seat-move'&&typeof c.userId==='string'&&Number.isInteger(c.slotIndex))engine.control({type:'seat-move',userId:c.userId,slotIndex:c.slotIndex as number},c.expectedRevision as number,current);
           else if(c.type==='moderators'&&Array.isArray(c.userIds)&&c.userIds.every(id=>typeof id==='string'))engine.control({type:'moderators',userIds:c.userIds as string[]},c.expectedRevision as number,current);
           else if (c.type === 'wide') engine.control({ type: 'shot', shot: { kind: 'WIDE', userIds: [] } }, c.expectedRevision as number, current);
           else if (c.type === 'single' && typeof c.userId === 'string') engine.control({ type: 'shot', shot: { kind: 'SINGLE', userIds: [c.userId] } }, c.expectedRevision as number, current);
@@ -182,11 +213,11 @@ export function startServer(options: ServerOptions) {
             else throw new Error('INVALID_COMMAND');
           } else throw new Error('INVALID_COMMAND');
           options.onChange?.(); broadcast();
-          const result = { requestId: c.requestId, revision: engine.snapshot().revision, ok: true };
+          const result = { requestId: c.requestId, revision: engine.snapshot().revision, ok: true,...extra };
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && (/^STUDIO_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
+          const code = error instanceof Error && (/^(STUDIO|PRESET)_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','INVALID_SEAT_TARGET','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
           return json({ error: code }, 422);
         }
         });

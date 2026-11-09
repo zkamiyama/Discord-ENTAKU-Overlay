@@ -1,3 +1,4 @@
+import {seatingSession,validatePreset,type ParameterPreset,type SeatingPreset} from '../presets/schema.ts';
 import {DEFAULT_DIRECTION} from '../studio/direction.ts';
 import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
@@ -12,6 +13,7 @@ import { moderatorRearLimit, pairPose, planCamera, widePose, wideFaces, fitsCame
 
 export interface EngineOptions {
   source: AppSnapshot['source'];
+  seatingDefaults?:SeatingPreset; autoCamera?:boolean;
   serverEpoch: string;
   sessions?: SeatSession[];
   avatarProfiles?: AvatarProfile[];
@@ -48,6 +50,7 @@ export class AppEngine {
 
   constructor(private options: EngineOptions) {
     this.studio=validateStudioScene(options.studio??DEFAULT_STUDIO_SCENE);
+    if(options.autoCamera===false)this.director.setMode('HOLD');
     for (const session of options.sessions ?? []) this.allocators.set(session.channelId, new SeatAllocator(session));
     for(const profile of options.avatarProfiles??[]){const clean=validateProfile(profile);this.profiles.set(clean.userId,clean);}
     const pose = widePose(0,this.avatarExtents().values());
@@ -86,7 +89,7 @@ export class AppEngine {
           if (nextId) {
             let allocator = this.allocators.get(nextId);
             if (!allocator) {
-              allocator = new SeatAllocator(newSession(nextId, this.options.sessionId?.() ?? crypto.randomUUID()));
+              allocator = new SeatAllocator(this.options.seatingDefaults?seatingSession(this.options.seatingDefaults,nextId,this.options.sessionId?.()??crypto.randomUUID()):newSession(nextId,this.options.sessionId?.()??crypto.randomUUID()));
               this.allocators.set(nextId, allocator);
             }
             this.allocator = allocator;
@@ -193,6 +196,21 @@ export class AppEngine {
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);
   }
+  applyPreset(input:ParameterPreset,expectedRevision:number,now:number):void {
+    if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
+    const p=validatePreset(input);
+    const next=new SeatAllocator(seatingSession(p.seating,this.channel?.channelId??'0',crypto.randomUUID()));
+    next.updatePresent(this.presentIds(),this.options.utcNow?.()??new Date().toISOString());
+    // Validate the entire replacement before touching the active state.
+    makeSessionLayout(next.snapshot());this.advance(now);
+    this.studio={...p.studio,revision:input.studio.revision};this.profiles=new Map(p.avatarProfiles.map(a=>[a.userId,a]));
+    this.options.seatingDefaults=p.seating;this.options.autoCamera=p.autoCamera;this.allocator=next;
+    if(this.channel)this.allocators.set(this.channel.channelId,next);
+    this.layout=makeSessionLayout(next.snapshot());this.allocate();this.layoutMotion=undefined;
+    this.pendingManual=null;this.director.reset();this.director.setMode(p.autoCamera?'AUTO':'HOLD');
+    this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='PRESET_APPLIED';this.forceWide('PRESET_APPLIED');
+    this.revision++;this.seq++;this.tick(this.now);
+  }
   private protect(plan:CameraPlan):CameraPlan{
     const extents=this.avatarExtents();
     const points=[...this.byUser()].flatMap(([id,seat])=>avatarFramePoints(seat,extents.get(id)??{halfWidth:.35,topY:1.6,bottomY:.85}));
@@ -234,7 +252,7 @@ export class AppEngine {
       this.seq++;
     }
   }
-  control(command: { type: 'mode'; mode: DirectorMode } | { type: 'shot'; shot: Shot } | { type: 'release'; userId: string } | { type: 'new-session' } | { type:'moderators';userIds:string[] }, expectedRevision: number, now: number): number {
+  control(command: { type: 'mode'; mode: DirectorMode } | { type: 'shot'; shot: Shot } | { type: 'release'; userId: string } | { type: 'new-session' } | { type:'moderators';userIds:string[] } | {type:'seat-move';userId:string;slotIndex:number}, expectedRevision: number, now: number): number {
     if (expectedRevision !== this.revision) throw new Error('REVISION_CONFLICT');
     this.advance(now);
     if (command.type === 'mode') {this.pendingManual=null;this.director.setMode(command.mode);}
@@ -248,6 +266,11 @@ export class AppEngine {
         this.pendingManual=null;const decision=this.director.manual(command.shot,this.now,this.studio.direction?.manualReturnSeconds??10);
         if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
       }
+    } else if(command.type==='seat-move'){
+      if(!this.channel)throw new Error('NO_CHANNEL');
+      this.allocator.move(command.userId,command.slotIndex);this.allocate();
+      const auto=this.director.mode!=='HOLD';this.pendingManual=null;this.director.reset();this.director.setMode(auto?'AUTO':'HOLD');this.layoutMotion=undefined;
+      this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='SEAT_MOVED';this.forceWide('SEAT_MOVED');
     } else if(command.type==='moderators'){
       if(!this.channel)throw new Error('NO_CHANNEL');
       this.allocator.setModerators(command.userIds);this.allocate();
