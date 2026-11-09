@@ -35,3 +35,13 @@ test('clock regressions are not silently converted into speech', () => {
   const t = new SpeakerTracker(); t.update('1','active',10);
   expect(() => t.stats('1',9)).toThrow('NON_MONOTONIC_TIME');
 });
+
+
+test('ten-second speech integration clips both interval ends and counts overlaps per person',()=>{
+ const t=new SpeakerTracker();t.update('1','active',0);t.update('2','active',1000);
+ t.update('1','inactive',3000);t.update('1','active',4000);t.update('2','inactive',6000);t.update('1','inactive',8000);
+ expect(t.stats('1',10000).windowMs).toBe(7000);expect(t.stats('2',10000).windowMs).toBe(5000);
+ expect(t.stats('1',12000).windowMs).toBe(5000);expect(t.stats('2',12000).windowMs).toBe(4000);
+ expect(t.stats('1',18000).windowMs).toBe(0);t.update('1','active',19000);expect(t.stats('1',100000).windowMs).toBe(10000);
+ t.update('1','unknown',100001);expect(t.stats('1',100001).windowMs).toBe(0);
+});

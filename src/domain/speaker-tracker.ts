@@ -8,7 +8,7 @@ interface Track {
 }
 export interface SpeechStats {
   userId: string; state: SpeakingState; activeMs: number; ratio: number;
-  qualified: boolean; recentMs: number; stoppedForMs: number; episodeStart: number;
+  qualified: boolean; recentMs: number; windowMs: number; stoppedForMs: number; episodeStart: number;
 }
 export class SpeakerTracker {
   private tracks = new Map<string, Track>();
@@ -47,13 +47,16 @@ export class SpeakerTracker {
   stats(userId: string, now: number): SpeechStats {
     this.check(now);
     const t = this.tracks.get(userId);
-    if (!t) return { userId, state: 'unknown', activeMs: 0, ratio: 0, qualified: false, recentMs: 0, stoppedForMs: Infinity, episodeStart: now };
+    if (!t) return { userId, state: 'unknown', activeMs: 0, ratio: 0, qualified: false, recentMs: 0, windowMs: 0, stoppedForMs: Infinity, episodeStart: now };
     const activeMs = t.accumulated + (t.state === 'active' ? now - t.startedAt : 0);
     const duration = now - t.episodeStart;
     const ratio = duration > 0 ? activeMs / duration : 0;
     const recentMs = t.segments.reduce((sum, s) => sum + Math.max(0, Math.min(now, s.end) - Math.max(now - 3000, s.start)), 0)
       + (t.state === 'active' ? now - Math.max(now - 3000, t.startedAt) : 0);
-    return { userId, state: t.state, activeMs, ratio, qualified: t.state === 'active' && activeMs >= DIRECTOR.qualifyMs && ratio >= DIRECTOR.minSpeechRatio,
+    const windowStart=now-DIRECTOR.leadershipWindowMs;
+    const windowMs=t.segments.reduce((sum,s)=>sum+Math.max(0,Math.min(now,s.end)-Math.max(windowStart,s.start)),0)
+      +(t.state==='active'?now-Math.max(windowStart,t.startedAt):0);
+    return { userId, state: t.state, activeMs, ratio, windowMs, qualified: t.state === 'active' && activeMs >= DIRECTOR.qualifyMs && ratio >= DIRECTOR.minSpeechRatio,
       recentMs, stoppedForMs: t.state === 'active' ? 0 : now - t.stoppedAt, episodeStart: t.episodeStart };
   }
   episodes(now: number, windowMs: number): Episode[] {

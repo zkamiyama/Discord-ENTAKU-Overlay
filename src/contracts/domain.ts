@@ -27,7 +27,7 @@ export interface SeatSession {
 export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
 export type Shot = { kind: 'WIDE'; userIds: [] } | { kind: 'SINGLE'; userIds: [string] } | { kind: 'TWO_SHOT'; userIds: [string, string] };
 export type DirectorMode = 'AUTO' | 'MANUAL' | 'HOLD';
-export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number }
+export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number; leaderUserId?:string }
 export interface CameraPose { position: Vec3; target: Vec3; fov: number }
 export interface CameraPlan {
   id: number; shot: Shot; reason: string; transition: 'CUT' | 'MOVE';
@@ -38,7 +38,7 @@ export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
   studio: StudioScene;
-  speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean}>;
+  speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean;speechMs10s?:number}>;
   avatarProfiles: AvatarProfile[];
   participants: Participant[]; session: SeatSession; straightLength: number; deskOffsetZ?: number; seats: SeatTransform[];
   layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; fromDeskOffsetZ?: number; startMs: number; durationMs: number };

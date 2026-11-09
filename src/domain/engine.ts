@@ -8,7 +8,7 @@ import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
 import { SpeakerTracker } from './speaker-tracker.ts';
 import { ShotDirector } from './shot-director.ts';
-import { pairPose, planCamera, widePose, wideFaces, fitsCameraFrame, avatarFramePoints, type AvatarExtent } from './camera-planner.ts';
+import { moderatorRearLimit, pairPose, planCamera, widePose, wideFaces, fitsCameraFrame, avatarFramePoints, type AvatarExtent } from './camera-planner.ts';
 
 export interface EngineOptions {
   source: AppSnapshot['source'];
@@ -195,7 +195,7 @@ export class AppEngine {
   private protect(plan:CameraPlan):CameraPlan{
     const extents=this.avatarExtents();
     const points=[...this.byUser()].flatMap(([id,seat])=>avatarFramePoints(seat,extents.get(id)??{halfWidth:.35,topY:1.6,bottomY:.85}));
-    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values(),this.layout.offsetZ??0,(this.studio.direction??DEFAULT_DIRECTION).wideHeightRatio,wideFaces(this.byUser(),extents)),pose=>fitsCameraFrame(pose,points));
+    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values(),this.layout.offsetZ??0,(this.studio.direction??DEFAULT_DIRECTION).wideHeightRatio,wideFaces(this.byUser(),extents),(this.studio.direction??DEFAULT_DIRECTION).nearClip),pose=>pose.position[2]>=moderatorRearLimit(this.layout.straightLength,this.layout.offsetZ??0)&&Math.abs(pose.position[0])<1e-6&&Math.abs(pose.target[0])<1e-6&&fitsCameraFrame(pose,points,.90,(this.studio.direction??DEFAULT_DIRECTION).nearClip));
   }
   private forceWide(reason: string): void {
     this.camera = this.protect(planCamera(this.camera, { kind: 'WIDE', userIds: [] }, reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
@@ -271,7 +271,7 @@ export class AppEngine {
     if (!Number.isFinite(now)) throw new Error('INVALID_TIME');
     return structuredClone({
       protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
-      speech:this.presentIds().map(userId=>{const s=this.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified};}),
+      speech:this.presentIds().map(userId=>{const s=this.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified,speechMs10s:s.windowMs};}),
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.participants.values()],
       session: this.allocator.snapshot(), straightLength: this.layout.straightLength, deskOffsetZ:this.layout.offsetZ??0, seats: this.layout.seats, layoutMotion: this.layoutMotion,

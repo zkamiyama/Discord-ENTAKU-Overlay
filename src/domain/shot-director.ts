@@ -1,80 +1,113 @@
 import type { Decision, DirectorMode, Shot } from '../contracts/domain.ts';
 import { DIRECTOR as C } from './defaults.ts';
-import { SpeakerTracker } from './speaker-tracker.ts';
+import { SpeakerTracker, type SpeechStats } from './speaker-tracker.ts';
 export interface DirectorContext {
  presentIds:readonly string[];sourceReady:boolean;layoutMoving:boolean;layoutReason?:string;
  canPair:(a:string,b:string)=>boolean;
 }
 const wide=():Shot=>({kind:'WIDE',userIds:[]});
 const same=(a:Shot,b:Shot):boolean=>a.kind===b.kind&&a.userIds.join(',')===b.userIds.join(',');
-/** Every conversational change uses one cancellable five-second candidate timer.
- * Safety (source loss/layout growth) and explicit operator shots bypass that timer. */
+/** START: 2.5 seconds of actual speech, including the 1-second qualification.
+ * STOP: five seconds since the last relevant STOP; a returning speaker cancels it.
+ * Leadership is measured by exact overlap with the last ten seconds, not START order. */
 export class ShotDirector {
- mode:DirectorMode='AUTO';
- autoResumeAtMs:number|null=null;
+ mode:DirectorMode='AUTO';autoResumeAtMs:number|null=null;
  private shot:Shot=wide();private holdUntil=-Infinity;
- private pending:{shot:Shot;reason:string;since:number}|null=null;
- private missingSince:number|null=null;
- reset():void {this.shot=wide();this.holdUntil=-Infinity;this.pending=null;this.missingSince=null;this.autoResumeAtMs=null;}
+ private pending:{shot:Shot;reason:string;since:number;kind:'start'|'end';at:number}|null=null;
+ private missingSince:number|null=null;private autoSince:number|null=null;private leader?:string;private crowdWide=false;private crowdEndedAt:number|null=null;
+ reset():void {this.shot=wide();this.holdUntil=-Infinity;this.pending=null;this.missingSince=null;this.autoResumeAtMs=null;this.autoSince=null;this.leader=undefined;this.crowdWide=false;this.crowdEndedAt=null;}
  current():Shot{return structuredClone(this.shot);}
- setMode(mode:DirectorMode):void {this.mode=mode;this.autoResumeAtMs=null;this.pending=null;this.missingSince=null;}
+ setMode(mode:DirectorMode):void {this.mode=mode;this.autoResumeAtMs=null;this.pending=null;this.missingSince=null;this.autoSince=null;}
  manual(shot:Shot,now:number,returnSeconds=10):Decision {
   const fixed=this.mode==='HOLD';this.mode=fixed?'HOLD':'MANUAL';
   this.autoResumeAtMs=fixed?null:now+returnSeconds*1000;this.pending=null;
   return this.choose(shot,'MANUAL_OVERRIDE',now);
  }
- transitionEndsAt(now:number):void {this.holdUntil=now+C.minShotMs;}
+ // Do not add another five-second delay on top of speech qualification / camera MOVE.
+ transitionEndsAt(now:number):void {this.holdUntil=Math.max(this.holdUntil,now);}
  update(now:number,tracker:SpeakerTracker,context:DirectorContext):Decision {
   if(this.mode==='MANUAL'&&this.autoResumeAtMs!==null&&now>=this.autoResumeAtMs){
-   this.mode='AUTO';this.autoResumeAtMs=null;this.pending=null;
+   this.mode='AUTO';this.autoResumeAtMs=null;this.pending=null;this.autoSince=now;
   }
   if(!context.sourceReady||context.layoutMoving){
-   this.pending=null;
+   this.pending=null;this.leader=undefined;
    return this.choose(wide(),!context.sourceReady?'SOURCE_LOST':context.layoutReason??'LAYOUT_GROWTH',now);
   }
   const ids=context.presentIds;
   if(this.shot.userIds.some(id=>!ids.includes(id))){
    this.missingSince??=now;
-   if(now-this.missingSince>=C.changeGraceMs){this.pending=null;return this.choose(wide(),'TARGET_LEFT',now);}
-   return this.keep('TARGET_LEFT_GRACE',now,this.missingSince+C.changeGraceMs);
+   if(now-this.missingSince>=C.endGraceMs){this.pending=null;return this.choose(wide(),'TARGET_LEFT',now);}
+   return this.keep('TARGET_LEFT_GRACE',now,this.missingSince+C.endGraceMs);
   }
   this.missingSince=null;
   if(this.mode!=='AUTO')return this.keep('MANUAL_OVERRIDE',now);
+  this.autoSince??=now;
   const stats=ids.map(id=>tracker.stats(id,now)),active=stats.filter(s=>s.state==='active');
-  const turns=tracker.episodes(now,4000).filter(e=>ids.includes(e.userId));
-  const collapsed=turns.filter((e,i)=>i===0||turns[i-1]!.userId!==e.userId);
-  const rapid=new Set(collapsed.map(e=>e.userId)).size>=3&&collapsed.length-1>=5;
-  if(active.length>=3||rapid)return this.propose(wide(),active.length>=3?'CROWD_OVERLAP':'CROWD_TURN_RATE',now);
-  if(!active.length)return this.propose(wide(),'SILENCE',now);
-  const qualified=stats.filter(s=>s.qualified).sort((a,b)=>b.recentMs-a.recentMs||a.episodeStart-b.episodeStart||ids.indexOf(a.userId)-ids.indexOf(b.userId));
-  const a=qualified[0],b=qualified[1];
-  const pair=(x:string,y:string):Shot=>({kind:'TWO_SHOT',userIds:[x,y].sort((x,y)=>ids.indexOf(x)-ids.indexOf(y)) as [string,string]});
-  if(a&&b&&context.canPair(a.userId,b.userId))return this.propose(pair(a.userId,b.userId),'NEARBY_DIALOGUE',now);
-  const dialogue=tracker.episodes(now,C.turnWindowMs).filter(e=>ids.includes(e.userId));
-  const major=dialogue.filter((e,i)=>i===0||dialogue[i-1]!.userId!==e.userId).slice(-3);
-  if(major.length===3&&major[0]!.userId===major[2]!.userId&&major[0]!.userId!==major[1]!.userId&&active.some(s=>major.some(e=>e.userId===s.userId))&&context.canPair(major[0]!.userId,major[1]!.userId))return this.propose(pair(major[0]!.userId,major[1]!.userId),'NEARBY_DIALOGUE',now);
-  if(a){
-   if(this.shot.kind==='SINGLE'&&this.shot.userIds[0]!==a.userId){
-    const incumbent=stats.find(s=>s.userId===this.shot.userIds[0]);
-    if(incumbent&&(incumbent.state==='active'?a.recentMs<incumbent.recentMs+800:incumbent.stoppedForMs<C.incumbentGraceMs)){
-     this.pending=null;return this.keep('INCUMBENT_PROTECTED',now);
-    }
-   }
-   return this.propose({kind:'SINGLE',userIds:[a.userId]},'SPEAKER_QUALIFIED',now);
+  const qualified=active.filter(s=>s.qualified).sort((a,b)=>b.windowMs-a.windowMs||Number(this.shot.userIds.some(id=>id===b.userId))-Number(this.shot.userIds.some(id=>id===a.userId))||ids.indexOf(a.userId)-ids.indexOf(b.userId));
+  this.leader=qualified[0]?.userId;
+  if(this.crowdWide){
+   const stops=stats.filter(s=>s.state==='inactive'&&s.activeMs>=C.qualifyMs).map(s=>now-s.stoppedForMs);
+   this.crowdEndedAt=stops.length?Math.max(...stops):null;
   }
-  this.pending=null;return this.keep('BACKCHANNEL_IGNORED',now);
+  if(!active.length){
+   const lastStop=Math.max(this.autoSince,...stats.filter(s=>s.state==='inactive').map(s=>now-s.stoppedForMs));
+   return this.propose(wide(),'SILENCE',now,'end',lastStop+C.endGraceMs);
+  }
+  // Brief interjections never establish a new shot. Incumbent pair members may
+  // resume immediately without being discarded while re-qualifying their turn.
+  if(this.shot.kind==='TWO_SHOT'&&active.length<3){
+   const currentIds=this.shot.userIds;
+   const inside=active.filter(s=>currentIds.includes(s.userId));
+   if(inside.length===2&&inside.some(s=>!s.qualified)){
+    this.pending=null;return this.keep('SPEAKER_RESUMED',now);
+   }
+   if(inside.length===1&&!qualified.some(s=>!currentIds.includes(s.userId))){
+    const other=stats.find(s=>currentIds.includes(s.userId)&&s.userId!==inside[0]!.userId);
+    if(other?.state==='inactive')return this.propose({kind:'SINGLE',userIds:[inside[0]!.userId]},'SPEECH_ENDED',now,'end',Math.max(now-other.stoppedForMs+C.endGraceMs,now+Math.max(0,C.startGraceMs-inside[0]!.activeMs)));
+   }
+  }
+  if(!qualified.length){this.pending=null;return this.keep('BACKCHANNEL_IGNORED',now);}
+  const a=qualified[0]!,b=qualified[1];
+  const dominates=!!b&&a.windowMs>=b.windowMs*C.dominanceRatio&&a.windowMs-b.windowMs>=C.dominanceMarginMs;
+  const readiness=(speakers:readonly SpeechStats[])=>Math.max(now,...speakers.map(s=>now+Math.max(0,C.startGraceMs-s.activeMs)));
+  if(qualified.length>=3&&!dominates){
+   if(this.shot.kind==='WIDE'&&readiness(qualified.slice(0,3))<=now)this.crowdWide=true;
+   return this.propose(wide(),'CROWD_OVERLAP',now,'start',readiness(qualified.slice(0,3)));
+  }
+  if(b&&!dominates&&context.canPair(a.userId,b.userId)){
+   const pair:Shot={kind:'TWO_SHOT',userIds:[a.userId,b.userId].sort((x,y)=>ids.indexOf(x)-ids.indexOf(y)) as [string,string]};
+   const newcomers=[a,b].filter(s=>!this.shot.userIds.some(id=>id===s.userId));
+   return this.propose(pair,'BALANCED_DIALOGUE',now,'start',readiness(newcomers.length?newcomers:[a,b]));
+  }
+  // A close tie must not cause ping-pong between two active speakers.
+  if(this.shot.kind==='SINGLE'&&a.userId!==this.shot.userIds[0]){
+   const incumbent=qualified.find(s=>s.userId===this.shot.userIds[0]);
+   if(incumbent&&a.windowMs-incumbent.windowMs<C.dominanceMarginMs){this.pending=null;return this.keep('LEADER_MARGIN',now);}
+  }
+  const target:Shot={kind:'SINGLE',userIds:[a.userId]};
+  const scoreChange=(this.shot.kind==='TWO_SHOT'&&active.length>=2)||(this.shot.kind==='SINGLE'&&qualified.some(s=>s.userId===this.shot.userIds[0])&&this.shot.userIds[0]!==a.userId);
+  // An already established conversation needs stable leadership, not a single
+  // score crossing. New speech uses its own elapsed time, never 1s + 2.5s.
+  const since=this.pending&&same(this.pending.shot,target)&&this.pending.kind==='start'?this.pending.since:now;
+  return this.propose(target,dominates||scoreChange?'DOMINANT_SPEAKER_10S':'SPEAKER_QUALIFIED',now,'start',scoreChange?Math.max(readiness([a]),since+C.startGraceMs):readiness([a]));
  }
- private propose(shot:Shot,reason:string,now:number):Decision {
+ private propose(shot:Shot,reason:string,now:number,kind:'start'|'end',readyAt:number):Decision {
   if(same(shot,this.shot)){this.pending=null;return this.keep(reason,now);}
-  if(!this.pending||!same(this.pending.shot,shot))this.pending={shot:structuredClone(shot),reason,since:now};
-  const at=Math.max(this.pending.since+C.changeGraceMs,this.holdUntil);
-  if(now<at)return {...this.keep('AUTO_CHANGE_GRACE',now,at),pendingShot:structuredClone(this.pending.shot),switchAtMs:at};
+  if(this.shot.kind==='WIDE'&&this.crowdWide&&shot.kind!=='WIDE'){
+   // A crowd ending is an END transition, not a new speaker's START.
+   const stopped=this.crowdEndedAt;
+   if(stopped!==null){kind='end';readyAt=Math.max(readyAt,stopped+C.endGraceMs);}
+  }
+  if(!this.pending||!same(this.pending.shot,shot)||this.pending.kind!==kind)this.pending={shot:structuredClone(shot),reason,since:now,kind,at:readyAt};
+  this.pending.at=readyAt;this.pending.reason=reason;
+  const at=Math.max(readyAt,this.holdUntil);
+  if(now<at)return {...this.keep(kind==='start'?'SPEECH_START_GRACE':'SPEECH_END_GRACE',now,at),pendingShot:structuredClone(shot),switchAtMs:at};
   this.pending=null;return this.choose(shot,reason,now);
  }
- private keep(reason:string,now:number,until=this.holdUntil):Decision{return {shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now)};}
+ private keep(reason:string,now:number,until=this.holdUntil):Decision{return {shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now),leaderUserId:this.leader};}
  private choose(shot:Shot,reason:string,now:number):Decision {
   if(same(this.shot,shot))return this.keep(reason,now);
-  this.shot=structuredClone(shot);this.holdUntil=now+C.minShotMs;
-  return {shot:this.current(),reason,changed:true,holdRemainingMs:C.minShotMs};
+  this.shot=structuredClone(shot);this.crowdWide=shot.kind==='WIDE'&&reason==='CROWD_OVERLAP';this.crowdEndedAt=null;this.holdUntil=now+C.minShotMs;
+  return {shot:this.current(),reason,changed:true,holdRemainingMs:C.minShotMs,leaderUserId:this.leader};
  }
 }

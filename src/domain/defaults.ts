@@ -6,7 +6,8 @@ export const TABLE = Object.freeze({
 });
 export const DIRECTOR = Object.freeze({
   qualifyMs: 1000, gapToleranceMs: 250, minSpeechRatio: 0.75,
-  changeGraceMs: 5000, minShotMs: 5000, incumbentGraceMs: 700,
+  startGraceMs: 2500, endGraceMs: 5000, minShotMs: 2500,
+  leadershipWindowMs: 10000, dominanceRatio: 1.6, dominanceMarginMs: 1000,
   crowdConfirmMs: 700, crowdReleaseMs: 1200,
   silenceWideMs: 5000, turnWindowMs: 6000,
 });
