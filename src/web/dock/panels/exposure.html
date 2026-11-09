@@ -1,0 +1,8 @@
+<details class="pane" id="exposure-panel"><summary>露出・照明</summary><div id="exposure-controls">
+<label><input checked="" id="exposure-auto" type="checkbox"/> 自動露出</label>
+<div class="exposure-grid"><label>補正（EV）<input id="exposure-ev" max="6" min="-6" step="0.1" type="number" value="0.5"/></label><label>手動倍率<input disabled="" id="exposure-manual" max="32" min="0.00000095367431640625" step="any" type="number" value="1"/></label></div>
+<label>照明<select id="exposure-lighting"><option value="auto">自動：素材の照明を優先</option><option value="studio">素材の照明のみ</option><option value="combined">素材＋標準照明</option></select></label>
+<div class="controls"><button id="exposure-lock" title="映像ページの現在の露出倍率で固定します">現在値で固定</button><button id="exposure-reset">自動に戻す</button></div>
+</div>
+<p class="metadata" id="exposure-current" role="status">映像ページの測光待ち</p><p class="metadata">スタジオと机に適用。人物画像・アイコン・名前の文字は影響を受けません。</p><p class="error" id="exposure-message" role="alert"></p></details>
+

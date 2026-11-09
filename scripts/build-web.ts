@@ -1,3 +1,4 @@
+import {webTemplate} from './web-template.ts';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import type { WebAssets } from '../src/server/app.ts';
 export async function buildWeb(): Promise<WebAssets> {
@@ -7,8 +8,8 @@ export async function buildWeb(): Promise<WebAssets> {
     if(!result.success)throw new Error(result.logs.map(String).join('\n'));
     const js=result.outputs.find(o=>o.kind==='entry-point');if(!js)throw new Error('WEB_BUILD_MISSING');
     assets[`/static/${page}.js`]={body:await js.text(),type:'text/javascript; charset=utf-8'};
-    assets[`/static/${page}.css`]={body:await readFile(`src/web/${page}/style.css`,'utf8'),type:'text/css; charset=utf-8'};
-    assets[`/${page}`]={body:await readFile(`src/web/${page}/index.html`,'utf8'),type:'text/html; charset=utf-8'};
+    assets[`/static/${page}.css`]={body:await webTemplate(`src/web/${page}/style.css`),type:'text/css; charset=utf-8'};
+    assets[`/${page}`]={body:await webTemplate(`src/web/${page}/index.html`),type:'text/html; charset=utf-8'};
   }
   const names=['folder-open','camera','microphone','microphone-slash','crown','users','dots-three','trash','sign-out','sign-in','arrows-out','pause','play','gear-six','image','cube','copy','arrow-square-out','arrow-counter-clockwise','record','download-simple','chart-line','desktop','plus','x'];
   const symbols=await Promise.all(names.map(async name=>{
