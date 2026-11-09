@@ -1,5 +1,6 @@
+import {writeAtomicJson} from '../storage/atomic-json.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, lstat, readdir, writeFile, rename, copyFile, unlink } from 'node:fs/promises';
+import { mkdir, open, lstat, readdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inspectImage, MAX_IMAGE_BYTES, type ImageInfo } from './image.ts';
 import { validateProfile, type AvatarProfile } from './avatar-profile.ts';
@@ -81,15 +82,7 @@ export class AvatarStore {
     if (profiles.length > 256) throw new Error('TOO_MANY_AVATAR_PROFILES');
     const clean = profiles.map(validateProfile);
     if (new Set(clean.map(p => p.userId)).size !== clean.length) throw new Error('INVALID_AVATAR_PROFILE');
-    if (this.directory) {
-      const file = join(this.directory, 'avatars.json'), temporary = join(this.directory, `.avatars.${randomUUID()}.tmp`);
-      try {
-        await writeFile(temporary, JSON.stringify({ schemaVersion: 1, profiles: clean }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-        try { await copyFile(file, file + '.bak'); } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
-        await rename(temporary, file);
-      } catch { throw new Error('AVATAR_SETTINGS_WRITE_FAILED'); }
-      finally { await unlink(temporary).catch(() => {}); }
-    }
+    if (this.directory) await writeAtomicJson(join(this.directory,'avatars.json'), {schemaVersion:1,profiles:clean}, 'AVATAR_SETTINGS_WRITE_FAILED', true);
     this.profiles = clean;
   }
 }

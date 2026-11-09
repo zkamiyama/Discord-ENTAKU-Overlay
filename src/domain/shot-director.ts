@@ -14,6 +14,7 @@ const same=(a:Shot,b:Shot):boolean=>a.kind===b.kind&&a.userIds.join(',')===b.use
  * A returning speaker cancels both phases; raw speech totals exclude the silence.
  * Leadership is measured by exact overlap with the configured window, not START order. */
 export class ShotDirector {
+  clone(): ShotDirector {return Object.assign(new ShotDirector(), structuredClone(this));}
  private timing=directionTiming();
  constructor(settings:DirectionSettings=DEFAULT_DIRECTION){this.configure(settings);}
  configure(settings:DirectionSettings):void{this.timing=directionTiming(settings);}

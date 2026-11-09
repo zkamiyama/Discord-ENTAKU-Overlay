@@ -1,6 +1,7 @@
+import {SettingsService} from './settings-service.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {PresetStore} from '../presets/store.ts';
-import {capturePreset,validatePreset,type Theme} from '../presets/schema.ts';
+import {capturePreset,type Theme} from '../presets/schema.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
 import { ProviderRecording } from '../diagnostics/recording.ts';
 import type { RenderReport,ReplayControl,ReplayStatus,RuntimeDiagnostics } from '../contracts/diagnostics.ts';
@@ -50,22 +51,25 @@ export function startServer(options: ServerOptions) {
   const studioStore=options.studioStore??new StudioStore();
   const presets=options.presets??new PresetStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
+  const settings=new SettingsService(engine,studioStore,customAssets,presets,now);
   let mutationQueue = Promise.resolve();
   const serial = <T>(work:()=>Promise<T>):Promise<T> => {
     const result=mutationQueue.then(work);mutationQueue=result.then(()=>{},()=>{});return result;
   };
   const assetErrors = new Set(['IMAGE_TOO_LARGE','IMAGE_DIMENSIONS_REJECTED','INVALID_IMAGE','ANIMATED_IMAGE_REJECTED','IMAGE_FORMAT_REJECTED','ASSET_STORE_FULL','ASSET_NOT_FOUND','INVALID_AVATAR_PROFILE','INVALID_FACE_RECT','INVALID_FRAMING_RECT','FRAMING_MUST_INCLUDE_FACE','FACE_RECT_TOO_SMALL','INVALID_AVATAR_TRANSFORM','AVATAR_TOO_WIDE','AVATAR_TOO_TALL','AVATAR_SETTINGS_WRITE_FAILED','TOO_MANY_AVATAR_PROFILES']);
   let demoId = 1000, broadcastAt = -Infinity;
-  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {
+  const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): void => {
     if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
-    socket.send(JSON.stringify(message));
+    socket.send(message);
   };
-  const offChat=vcChat.observe(state=>{for(const socket of clients)if(socket.data.chat)send(socket,{type:'vc-chat',state});});
-  const snapshot = (): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...engine.snapshot(now()),clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
+  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => sendEncoded(socket, JSON.stringify(message));
+  const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
+  const snapshot = (state=engine.snapshot(now())): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
   const broadcast = (): void => {
-    journal.state(engine.snapshot(now()));
-    const message = snapshot();
-    for (const socket of clients) send(socket, message);
+    const state=engine.snapshot(now());
+    journal.state(state);
+    const message = JSON.stringify(snapshot(state));
+    for (const socket of clients) sendEncoded(socket, message);
     broadcastAt = performance.now();
   };
   const applyDemo = (event: ProviderEvent): void => { engine.apply(event, now()); options.onChange?.(); };
@@ -156,25 +160,7 @@ export function startServer(options: ServerOptions) {
             const preset=capturePreset(engine.snapshot(),c.theme as Theme);
             extra={presetName:await presets.create(c.name as string,preset),presetSignature:JSON.stringify(preset)};
           }else if(c.type==='preset-apply'&&typeof c.name==='string'){
-            const p=await presets.read(c.name),before=engine.snapshot();
-            const scene=await studioStore.validateDraft(p.studio);
-            for(const o of scene.objects)if(o.kind==='model')for(const file of (await studioStore.bundle(o.bundleId)).files)await studioStore.file(o.bundleId,file.path);
-            const profiles=await Promise.all(p.avatarProfiles.map(a=>customAssets.validateDraft(a)));
-            const validated=validatePreset({...p,studio:scene,avatarProfiles:profiles});
-            if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
-            const oldScene=studioStore.snapshot(),oldProfiles=customAssets.snapshot(),oldPreferences=await presets.preferences();let savedScene=false,savedProfiles=false,savedPreferences=false;
-            try{
-              validated.studio=await studioStore.save(validated.studio);savedScene=true;
-              await customAssets.saveProfiles(validated.avatarProfiles);savedProfiles=true;
-              if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
-              await presets.preferences(validated);savedPreferences=true;
-              if(engine.snapshot().channel?.channelId!==before.channel?.channelId)throw new Error('PRESET_CONTEXT_CHANGED');
-              engine.applyPreset(validated,c.expectedRevision as number,now());
-            }catch(e){
-              try{if(savedScene)await studioStore.save(oldScene);if(savedProfiles)await customAssets.saveProfiles(oldProfiles);if(savedPreferences)await presets.preferences(oldPreferences);}
-              catch{throw new Error('PRESET_ROLLBACK_FAILED');}throw e;
-            }
-            extra={presetName:c.name,theme:p.theme,presetSignature:JSON.stringify(capturePreset(engine.snapshot(),p.theme))};
+            extra=await settings.preset(c.name,c.expectedRevision as number);
           }else if(c.type==='record-start')recording.start(engine.snapshot(now()));
           else if(c.type==='record-stop')recording.stop(now());
           else if(c.type==='replay-control'&&options.replay){
@@ -182,16 +168,11 @@ export function startServer(options: ServerOptions) {
             if((c.action==='seek'||c.action==='rate')&&(typeof c.value!=='number'||!Number.isFinite(c.value)))throw new Error('INVALID_COMMAND');
             await options.replay.control({action:c.action as ReplayControl['action'],value:c.value as number|undefined});
           } else if(c.type==='studio-set'||c.type==='studio-reset'){
-            const scene=await studioStore.save(c.type==='studio-reset'?DEFAULT_STUDIO_SCENE:c.scene);
-            engine.setStudioScene(scene,c.expectedRevision as number,now());
+            await settings.scene(c.type==='studio-reset'?DEFAULT_STUDIO_SCENE:c.scene,c.expectedRevision as number);
           } else if(c.type==='avatar-set'){
-            const profile=await customAssets.validateDraft(c.profile);
-            const profiles=[...engine.snapshot().avatarProfiles.filter(p=>p.userId!==profile.userId),profile];
-            await customAssets.saveProfiles(profiles);
-            engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
+            await settings.avatar(c.profile,c.expectedRevision as number);
           } else if(c.type==='avatar-reset'&&typeof c.userId==='string'&&/^\d{1,20}$/.test(c.userId)){
-            const profiles=engine.snapshot().avatarProfiles.filter(p=>p.userId!==c.userId);
-            await customAssets.saveProfiles(profiles);engine.setAvatarProfiles(profiles,c.expectedRevision as number,now());
+            await settings.resetAvatar(c.userId,c.expectedRevision as number);
           } else if (c.type === 'mode' && ['AUTO','MANUAL','HOLD'].includes(String(c.mode))) engine.control({ type: 'mode', mode: c.mode as DirectorMode }, c.expectedRevision as number, current);
           else if(c.type==='seat-move'&&typeof c.userId==='string'&&Number.isInteger(c.slotIndex))engine.control({type:'seat-move',userId:c.userId,slotIndex:c.slotIndex as number},c.expectedRevision as number,current);
           else if(c.type==='moderators'&&Array.isArray(c.userIds)&&c.userIds.every(id=>typeof id==='string'))engine.control({type:'moderators',userIds:c.userIds as string[]},c.expectedRevision as number,current);
@@ -222,8 +203,8 @@ export function startServer(options: ServerOptions) {
           if (replies.size >= 256) replies.delete(replies.keys().next().value!);
           replies.set(c.requestId, { body: raw, result }); return json(result);
         } catch (error) {
-          const code = error instanceof Error && (/^(STUDIO|PRESET)_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','INVALID_SEAT_TARGET','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
-          return json({ error: code }, 422);
+          const code = error instanceof Error && (/^(STUDIO|PRESET|SETTINGS)_[A-Z_]+$/.test(error.message) || assetErrors.has(error.message) || ['REVISION_CONFLICT','INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','INVALID_SEAT_TARGET','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
+          return json({ error: code }, code==='REVISION_CONFLICT'?409:422);
         }
         });
       }

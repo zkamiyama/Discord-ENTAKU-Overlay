@@ -35,6 +35,7 @@ export class SeatAllocator {
   private session: SeatSession;
   private present = new Set<string>();
   constructor(session: SeatSession) { this.session = validateSession(session); }
+  clone(): SeatAllocator {const copy=new SeatAllocator(this.session);copy.present=new Set(this.present);return copy;}
   snapshot(): SeatSession { return structuredClone(this.session); }
   expandPitch(pitch:number):boolean{
     if(!Number.isFinite(pitch)||pitch<0||pitch>3)throw new Error('INVALID_SEAT_PITCH');

@@ -1,4 +1,5 @@
-import {mkdir,readdir,lstat,readFile,writeFile,link,unlink,rename} from 'node:fs/promises';
+import {writeAtomicJson} from '../storage/atomic-json.ts';
+import {mkdir,readdir,lstat,readFile,writeFile,link,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {presetFilename,validatePreset,type ParameterPreset} from './schema.ts';
@@ -46,9 +47,7 @@ export class PresetStore {
   const path=join(this.directory,'preset-state.json');
   if(value===null){await unlink(path).catch(e=>{if(e.code!=='ENOENT')throw e;});return null;}
   if(value){
-   const temp=path+'.'+randomUUID()+'.tmp';
-   try{await writeFile(temp,JSON.stringify(validatePreset(value)),{flag:'wx',mode:0o600});await rename(temp,path);}
-   finally{await unlink(temp).catch(()=>{});}return value;
+   await writeAtomicJson(path,validatePreset(value),'PRESET_STATE_WRITE_FAILED');return value;
   }
   try{const info=await lstat(path);if(!info.isFile()||info.size>2*1024*1024)throw new Error();return validatePreset(JSON.parse(await readFile(path,'utf8')));}
   catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw new Error('PRESET_STATE_READ_FAILED');}

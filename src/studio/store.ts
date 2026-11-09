@@ -1,5 +1,6 @@
+import {writeAtomicJson} from '../storage/atomic-json.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, rm, lstat, readdir, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, rm, lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Unzip, UnzipInflate } from 'fflate';
 import { inspectGltfEntry } from './gltf.ts';
@@ -141,18 +142,17 @@ export class StudioStore {
     for (const o of scene.objects) if(o.kind==='model')await this.bundle(o.bundleId);
     return scene;
   }
+  private async persistScene(clean: StudioScene): Promise<void> {
+    if(this.directory)await writeAtomicJson(join(this.directory,'scene.json'),clean,'STUDIO_SETTINGS_WRITE_FAILED',true);
+  }
+  /** Compensating restore preserves the old revision instead of creating a new edit. */
+  async restore(input: StudioScene): Promise<void> {
+    const clean=validateStudioScene(input);await this.persistScene(clean);this.scene=clean;
+  }
   async save(input: unknown): Promise<StudioScene> {
     const clean=await this.validateDraft(input);
     clean.revision=this.scene.revision+1;
-    if (this.directory) {
-      const target=join(this.directory,'scene.json'),temp=join(this.directory,`.scene.${randomUUID()}.tmp`);
-      try {
-        await writeFile(temp,JSON.stringify(clean,null,2)+'\n',{flag:'wx',mode:0o600});
-        try {await copyFile(target,target+'.bak');}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
-        await rename(temp,target);
-      } catch {throw new Error('STUDIO_SETTINGS_WRITE_FAILED');}
-      finally {await rm(temp,{force:true});}
-    }
+    await this.persistScene(clean);
     this.scene=clean; return this.snapshot();
   }
 }

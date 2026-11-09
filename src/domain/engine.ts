@@ -36,6 +36,8 @@ export class AppEngine {
   private connection: ConnectionStatus = 'disconnected';
   private error?: string;
   private generation = -1;
+  private contextVersion = 0;
+  get settingsContextVersion(): number {return this.contextVersion;}
   private now = 0;
   private seq = 0;
   private revision = 0;
@@ -74,7 +76,7 @@ export class AppEngine {
     if (event.sourceGeneration < this.generation) return false;
     this.advance(processingMs);
     if (event.sourceGeneration > this.generation) {
-      this.generation = event.sourceGeneration;
+      this.generation = event.sourceGeneration;this.contextVersion++;
       this.clearSpeech(true);
       this.connection = 'syncing';
     }
@@ -87,6 +89,7 @@ export class AppEngine {
         const nextId = event.channel?.channelId;
         const changedChannel = nextId !== this.channel?.channelId;
         if (changedChannel) {
+          this.contextVersion++;
           const auto=this.director.mode!=='HOLD';this.pendingManual=null; this.director.reset();this.director.setMode(auto?'AUTO':'HOLD'); this.clearSpeech(false); this.participants.clear(); this.membershipDue = null;
           if (nextId) {
             let allocator = this.allocators.get(nextId);
@@ -180,7 +183,30 @@ export class AppEngine {
   private avatarExtents(): Map<string,AvatarExtent> {
     return new Map([...this.profiles].map(([id,p])=>{const b=avatarFramingBounds(p),body=avatarEnvelopeBounds(p);return [id,{bodyHalfWidth:Math.max(-body.left,body.right),bodyTopY:1.25+p.offsetY+body.top,bodyBottomY:Math.max(0,1.25+p.offsetY+body.bottom),faceHalfHeight:.14*p.scale,faceHalfWidth:.14*p.scale*(p.faceRect[2]*p.image.width)/(p.faceRect[3]*p.image.height),halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)}];}));
   }
+  /** Roll back synchronous settings failures, including camera/layout planning.
+   * Never span an await: provider events must not be restored from an old snapshot. */
+  private settingsTransaction(change: () => void): void {
+    const allocators = new Map<SeatAllocator, SeatAllocator>();
+    const copyAllocator = (a: SeatAllocator): SeatAllocator => {
+      if (!allocators.has(a)) allocators.set(a, a.clone());
+      return allocators.get(a)!;
+    };
+    const before = {
+      ...structuredClone({studio:this.studio, profiles:this.profiles, participants:this.participants,
+        now:this.now, seq:this.seq, revision:this.revision, pending:this.pending, layout:this.layout,
+        layoutMotion:this.layoutMotion, layoutHoldUntil:this.layoutHoldUntil, layoutHoldReason:this.layoutHoldReason,
+        membershipDue:this.membershipDue, pendingManual:this.pendingManual, camera:this.camera, decision:this.decision,
+        splitCache:this.splitCache, splitSignature:this.splitSignature}),
+      options:{...this.options}, tracker:this.tracker.clone(), director:this.director.clone(),
+      allocators:new Map([...this.allocators].map(([id,a]) => [id,copyAllocator(a)])),
+      allocator:copyAllocator(this.allocator),
+    };
+    try {change();} catch (error) {Object.assign(this,before);throw error;}
+  }
   setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
+    this.settingsTransaction(() => this.replaceAvatarProfiles(profiles, expectedRevision, now));
+  }
+  private replaceAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=profiles.map(validateProfile);
     if(new Set(clean.map(p=>p.userId)).size!==clean.length)throw new Error('INVALID_AVATAR_PROFILE');
@@ -192,6 +218,9 @@ export class AppEngine {
     const d=this.studio.direction??DEFAULT_DIRECTION;this.tracker.configure(d);this.director.configure(d);
   }
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
+    this.settingsTransaction(() => this.replaceStudioScene(scene, expectedRevision, now));
+  }
+  private replaceStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=validateStudioScene(scene);this.advance(now);
     const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
@@ -214,6 +243,9 @@ export class AppEngine {
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);
   }
   applyPreset(input:ParameterPreset,expectedRevision:number,now:number):void {
+    this.settingsTransaction(() => this.replacePreset(input, expectedRevision, now));
+  }
+  private replacePreset(input:ParameterPreset,expectedRevision:number,now:number):void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const p=validatePreset(input);
     const next=new SeatAllocator(seatingSession(p.seating,this.channel?.channelId??'0',crypto.randomUUID()));

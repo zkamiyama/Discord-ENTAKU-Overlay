@@ -16,6 +16,7 @@ export interface SpeechStats {
 /** Presentation-only hangover. Raw stats/intervals and the speaking glow stay unchanged. */
 export interface ConversationStats extends SpeechStats {rawState:SpeakingState;endPendingUntilMs?:number}
 export class SpeakerTracker {
+  clone(): SpeakerTracker {return Object.assign(new SpeakerTracker(), structuredClone(this));}
   private timing=directionTiming();
   constructor(settings:DirectionSettings=DEFAULT_DIRECTION){this.configure(settings);}
   configure(settings:DirectionSettings):void{this.timing=directionTiming(settings);}
