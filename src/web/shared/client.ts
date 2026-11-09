@@ -20,11 +20,29 @@ export class StudioClient {
   private pingTimer?: ReturnType<typeof setInterval>;
   onState: (state: AppSnapshot) => void = () => {};
   onConnection: (status: string) => void = () => {};
+  constructor(
+    private readonly createSocket: (url: string) => WebSocket = url => new WebSocket(url),
+    private readonly socketUrl: () => string = () => `ws://${location.host}/ws`,
+    private readonly retryMs = 2000,
+  ) {}
+  private clearTimers(): void {
+    clearTimeout(this.retry); clearInterval(this.pingTimer); clearInterval(this.watchdog);
+    this.retry = this.pingTimer = this.watchdog = undefined;
+  }
+  disconnect(): void {
+    this.clearTimers();
+    const previous = this.socket; this.socket = null;
+    this.connected = false; this.chat = null; this.onChat(null);
+    previous?.close(1000, 'CLIENT_STOPPED');
+  }
   connect(): void {
-    clearTimeout(this.retry);
+    // Detach the old owner before closing: even synchronous/late close events
+    // must not reset a replacement connection or schedule another reconnect.
+    this.disconnect();
     this.onConnection('接続中');
-    const socket = new WebSocket(`ws://${location.host}/ws`); this.socket = socket;
+    const socket = this.createSocket(this.socketUrl()); this.socket = socket;
     socket.onmessage = event => {
+      if (this.socket !== socket) return;
       this.lastMessage=performance.now();
       try {
         const message = JSON.parse(String(event.data));
@@ -47,12 +65,14 @@ export class StudioClient {
       } catch { this.onConnection('状態の受信に失敗しました'); }
     };
     socket.onclose = event => {
+      if (this.socket !== socket) return;
+      this.socket = null; this.clearTimers();
       this.connected = false; this.chat=null;this.onChat(null);clearInterval(this.pingTimer); clearInterval(this.watchdog); this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
-      if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), 2000);
+      if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), this.retryMs);
     };
   }
   now(): number { return this.state?.source==='replay'?this.state.serverNowMs+(performance.now()-this.stateReceivedAt)*(this.state.clockRate??1):performance.now()+this.offset; }
-  private ping(): void { if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(JSON.stringify({ type: 'ping', clientTime: performance.now() })); }
+  private ping(): void { if (this.socket?.readyState === 1 /* WebSocket.OPEN */) this.socket.send(JSON.stringify({ type: 'ping', clientTime: performance.now() })); }
   async command(command: Record<string,unknown>, expectedRevision = this.state?.revision): Promise<void> {
     if (!this.state) throw new Error('サーバーとの接続を確認してください');
     const response = await fetch('/api/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -61,7 +81,7 @@ export class StudioClient {
     if (!response.ok) throw new Error(result.error ?? 'COMMAND_FAILED');
   }
   reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number}):void{
-    if(this.connected&&this.socket?.readyState===WebSocket.OPEN)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure}));
+    if(this.connected&&this.socket?.readyState===1 /* WebSocket.OPEN */)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure}));
   }
   async localFetch(url:string,init:RequestInit={}):Promise<Response>{
     const response=await fetch(url,init);

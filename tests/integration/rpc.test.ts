@@ -96,3 +96,18 @@ test('optional IPC tracing excludes authorization codes, tokens and peer error t
  expect(JSON.stringify(entries)).not.toMatch(/PRIVATE|client_id|access_token|scopes/);
  expect(entries).toContainEqual(expect.objectContaining({event:'request',command:'AUTHORIZE'}));
 });
+
+test('optional dispatch failures are isolated, redacted and unsubscribed',async()=>{
+ const entries:unknown[]=[];let badCalls=0,goodCalls=0;
+ const client=await fakePeer((frame,socket)=>{const p=decodeObject(frame.payload);socket.write(encodeJson(Op.FRAME,{cmd:'DISPATCH',evt:'SPEAKING_START',data:{user_id:'100'}}));socket.write(encodeJson(Op.FRAME,{cmd:p.cmd,nonce:p.nonce,data:{ok:true}}));},true,{diagnostic:e=>entries.push(e)});
+ client.onEvent(()=>{badCalls++;throw Error('PRIVATE_TOKEN');});
+ client.onEvent(()=>{goodCalls++;});
+ await client.request('FIRST');await client.request('SECOND');
+ expect(client.isClosed).toBe(false);expect(badCalls).toBe(1);expect(goodCalls).toBe(2);
+ expect(JSON.stringify(entries)).not.toContain('PRIVATE_TOKEN');expect(entries).toContainEqual(expect.objectContaining({code:'RPC_OPTIONAL_HANDLER_FAILED'}));
+});
+test('required session handlers still close on invalid authoritative state',async()=>{
+ const client=await fakePeer((_frame,socket)=>socket.write(encodeJson(Op.FRAME,{cmd:'DISPATCH',evt:'VOICE_STATE_CREATE',data:{}})));
+ client.onEvent(()=>{throw new DiscordError('SYNC_BUFFER_OVERFLOW');},{fatal:true});
+ await expect(client.request('TRIGGER')).rejects.toThrow('SYNC_BUFFER_OVERFLOW');expect(client.isClosed).toBe(true);
+});

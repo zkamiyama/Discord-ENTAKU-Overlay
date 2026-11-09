@@ -27,7 +27,7 @@ export class RpcClient {
     try{if(this.options.diagnostic)this.options.diagnostic(entry);else if(process.env.ENTAKU_RPC_TRACE==='1')console.log('[DISCORD-IPC] '+JSON.stringify(entry));}catch{/* Diagnostics never affect the connection. */}
   }
   private pending = new Map<string, Pending>();
-  private events = new Set<(packet: Packet) => void>();
+  private events = new Map<(packet: Packet) => void, boolean>();
   private heartbeat?: ReturnType<typeof setInterval>;
   private pingPayload?: Buffer;
   private misses = 0;
@@ -88,8 +88,8 @@ export class RpcClient {
 
   get isClosed(): boolean { return this.closed; }
 
-  onEvent(listener: (packet: Packet) => void): () => void {
-    this.events.add(listener);
+  onEvent(listener: (packet: Packet) => void, options: {fatal?: boolean} = {}): () => void {
+    this.events.set(listener, options.fatal === true);
     return () => { this.events.delete(listener); };
   }
 
@@ -174,7 +174,17 @@ export class RpcClient {
             item.reject(new DiscordError('RPC_COMMAND_MISMATCH'));
           } else { this.diagnose('response',item.command);item.resolve(packet.data); }
         } else if (packet.cmd === 'DISPATCH' && typeof packet.evt === 'string') {
-          for (const listener of this.events) listener(packet);
+          for (const [listener, fatal] of [...this.events]) {
+            if (this.closed) break;
+            if (!this.events.has(listener)) continue;
+            try { listener(packet); }
+            catch (error) {
+              if (fatal) throw error;
+              // Isolate optional consumers. Never log event payloads or thrown text.
+              this.events.delete(listener);
+              this.diagnose('handler-failed', packet.evt, new DiscordError('RPC_OPTIONAL_HANDLER_FAILED'));
+            }
+          }
         }
       }
     } catch (error) {

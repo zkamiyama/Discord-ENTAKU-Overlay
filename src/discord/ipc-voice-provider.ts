@@ -1,3 +1,4 @@
+import {ChannelRefresh} from './channel-refresh.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {createVcChatProbe,type VcChatProbe,type VcChatProbeOptions,type VcChatProbeSummary} from './vc-chat-probe.ts';
 import type { ProviderEvent, ConnectionStatus } from '../contracts/domain.ts';
@@ -55,16 +56,10 @@ export class IpcVoiceProvider {
     }
   }
   private async session(client:RpcClient,onReady:()=>void):Promise<void> {
-    let channelId:string|null=null,syncing=true,queue:Packet[]=[],refreshing=false;
-    let timer:ReturnType<typeof setInterval>|undefined,burst:ReturnType<typeof setTimeout>|undefined;
+    let channelId:string|null=null,syncing=true,queue:Packet[]=[];
+    let refresher:ChannelRefresh|undefined,burst:ReturnType<typeof setTimeout>|undefined;
     const send=(event:Omit<Extract<ProviderEvent,{type:'snapshot'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'participant-upsert'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'participant-left'}>,'sourceGeneration'|'receivedAtMs'>|Omit<Extract<ProviderEvent,{type:'speaking'}>,'sourceGeneration'|'receivedAtMs'>):void=>{
       this.emit({...event,sourceGeneration:this.generation,receivedAtMs:this.now()} as ProviderEvent);
-    };
-    const refresh=async():Promise<void>=>{
-      if(refreshing||!channelId||!this.running)return;refreshing=true;
-      try {const raw=await client.request('GET_CHANNEL',{channel_id:channelId});this.vcChat.mergeHistory(raw);const snapshot=normalizeSnapshot(raw);if(snapshot.channel?.channelId!==channelId)throw new DiscordError('SNAPSHOT_INCONSISTENT');send({type:'snapshot',...snapshot});}
-      catch(error){client.close(error instanceof DiscordError?error:new DiscordError('SNAPSHOT_INCONSISTENT'));}
-      finally{refreshing=false;}
     };
     const handle=(packet:Packet):void=>{
       const data=object(packet.data??{}),event=packet.evt;
@@ -78,9 +73,9 @@ export class IpcVoiceProvider {
       if(event==='SPEAKING_START'||event==='SPEAKING_STOP')send({type:'speaking',userId:id(data.user_id),state:event==='SPEAKING_START'?'active':'inactive'});
       else if(event==='VOICE_STATE_DELETE')send({type:'participant-left',userId:id(object(data.user).id)});
       else if(event==='VOICE_STATE_CREATE'||event==='VOICE_STATE_UPDATE')send({type:'participant-upsert',participant:normalizeParticipant(data,channelId)});
-      if(typeof event==='string'&&event.startsWith('VOICE_STATE_')) {clearTimeout(burst);burst=setTimeout(()=>{void refresh();},1000);}
+      if(typeof event==='string'&&event.startsWith('VOICE_STATE_')) {clearTimeout(burst);burst=setTimeout(()=>{void refresher?.refresh();},1000);}
     };
-    const off=client.onEvent(packet=>{if(packet.evt!=='VOICE_CHANNEL_SELECT'&&!CHANNEL_EVENTS.includes(String(packet.evt)))return;if(syncing){if(queue.length>=4096)throw new DiscordError('SYNC_BUFFER_OVERFLOW');queue.push(packet);}else handle(packet);});
+    const off=client.onEvent(packet=>{if(packet.evt!=='VOICE_CHANNEL_SELECT'&&!CHANNEL_EVENTS.includes(String(packet.evt)))return;if(syncing){if(queue.length>=4096)throw new DiscordError('SYNC_BUFFER_OVERFLOW');queue.push(packet);}else handle(packet);},{fatal:true});
     try {
       this.status('subscribing');
       await client.request('SUBSCRIBE',{},'VOICE_CHANNEL_SELECT');
@@ -101,11 +96,16 @@ export class IpcVoiceProvider {
       onReady();
       this.status(snapshot.channel?.kind==='unsupported'?'degraded':'ready',snapshot.channel?.kind==='unsupported'?'UNSUPPORTED_CHANNEL':undefined);
       if(snapshot.channel?.kind==='guild-voice') {
-        await refresh(); // Reconcile membership after the subscription/snapshot race.
-        timer=setInterval(()=>{void refresh();},15000);
+        refresher=new ChannelRefresh(client,channelId!,raw=>{
+          const next=normalizeSnapshot(raw);
+          if(next.channel?.channelId!==channelId)throw new DiscordError('SNAPSHOT_INCONSISTENT');
+          this.vcChat.mergeHistory(raw);send({type:'snapshot',...next});
+        },error=>client.close(error));
+        await refresher.refresh(); // Reconcile after subscription; a timeout is not a broken IPC pipe.
+        refresher.start();
       }
       const reason=await client.whenClosed;
       if(this.running)throw reason;
-    } finally {this.chat?.dispose();off();clearInterval(timer);clearTimeout(burst);}
+    } finally {this.chat?.dispose();off();refresher?.dispose();clearTimeout(burst);}
   }
 }
