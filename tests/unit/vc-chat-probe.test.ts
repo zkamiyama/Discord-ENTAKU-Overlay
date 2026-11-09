@@ -57,7 +57,14 @@ test('metadata-only output contains no username or message; terminal controls ar
  expect(terminalText('a\x1b[31m\n\rb')).not.toContain('\x1b');expect(terminalText('a\nb')).toBe('a\\nb');
 });
 test('auth diagnostic allowlist retains scopes and an in-memory ID, not credentials',async()=>{
- const rpc={request:async(cmd:string)=>cmd==='AUTHORIZE'?{code:'SECRET_CODE'}:{access_token:'SECRET_TOKEN',scopes:['rpc','rpc.voice.read'],user:{id:'100',username:'PRIVATE_NAME'},application:{description:'PRIVATE_APP'}};
+ const rpc={
+  request:async(cmd:string)=>cmd==='AUTHORIZE'
+   ? {code:'SECRET_CODE'}
+   : {
+     access_token:'SECRET_TOKEN',scopes:['rpc','rpc.voice.read'],
+     user:{id:'100',username:'PRIVATE_NAME'},application:{description:'PRIVATE_APP'},
+    },
+ };
  const auth=new StreamKitCompatAuth(true,async()=>Response.json({access_token:'SECRET_TOKEN'}));await auth.authenticate(rpc,true);
  expect(auth.probeInfo()).toEqual({requestedScopes:['rpc','rpc.voice.read'],grantedScopes:['rpc','rpc.voice.read'],userId:'100'});
  expect(JSON.stringify(auth.probeInfo())).not.toMatch(/SECRET|PRIVATE/);auth.clear();expect(auth.probeInfo().grantedScopes).toBeNull();
