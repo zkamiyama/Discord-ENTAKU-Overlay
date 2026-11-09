@@ -41,3 +41,11 @@ test('applying a preset reconciles real presence, preserves Discord connection a
  expect(e.snapshot().participants).toEqual(before.participants);expect(e.snapshot().camera.shot.kind).toBe('WIDE');
  expect(()=>e.applyPreset({...p,seating:{...p.seating,capacity:100}},e.snapshot().revision,3200)).toThrow();expect(e.snapshot().mode).toBe('HOLD');
 });
+
+test('preset automatic OFF survives application startup and a subsequent channel snapshot',()=>{
+ const p=capturePreset(fixture().snapshot(),'dark');
+ const e=new AppEngine({source:'demo',serverEpoch:'restart',seatingDefaults:p.seating,autoCamera:false});
+ for(const event of demoEvents())e.apply(event);expect(e.snapshot().mode).toBe('HOLD');
+ e.apply({type:'snapshot',channel:{channelId:'222',kind:'guild-voice',name:'another'},participants:[],sourceGeneration:2,receivedAtMs:5000});
+ expect(e.snapshot().mode).toBe('HOLD');expect(e.snapshot().session.moderatorSlots).toEqual(p.seating.moderatorSlots);
+});

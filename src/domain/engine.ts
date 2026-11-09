@@ -85,7 +85,7 @@ export class AppEngine {
         const nextId = event.channel?.channelId;
         const changedChannel = nextId !== this.channel?.channelId;
         if (changedChannel) {
-          this.pendingManual=null; this.director.reset(); this.clearSpeech(false); this.participants.clear(); this.membershipDue = null;
+          const auto=this.director.mode!=='HOLD';this.pendingManual=null; this.director.reset();this.director.setMode(auto?'AUTO':'HOLD'); this.clearSpeech(false); this.participants.clear(); this.membershipDue = null;
           if (nextId) {
             let allocator = this.allocators.get(nextId);
             if (!allocator) {
