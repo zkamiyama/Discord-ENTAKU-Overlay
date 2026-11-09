@@ -15,6 +15,10 @@ async function fakePeer(handler: (frame: Frame, socket: Socket) => void, heartbe
   const sockets = new Set<Socket>();
   const server: Server = createServer(socket => {
     sockets.add(socket); socket.on('close', () => sockets.delete(socket));
+    // Fatal-handler tests deliberately close the other pipe endpoint.
+    socket.on('error', error => {
+      if (!['EPIPE','ECONNRESET'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+    });
     const decoder = new FrameDecoder();
     socket.on('data', bytes => {
       for (const frame of decoder.push(typeof bytes === 'string' ? Buffer.from(bytes) : bytes)) {
@@ -31,7 +35,8 @@ async function fakePeer(handler: (frame: Frame, socket: Socket) => void, heartbe
   });
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(path, resolve); });
   cleanup.push(async () => { for (const s of sockets) s.destroy(); await new Promise<void>(resolve => server.close(() => resolve())); });
-  const client = await RpcClient.connect(path, '123', { heartbeatMs: heartbeat ? 20 : 10, ...options });
+  // Heartbeat timing is enabled only by heartbeat-specific scenarios.
+  const client = await RpcClient.connect(path, '123', { heartbeatMs: heartbeat ? 0 : 10, ...options });
   cleanup.push(() => client.close());
   return client;
 }
@@ -72,7 +77,7 @@ test('JSON heartbeat keeps an interactive authorization alive across several int
  const client=await fakePeer((frame,socket)=>{
   const p=decodeObject(frame.payload);
   if(p.cmd==='AUTHORIZE')setTimeout(()=>socket.write(encodeJson(Op.FRAME,{cmd:p.cmd,nonce:p.nonce,data:{code:'SYNTHETIC_AUTH_CODE'}})),95);
- });
+ },true,{heartbeatMs:20});
  expect(await client.request('AUTHORIZE',{},undefined,1000)).toEqual({code:'SYNTHETIC_AUTH_CODE'});
  expect(client.isClosed).toBe(false);
 });
@@ -109,5 +114,7 @@ test('optional dispatch failures are isolated, redacted and unsubscribed',async(
 test('required session handlers still close on invalid authoritative state',async()=>{
  const client=await fakePeer((_frame,socket)=>socket.write(encodeJson(Op.FRAME,{cmd:'DISPATCH',evt:'VOICE_STATE_CREATE',data:{}})));
  client.onEvent(()=>{throw new DiscordError('SYNC_BUFFER_OVERFLOW');},{fatal:true});
- await expect(client.request('TRIGGER')).rejects.toThrow('SYNC_BUFFER_OVERFLOW');expect(client.isClosed).toBe(true);
+ const error=await client.request('TRIGGER').catch(error=>error);
+ expect(error).toBeInstanceOf(DiscordError);if(!(error instanceof DiscordError))throw new Error('EXPECTED_DISCORD_ERROR');
+ expect(error.code).toBe('SYNC_BUFFER_OVERFLOW');expect(client.isClosed).toBe(true);
 });
