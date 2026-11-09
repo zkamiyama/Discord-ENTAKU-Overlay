@@ -22,7 +22,11 @@
     "test:e2e": "bun run build:web && playwright test",
     "smoke:exe": "bun run scripts/smoke-executable.ts",
     "probe:vc-chat": "bun run scripts/probe-vc-chat.ts",
-    "build:probe": "bun run scripts/build-vc-chat-probe.ts"
+    "build:probe": "bun run scripts/build-vc-chat-probe.ts",
+    "bench:domain": "bun run scripts/benchmark-domain.ts",
+    "bench:render": "bun run scripts/benchmark-render.ts",
+    "test:ui": "bun run build:web && playwright test e2e/rc15-controls.spec.ts e2e/presets-seats.spec.ts e2e/vc-chat.spec.ts",
+    "test:render": "bun run build:web && playwright test e2e/render-regressions.spec.ts e2e/post-effects.spec.ts e2e/studio-materials.spec.ts e2e/exposure.spec.ts e2e/split-screen.spec.ts"
   },
   "dependencies": {
     "three": "0.187.0",

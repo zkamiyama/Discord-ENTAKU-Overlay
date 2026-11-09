@@ -1,0 +1,60 @@
+name: Prepare release draft
+on:
+  workflow_dispatch:
+    inputs:
+      accepted:
+        description: 'I confirmed real Discord/OBS acceptance and distribution conditions for this commit'
+        type: boolean
+        required: true
+        default: false
+      tag:
+        description: 'Existing tag on this exact commit, for example v0.1.0-rc.15'
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: inputs.accepted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify existing tag matches selected commit and package version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          test "$RELEASE_TAG" = "v$(node -p 'require("./package.json").version')"
+          test "$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")" = "$GITHUB_SHA"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:e2e
+  package:
+    needs: validate
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run package:windows
+      - run: bun run smoke:exe
+      - run: bun run verify:package
+      - name: Create unpublished candidate draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --prerelease --title "ENTAKU Overlay $RELEASE_TAG" --notes-file docs/release-checklist.md dist/Discord-ENTAKU-Overlay-*-windows-x64.zip dist/Discord-ENTAKU-Overlay-*-windows-x64.zip.sha256

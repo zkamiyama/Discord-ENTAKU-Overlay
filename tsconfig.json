@@ -12,6 +12,8 @@
       "bun"
     ],
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noUncheckedIndexedAccess": true,
     "useUnknownInCatchVariables": true,
     "noFallthroughCasesInSwitch": true,

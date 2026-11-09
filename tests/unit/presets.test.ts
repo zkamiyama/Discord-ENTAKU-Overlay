@@ -1,5 +1,5 @@
 import {expect,test} from 'bun:test';
-import {mkdtemp,rm,writeFile,readdir,readFile,symlink} from 'node:fs/promises';
+import {mkdtemp,rm,writeFile,readdir,readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PresetStore} from '../../src/presets/store.ts';
