@@ -56,7 +56,7 @@ function foregroundArea(pose:CameraPose,seat:SeatTransform,extent:AvatarExtent):
  return Math.max(0,right-left)*Math.max(0,top-bottom)/4;
 }
 export interface Composition {pose:CameraPose;composition:NonNullable<CameraPlan['composition']>;foregroundUserId?:string;visibilityReason?:string}
-export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,clean:CameraPose):Composition {
+export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,clean:CameraPose,portraitFov=22):Composition {
  if(shot.kind==='WIDE')return {pose:clean,composition:'WIDE'};
  const primary=seats.get(shot.userIds[0]);if(!primary)return {pose:clean,composition:'SINGLE_CLEAN',visibilityReason:'TARGET_UNAVAILABLE'};
  const host=primary.zone==='moderator';
@@ -67,16 +67,16 @@ export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransfo
   for(const [id,seat] of foreground){
    const extent=extents.get(id)??DEFAULT_EXTENT,width=extent.bodyHalfWidth??extent.halfWidth,top=extent.bodyTopY??extent.topY;
    const right=new Vector3(Math.cos(seat.baseYawRad),0,-Math.sin(seat.baseYawRad));
-   for(const side of [-1,1])for(const lateral of [Math.max(.30,width*.75),width+.18,width+.52])for(const rise of [0,.3,.65,1.0]){
-    const position=v(seat.faceAnchor).addScaledVector(v(seat.inward),-.65).addScaledVector(right,side*lateral);
+   for(const back of [2,3.5,5,7,10])for(const side of [-1,1])for(const lateral of [Math.max(.55,width*.9),width+.55,width+1.05,width+1.65])for(const rise of [0,.3,.65,1.0]){
+    const position=v(seat.faceAnchor).addScaledVector(v(seat.inward),-back).addScaledVector(right,side*lateral);
     position.y=Math.max(1.6,top-.08)+rise;
     const target=v(primary.faceAnchor).add(new Vector3(0,-.08,0));
     const faceView=position.clone().sub(v(primary.faceAnchor)).setY(0).normalize().dot(v(primary.inward));
     if(faceView<.25)continue;
     let pose:CameraPose|undefined;
-    for(const fov of [24,29,35,42,50]){const candidate={position:tuple(position),target:tuple(target),fov};const area=foregroundArea(candidate,seat,extent);if(area>=.015&&area<=.45&&subjectsVisible(candidate,shot.userIds,seats,extents)){pose=candidate;break;}}
+    for(const fov of [portraitFov,Math.min(35,portraitFov+4)]){const candidate={position:tuple(position),target:tuple(target),fov};const area=foregroundArea(candidate,seat,extent);if(area>=.01&&area<=.38&&subjectsVisible(candidate,shot.userIds,seats,extents)){pose=candidate;break;}}
     if(!pose)continue;
-    const score=rise*3+lateral*.7+(seat.slotIndex===primary.oppositeSlot?0:1.3)+(pose.fov-24)*.025;
+    const score=rise*3+lateral*.7+(seat.slotIndex===primary.oppositeSlot?0:1.3)+(pose.fov-portraitFov)*.25+back*.06;
     if(!best||score<best.score)best={score,value:{pose,composition:host?'MODERATOR_SINGLE':'SINGLE_OTS',foregroundUserId:id,visibilityReason:rise>0?'ELEVATED_TO_AVOID_OCCLUSION':lateral>width?'SHIFTED_TO_AVOID_OCCLUSION':'OVER_SHOULDER'}};
     if(score<1.5)return best.value;
    }
@@ -86,8 +86,11 @@ export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransfo
  // Clean fallback is also checked. A tall foreground cannot cover the face
  // merely because the OTS candidate search was exhausted.
  const composition=shot.kind==='TWO_SHOT'?(shot.userIds.every(id=>seats.get(id)?.zone==='moderator')?'MODERATOR_TWO':'TWO_SHOT'):host?'MODERATOR_SINGLE':'SINGLE_CLEAN';
- for(const rise of [0,.35,.75,1.25,2]){
-  const pose={...clean,position:[clean.position[0],clean.position[1]+rise,clean.position[2]] as Vec3};
+ const direction=v(clean.position).sub(v(clean.target));
+ const opposing=shot.kind==='TWO_SHOT'&&v(primary.inward).dot(v(seats.get(shot.userIds[1])!.inward))<-.65;
+ for(const angle of (opposing?[Math.PI,0,-.22,.22]:[0,-.3,.3,-.6,.6]))for(const scale of [1,1.35,1.8])for(const rise of [0,.35,.75,1.25,2,3.5,5]){
+  const position=direction.clone().applyAxisAngle(new Vector3(0,1,0),angle).multiplyScalar(scale).add(v(clean.target));position.y+=rise;
+  const pose={...clean,position:tuple(position)};
   if(subjectsVisible(pose,shot.userIds,seats,extents))return {pose,composition,visibilityReason:rise?'ELEVATED_TO_AVOID_OCCLUSION':shot.kind==='SINGLE'?'FALLBACK_TO_CLEAN_SINGLE':undefined};
  }
  return {pose:clean,composition,visibilityReason:'NO_CLEAR_COMPOSITION'};

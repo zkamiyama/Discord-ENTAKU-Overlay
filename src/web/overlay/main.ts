@@ -1,3 +1,4 @@
+import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {DEFAULT_POST,resolvePostFocus} from '../../studio/post-effects.ts';
 import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
 import {disposeObject} from '../studio/dispose.ts';
@@ -132,7 +133,7 @@ function frame(time:number):void{
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);offsetZ=THREE.MathUtils.lerp(motion.fromDeskOffsetZ??0,offsetZ,progress);}
   if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
   table.position.z=offsetZ;
-  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0);
+  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0,(state?.studio.direction??DEFAULT_DIRECTION).wideHeightRatio);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
   if(state)for(const reservation of state.session.reservations){
     const target=state.seats[reservation.slotIndex],avatar=avatars.get(reservation.userId);if(!target||!avatar)continue;

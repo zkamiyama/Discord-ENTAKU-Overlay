@@ -1,5 +1,6 @@
+import {DEFAULT_DIRECTION,type DirectionSettings} from '../studio/direction.ts';
 import {plateFramePoints} from '../geometry/desk-props.ts';
-import {QuadraticBezierCurve3,Vector3,MathUtils} from 'three';
+import {QuadraticBezierCurve3,Vector3,MathUtils,PerspectiveCamera} from 'three';
 import {chooseComposition,subjectsVisible} from './camera-composition.ts';
 import type { CameraPlan, CameraPose, SeatTransform, Shot, Vec3 } from '../contracts/domain.ts';
 import { TABLE } from './defaults.ts';
@@ -17,7 +18,7 @@ const front = (seat: SeatTransform, camera: Vec3): boolean => {
   return dot(unit([direction[0],0,direction[2]]),seat.inward) >= Math.cos(radians(70));
 };
 export interface AvatarExtent { halfWidth:number;topY:number;bottomY:number;bodyHalfWidth?:number;bodyTopY?:number;bodyBottomY?:number;faceHalfWidth?:number;faceHalfHeight?:number }
-export function widePose(straightLength: number, extents: Iterable<AvatarExtent> = [],offsetZ=0): CameraPose {
+export function widePose(straightLength: number, extents: Iterable<AvatarExtent> = [],offsetZ=0,heightRatio=DEFAULT_DIRECTION.wideHeightRatio,faces:readonly {center:Vec3;width:number;height:number}[]=[]): CameraPose {
   // Fit sampled default-avatar bounds in camera space, not an oversized bounding sphere.
   const elevation=radians(24),sin=Math.sin(elevation),cos=Math.cos(elevation);
   const tanV=Math.tan(radians(22.5)),tanH=tanV*16/9,usable=.86;
@@ -25,33 +26,70 @@ export function widePose(straightLength: number, extents: Iterable<AvatarExtent>
   let side=.35, top=1.6, bottom=0;
   for(const e of extents){side=Math.max(side,e.halfWidth);top=Math.max(top,e.topY);bottom=Math.min(bottom,e.bottomY);}
   const total=perimeter(railRadius,straightLength);let distance=3;
+  const points:Vec3[]=[];
   for(let i=0;i<72;i++) {
     const p=pointAtDistance(railRadius,straightLength,total*i/72);
     for(const dx of [-side,side])for(const dz of [-side,side])for(const y of [bottom-.8,top-.8]) {
+      points.push([p.x+dx,y+.8,p.z+dz+offsetZ]);
       const x=p.x+dx,z=p.z+dz,nearOffset=y*sin+z*cos,vertical=y*cos-z*sin;
       distance=Math.max(distance,nearOffset+Math.max(Math.abs(x)/(tanH*usable),Math.abs(vertical)/(tanV*usable)));
     }
   }
-  return {position:[0,.8+sin*distance,cos*distance+offsetZ],target:[0,.8,offsetZ],fov:45};
+  // Preserve the old height reference, then lower it without increasing FOV.
+  // PerspectiveCamera projection is the authority for the margin test.
+  const height=Math.max(TABLE.topY+.35,(.8+sin*distance)*heightRatio);
+  const target:Vec3=[0,Math.max(.95,(top+Math.max(0,bottom))/2),offsetZ];
+  let best:{score:number;pose:CameraPose}|undefined;
+  for(const degrees of (faces.length?[0,12,-12,22,-22,32,-32]:[0])){
+    const angle=radians(degrees),pose=(z:number):CameraPose=>({position:[Math.sin(angle)*z,height,Math.cos(angle)*z+offsetZ],target,fov:45});
+    let lo=straightLength/2+railRadius+side+.3,hi=Math.max(lo+1,distance);
+    for(let i=0;i<20&&!fitsCameraFrame(pose(hi),points,.84);i++)hi*=1.35;
+    for(let i=0;i<22;i++){const mid=(lo+hi)/2;if(fitsCameraFrame(pose(mid),points,.84))hi=mid;else lo=mid;}
+    const candidate=pose(hi+.05),camera=new PerspectiveCamera(candidate.fov,16/9,.05,1000);
+    camera.position.fromArray(candidate.position);camera.lookAt(...candidate.target);camera.updateMatrixWorld(true);
+    const rectangles=faces.map(f=>{
+      const projected:Vector3[]=[];
+      for(const x of [-f.width,f.width])for(const y of [-f.height,f.height])for(const z of [-f.width*.5,f.width*.5])projected.push(new Vector3(f.center[0]+x,f.center[1]+y,f.center[2]+z).project(camera));
+      return {left:Math.min(...projected.map(p=>p.x)),right:Math.max(...projected.map(p=>p.x)),bottom:Math.min(...projected.map(p=>p.y)),top:Math.max(...projected.map(p=>p.y))};
+    });
+    let overlap=0;
+    for(let i=0;i<rectangles.length;i++)for(let j=0;j<i;j++){
+      const a=rectangles[i]!,b=rectangles[j]!,area=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left))*Math.max(0,Math.min(a.top,b.top)-Math.max(a.bottom,b.bottom));
+      overlap+=area/Math.max(1e-8,Math.min((a.right-a.left)*(a.top-a.bottom),(b.right-b.left)*(b.top-b.bottom)));
+    }
+    const score=overlap*10+Math.abs(degrees)*.001;
+    if(!best||score<best.score)best={score,pose:candidate};
+  }
+  return best!.pose;
 }
-export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly AvatarExtent[] = []): CameraPose | null {
+export function wideFaces(seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>):Array<{center:Vec3;width:number;height:number}>{
+ return [...seats].map(([id,seat])=>{const e=extents.get(id);return {center:seat.faceAnchor,width:e?.faceHalfWidth??.28,height:e?.faceHalfHeight??.28};});
+}
+export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly AvatarExtent[] = [],portraitFov=DEFAULT_DIRECTION.portraitFov): CameraPose | null {
   const target=mul(add(a.faceAnchor,b.faceAnchor),0.5), inward=unit(add(a.inward,b.inward));
+  const fov=Math.min(35,portraitFov+4),points=[...avatarFramePoints(a,extents[0]??{halfWidth:.28,topY:1.53,bottomY:.97}),...avatarFramePoints(b,extents[1]??extents[0]??{halfWidth:.28,topY:1.53,bottomY:.97})];
   const opposing=dot(a.inward,b.inward)<-.65&&Math.abs(a.position[2]-b.position[2])<.75;
   if(opposing){
     const width=length(sub(a.faceAnchor,b.faceAnchor))/2+Math.max(.65,...extents.map(e=>e.halfWidth));
-    return {position:[target[0],Math.max(2.15,...extents.map(e=>e.topY+.2)),target[2]+width/Math.tan(radians(32))*1.1],target:add(target,[0,-.1,0]),fov:45};
+    const y=Math.max(1.9,...extents.map(e=>e.topY+.15));
+    for(let distance=width/Math.tan(radians(fov/2));distance<100;distance+=.2){
+      const pose:CameraPose={position:[target[0],y,target[2]+distance],target:add(target,[0,-.1,0]),fov};
+      if(fitsCameraFrame(pose,points,.86))return pose;
+    }
+    return null;
   }
   if (length(inward)<0.5 || length(sub(a.faceAnchor,b.faceAnchor))>((a.zone==='moderator'||b.zone==='moderator')?4.6:3.5)) return null;
   const padding=Math.max(.65,...extents.map(e=>Math.hypot(e.halfWidth,Math.max(Math.abs(e.topY-target[1]),Math.abs(Math.max(e.bottomY,TABLE.topY)-target[1])))));
-  const distance=(length(sub(a.faceAnchor,b.faceAnchor))/2+padding)/Math.sin(radians(20));
+  const distance=(length(sub(a.faceAnchor,b.faceAnchor))/2+padding)/Math.sin(radians(fov/2));
   const position=add(add(target,mul(inward,distance)),[0,0.25,0]);
-  return front(a,position)&&front(b,position)?{position,target,fov:40}:null;
+  return front(a,position)&&front(b,position)?{position,target,fov}:null;
 }
 const cross=(a:Vec3,b:Vec3):Vec3=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 export function fitsCameraFrame(pose:CameraPose,points:readonly Vec3[],margin=.86):boolean{
-  const forward=unit(sub(pose.target,pose.position)),right=unit(cross(forward,[0,1,0])),up=unit(cross(right,forward));
-  const tanV=Math.tan(radians(pose.fov/2)),tanH=tanV*16/9;
-  return points.every(point=>{const p=sub(point,pose.position),z=dot(p,forward);return z>.05&&Math.abs(dot(p,right))<=z*tanH*margin&&Math.abs(dot(p,up))<=z*tanV*margin;});
+  const camera=new PerspectiveCamera(pose.fov,16/9,.05,1000);
+  camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
+  const point=new Vector3();
+  return points.every(p=>{point.fromArray(p).project(camera);return point.z>=-1&&point.z<1&&Math.abs(point.x)<=margin&&Math.abs(point.y)<=margin;});
 }
 export function avatarFramePoints(seat:SeatTransform,extent:AvatarExtent):Vec3[]{
   const right:Vec3=[seat.inward[2],0,-seat.inward[0]],points:Vec3[]=[];
@@ -61,25 +99,25 @@ export function avatarFramePoints(seat:SeatTransform,extent:AvatarExtent):Vec3[]
   points.push(...plateFramePoints(seat));
   return points;
 }
-function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map(),offsetZ=0): CameraPose {
-  if(shot.kind==='WIDE') return widePose(straightLength,extents.values(),offsetZ);
-  const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength,extents.values(),offsetZ);
-  if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b,shot.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]))??widePose(straightLength,extents.values(),offsetZ):widePose(straightLength,extents.values(),offsetZ);}
+function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION): CameraPose {
+  if(shot.kind==='WIDE') return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents));
+  const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents));
+  if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b,shot.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]),settings.portraitFov)??widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents)):widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents));}
   const extent=extents.get(shot.userIds[0])??{halfWidth:.28,topY:1.53,bottomY:.97};
   if(extent){
     const bottom=Math.max(TABLE.topY+.05,extent.bottomY),top=Math.max(bottom+.28,extent.topY);
     const target:Vec3=[a.faceAnchor[0],(top+bottom)/2,a.faceAnchor[2]];
     const points=avatarFramePoints(a,extent);
-    for(let distance=2.15;distance<30;distance+=.1){
-      const pose={position:add(add(target,mul(a.inward,distance)),[0,.18,0]),target,fov:35};
+    for(let distance=2.15;distance<100;distance+=.1){
+      const pose={position:add(add(target,mul(a.inward,distance)),[0,.18,0]),target,fov:settings.portraitFov};
       if(fitsCameraFrame(pose,points))return pose;
     }
-    return widePose(straightLength,extents.values(),offsetZ);
+    return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents));
   }
-  return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:35};
+  return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:settings.portraitFov};
 }
-export function shotPose(shot:Shot,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0):CameraPose {
- return chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ)).pose;
+export function shotPose(shot:Shot,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPose {
+ return chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ,settings),settings.portraitFov).pose;
 }
 export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   if(plan.durationMs===0||now>=plan.startMs+plan.durationMs)return plan.to;
@@ -89,10 +127,10 @@ export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   return {position,target:lerp(plan.from.target,plan.to.target,s),fov:plan.from.fov+(plan.to.fov-plan.from.fov)*s};
 }
 /** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
-export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0):CameraPlan {
-  const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ));
+export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPlan {
+  const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ,settings),settings.portraitFov);
   if(selected.visibilityReason==='NO_CLEAR_COMPOSITION'){
-    const from=samplePlan(previous,now),to=widePose(straightLength,extents.values(),offsetZ);
+    const from=samplePlan(previous,now),to=widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents));
     return {id:previous.id+1,shot:{kind:'WIDE',userIds:[]},reason,transition:'CUT',from,to,startMs:now,durationMs:0,composition:'WIDE',visibilityReason:'NO_CLEAR_COMPOSITION'};
   }
   const from=samplePlan(previous,now),to=selected.pose;
@@ -125,16 +163,18 @@ export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:Re
       cameraAngle<=radians(110);
     const feasible=safe;safe=false;
     const shared=previous.shot.userIds.filter(id=>shot.userIds.includes(id));
-    for(const lift of [0,.5,1,1.7]){
-      if(!feasible)break;
-      const mid=lerp(from.position,to.position,.5),control:Vec3=[mid[0],mid[1]+lift*2,mid[2]];
+    const sharedTarget=byUser.get(shared[0]??'')?.faceAnchor??to.target;
+    search:for(const back of [0,1.5,3,6])for(const lift of [0,.5,1,1.7,3]){
+      if(!feasible)break search;
+      const mid=lerp(from.position,to.position,.5),out=unit(sub(mid,sharedTarget));
+      const control:Vec3=[mid[0]+out[0]*back,mid[1]+lift*2,mid[2]+out[2]*back];
       const curve=new QuadraticBezierCurve3(new Vector3().fromArray(from.position),new Vector3().fromArray(control),new Vector3().fromArray(to.position));
       let clear=true;
       for(let i=0;clear&&i<=20;i++){
         const t=i/20,p=curve.getPoint(t).toArray() as [number,number,number];
         clear=p[1]>TABLE.topY+.12&&subjectsVisible({position:p,target:lerp(from.target,to.target,t),fov:from.fov+(to.fov-from.fov)*t},shared,byUser,extents);
       }
-      if(clear){safe=true;if(lift)via=control;break;}
+      if(clear){safe=true;if(lift||back)via=control;break search;}
     }
     // Wider custom avatars need a longer dolly-out rather than a sudden CUT.
     if(safe)durationMs=widening

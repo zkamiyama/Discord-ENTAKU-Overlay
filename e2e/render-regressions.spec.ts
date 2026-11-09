@@ -34,3 +34,11 @@ test('MSAA resolves geometry edges and SSGI adds local diffuse color, not a unif
  console.log('SSR reflecting pixels',reflected);expect(reflected).toBeGreaterThan(10);
  expect(errors).toEqual([]);
 });
+
+test('eight existing lights can render soft shadows, while 2x reports actual GPU samples',async({page})=>{
+ const errors:string[]=[];page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
+ await page.route('**/quality-probe',r=>r.fulfill({contentType:'text/html',body:'<canvas></canvas><script type="module" src="/static/quality-probe.js"></script>'}));
+ await page.route('**/static/quality-probe.js',r=>r.fulfill({contentType:'text/javascript',body:probe}));await page.goto('/quality-probe');await page.waitForFunction(()=>!!(window as any).qualityProbe);
+ const result=await page.evaluate(()=>{const p=(window as any).qualityProbe;p.shadowRig();return p.render({msaa:2,shadows:'soft',shadowSize:512,shadowLights:8});});
+ expect(result.status).toBe('EFFECTS');expect(result.shadowLights).toBe(8);expect([2,4]).toContain(result.samples);expect(errors).toEqual([]);
+});

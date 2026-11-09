@@ -1,3 +1,4 @@
+import {numericEditing} from './numeric-controls.ts';
 import {DEFAULT_QUALITY,validateQuality,type QualitySettings} from '../../studio/quality.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
@@ -13,7 +14,7 @@ export class QualityPanel {
  }
  update(state:AppSnapshot):void{
   if(this.busy)return;const q=state.studio.quality??DEFAULT_QUALITY;
-  for(const [id,key]of Object.entries(fields))if(document.activeElement!==input(id))input(id).value=String(q[key]);
+  for(const [id,key]of Object.entries(fields))if(!numericEditing(input(id)))input(id).value=String(q[key]);
   input('quality-ao').checked=q.ao==='gtao';input('quality-reflections').checked=q.reflections;input('quality-fxaa').checked=q.fxaa;input('quality-gi').checked=q.gi==='ssgi';
  }
  private preset(value:Partial<QualitySettings>):Promise<void>{return this.save({...DEFAULT_QUALITY,nameplates:this.client.state?.studio.quality?.nameplates??'white',...value});}
@@ -25,7 +26,7 @@ export class QualityPanel {
  }
  private async save(value:unknown):Promise<void>{
   if(this.busy||!this.client.state)return;this.busy=true;input('quality-message').textContent='';
-  const controls=[...document.querySelectorAll<HTMLInputElement>('#quality-controls input,#quality-controls select,#quality-controls button')];controls.forEach(e=>e.disabled=true);
+  const controls=[...document.querySelectorAll<HTMLInputElement>('#quality-controls input,#quality-controls select,#quality-controls button,#table-settings select')];controls.forEach(e=>e.disabled=true);
   try{const state=this.client.state;await this.client.command({type:'studio-set',scene:{...state.studio,quality:validateQuality(value)}},state.revision);}
   catch(e){input('quality-message').textContent=e instanceof Error?e.message:'画質設定を保存できません';}
   finally{this.busy=false;controls.forEach(e=>e.disabled=false);if(this.client.state)this.update(this.client.state);}

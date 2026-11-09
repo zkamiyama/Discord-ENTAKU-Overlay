@@ -31,7 +31,12 @@ function bounce(){
  const back=new THREE.Mesh(new THREE.PlaneGeometry(4,3),new THREE.MeshStandardMaterial({color:0x999999,roughness:1}));back.position.set(0,1.5,-2);scene.add(back);
  const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(4,5,3);scene.add(light);
 }
-function render(value:Partial<QualitySettings>){effects.render(scene,camera,{...DEFAULT_QUALITY,shadows:'off',...value},String(source));return {status:effects.status,samples:effects.msaaSamples};}
+function render(value:Partial<QualitySettings>){effects.render(scene,camera,{...DEFAULT_QUALITY,shadows:'off',...value},String(source));return {status:effects.status,samples:effects.msaaSamples,shadowLights:effects.shadowLights};}
 function capture(){const gl=renderer.getContext(),p=new Uint8Array(480*270*4);gl.readPixels(0,0,480,270,gl.RGBA,gl.UNSIGNED_BYTE,p);return [...p];}
 function floorSample(){const gl=renderer.getContext(),p=new THREE.Vector3(-.65,.002,0).project(camera),data=new Uint8Array(9*9*4);gl.readPixels(Math.round((p.x+1)*240)-4,Math.round((p.y+1)*135)-4,9,9,gl.RGBA,gl.UNSIGNED_BYTE,data);const rgb=[0,0,0];for(let i=0;i<data.length;i+=4)for(let c=0;c<3;c++)rgb[c]!+=data[i+c]!/81;return rgb;}
-(window as any).qualityProbe={thin,edges,bounce,reflect(){scene.traverse(o=>{if(o instanceof THREE.Mesh&&o.geometry instanceof THREE.PlaneGeometry&&o.rotation.x===-Math.PI/2)o.userData.entakuReflective=true;});},render,capture,floorSample,memory:()=>({...renderer.info.memory})};
+(window as any).qualityProbe={thin,edges,bounce,shadowRig(){
+ reset();camera.position.set(4,3,6);camera.lookAt(0,0,0);
+ const floor=new THREE.Mesh(new THREE.PlaneGeometry(10,10),new THREE.MeshStandardMaterial({color:0x808080}));floor.rotation.x=-Math.PI/2;scene.add(floor);
+ const box=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial({color:0xc08050}));box.position.y=.5;scene.add(box);
+ for(let i=0;i<9;i++){const light=new THREE.DirectionalLight(0xffffff,.4);light.position.set(Math.sin(i)*3,4,Math.cos(i)*3);scene.add(light);}
+ },reflect(){scene.traverse(o=>{if(o instanceof THREE.Mesh&&o.geometry instanceof THREE.PlaneGeometry&&o.rotation.x===-Math.PI/2)o.userData.entakuReflective=true;});},render,capture,floorSample,memory:()=>({...renderer.info.memory})};

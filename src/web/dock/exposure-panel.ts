@@ -1,3 +1,4 @@
+import {numericEditing} from './numeric-controls.ts';
 import {BLENDER_REFERENCE_EXPOSURE,DEFAULT_EXPOSURE,validateExposure,type ExposureSettings} from '../../studio/exposure.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {RuntimeDiagnostics} from '../../contracts/diagnostics.ts';
@@ -21,7 +22,7 @@ export class ExposurePanel {
   update(state:AppSnapshot):void{
     if(this.busy)return;const e=state.studio.exposure??DEFAULT_EXPOSURE;
     const values:Record<string,string>={'exposure-ev':String(e.compensationEV),'exposure-manual':String(e.manualExposure),'exposure-lighting':e.lighting};
-    for(const [id,value]of Object.entries(values)){const input=$<HTMLInputElement>(id);if(document.activeElement!==input)input.value=value;}
+    for(const [id,value]of Object.entries(values)){const input=$<HTMLInputElement>(id);if(!numericEditing(input))input.value=value;}
     $<HTMLInputElement>('exposure-auto').checked=e.mode==='auto';
     $<HTMLInputElement>('exposure-manual').disabled=e.mode==='auto';
   }

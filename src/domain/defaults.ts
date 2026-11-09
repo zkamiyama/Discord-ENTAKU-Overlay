@@ -6,9 +6,9 @@ export const TABLE = Object.freeze({
 });
 export const DIRECTOR = Object.freeze({
   qualifyMs: 1000, gapToleranceMs: 250, minSpeechRatio: 0.75,
-  minShotMs: 2500, incumbentGraceMs: 700,
+  changeGraceMs: 5000, minShotMs: 5000, incumbentGraceMs: 700,
   crowdConfirmMs: 700, crowdReleaseMs: 1200,
-  silenceWideMs: 4000, turnWindowMs: 6000,
+  silenceWideMs: 5000, turnWindowMs: 6000,
 });
 export const APP = Object.freeze({
   host: '127.0.0.1', port: 31337, protocolVersion: 1,

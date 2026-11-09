@@ -11,13 +11,13 @@ const snapshot = (ids: string[], at = 0): ProviderEvent => ({ type: 'snapshot', 
 test('membership reconciliation preserves speech, old generations cannot resurrect it', () => {
   const e = setup(); e.apply(snapshot(['1']));
   e.apply({ type: 'speaking', userId: '1', state: 'active', sourceGeneration: 1, receivedAtMs: 100 });
-  e.apply(snapshot(['1'], 600)); e.tick(1100);
+  e.apply(snapshot(['1'], 600)); e.tick(1100); e.tick(6100);
   expect(e.snapshot().camera.shot).toEqual({ kind: 'SINGLE', userIds: ['1'] });
-  e.apply({ type: 'connection', status: 'disconnected', sourceGeneration: 2, receivedAtMs: 1200 });
+  e.apply({ type: 'connection', status: 'disconnected', sourceGeneration: 2, receivedAtMs: 6200 });
   expect(e.snapshot().participants[0]?.presence).toBe('stale');
   expect(e.snapshot().participants[0]?.speaking).toBe('unknown');
   expect(e.snapshot().camera.shot.kind).toBe('WIDE');
-  expect(e.apply({ type: 'speaking', userId: '1', state: 'active', sourceGeneration: 1, receivedAtMs: 1300 })).toBe(false);
+  expect(e.apply({ type: 'speaking', userId: '1', state: 'active', sourceGeneration: 1, receivedAtMs: 6300 })).toBe(false);
   expect(e.snapshot().participants[0]?.speaking).toBe('unknown');
 });
 test('unknown speaker does not allocate a seat; delayed metadata may resolve the state', () => {
@@ -27,13 +27,13 @@ test('unknown speaker does not allocate a seat; delayed metadata may resolve the
   e.apply(snapshot(['9'], 300));
   expect(e.snapshot().participants[0]?.speaking).toBe('active');
   e.tick(1000); expect(e.snapshot().camera.shot.kind).toBe('WIDE');
-  e.tick(1300); expect(e.snapshot().camera.shot.kind).toBe('SINGLE');
+  e.tick(1300); e.tick(6300); expect(e.snapshot().camera.shot.kind).toBe('SINGLE');
 });
 test('source loss preserves seats, return restores identities, stale timestamps never rewind speech', () => {
   const e = setup(); e.apply(snapshot(['1','2','3','4','5'])); const seats = e.snapshot().session.reservations;
   e.tick(2000); e.apply({ type: 'speaking', userId: '1', state: 'active', sourceGeneration: 1, receivedAtMs: 1950 });
-  e.tick(3000); expect(e.snapshot().camera.shot.kind).toBe('SINGLE');
-  e.apply({ type: 'connection', status: 'disconnected', sourceGeneration: 1, receivedAtMs: 3100 });
+  e.tick(3000); e.tick(8000); expect(e.snapshot().camera.shot.kind).toBe('SINGLE');
+  e.apply({ type: 'connection', status: 'disconnected', sourceGeneration: 1, receivedAtMs: 8100 });
   expect(e.snapshot().session.reservations).toEqual(seats);
   expect(e.snapshot().session.capacity).toBe(5);
 });

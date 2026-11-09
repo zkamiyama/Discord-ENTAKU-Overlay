@@ -29,7 +29,7 @@ test('Dock defaults to auto and supports the provided fixed comparison without r
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
  await page.locator('#exposure-panel > summary').click();await expect(page.locator('#exposure-auto')).toBeChecked();
  await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','AUTO');
- await page.locator('.person').first().getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1700);
+ await page.locator('#auto').click();await page.locator('.person').first().getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1700);
  const before=await overlay.locator('#scene').getAttribute('data-camera-position');
  await page.locator('#exposure-controls > details > summary').click();await page.locator('#exposure-reference').click();
  await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','MANUAL');

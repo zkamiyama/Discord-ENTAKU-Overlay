@@ -27,19 +27,19 @@ test('nameplate short glyphs retain their shape and tabletop is one glossy wood 
 });
 test('post tab presets, exclusion and focus settings persist without changing the camera',async({page,context})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1600);const before=await overlay.locator('#scene').getAttribute('data-camera-position');
- await page.locator('#quality-panel > summary').click();await page.locator('#post-tab').click();await expect(page.locator('#post-tab')).toHaveAttribute('aria-selected','true');await expect(page.locator('#post-exclude')).toBeChecked();
+ await page.locator('#auto').click();await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1600);const before=await overlay.locator('#scene').getAttribute('data-camera-position');
+ await page.locator('#post-panel > summary').click();await expect(page.locator('#post-exclude')).toBeChecked();
  await page.locator('#post-natural').click();await expect(page.locator('#post-bloom')).toBeChecked();await expect(page.locator('#post-dof')).toBeChecked();await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
  await page.locator('#post-focus-mode').selectOption('manual');await page.locator('#post-focus-distance').fill('7');await page.locator('#post-focus-distance').press('Tab');await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-focus-distance'))).toBe(7);
  expect(await overlay.locator('#scene').getAttribute('data-camera-position')).toBe(before);await page.locator('#post-exclude').uncheck();await expect(overlay.locator('#scene')).toHaveAttribute('data-exclude-avatars','false');
- await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();await page.locator('#post-tab').click();await expect(page.locator('#post-focus-distance')).toHaveValue('7');await expect(page.locator('#post-exclude')).not.toBeChecked();
+ await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#post-panel > summary').click();await expect(page.locator('#post-focus-distance')).toHaveValue('7');await expect(page.locator('#post-exclude')).not.toBeChecked();
  await page.screenshot({path:'.work/rc7-post-tab.png',fullPage:true});await page.locator('#post-reset').click();await expect(page.locator('#post-speech-glow')).toHaveValue('4');
 });
 
 test('glossy tabletop SSR cannot introduce black pixels from invalid reflection samples',async({page,context})=>{
  test.setTimeout(90000);
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1800);
+ await page.locator('#auto').click();await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1800);
  const snapshot=()=>page.evaluate(()=>new Promise<any>(resolve=>{const w=new WebSocket('ws://'+location.host+'/ws');w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){w.close();resolve(m.state);}};}));
  const exposure=Number(await overlay.locator('#scene').getAttribute('data-exposure'));
  const apply=async(reflections:boolean)=>{const s=await snapshot();await page.evaluate(async({s,exposure,reflections})=>{const r=await fetch('/api/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'studio-set',requestId:crypto.randomUUID(),expectedRevision:s.revision,scene:{...s.studio,quality:{shadows:'off',msaa:4,reflections},exposure:{mode:'manual',compensationEV:0,manualExposure:exposure,lighting:'auto'}}})});if(!r.ok)throw new Error(await r.text());},{s,exposure,reflections});await page.waitForTimeout(500);};

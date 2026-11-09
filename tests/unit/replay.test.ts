@@ -13,7 +13,8 @@ test('incremental and accelerated virtual replay produce identical camera and se
  const replay=parseReplay(fixture()),a=engine(),b=engine(),pa=new ReplayPlayer(replay,a),pb=new ReplayPlayer(replay,b);
  for(let t=0;t<=8000;t+=50)pa.advanceTo(t);
  pb.advanceTo(8000);
- expect(a.snapshot()).toEqual(b.snapshot());expect(a.snapshot().camera.shot.userIds).toEqual(['100']);
+ expect(a.snapshot()).toEqual(b.snapshot());// The 3.5s speech never survives the new five-second candidate grace.
+ expect(a.snapshot().camera.shot.kind).toBe('WIDE');
 });
 test('invalid replay clocks and state cannot enter the domain',()=>{
  expect(()=>parseReplay(fixture().replace('"state":"active"','"state":"loud"'))).toThrow('INVALID_REPLAY_EVENT');

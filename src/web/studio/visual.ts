@@ -13,7 +13,7 @@ export class StudioVisual {
   get renderGeneration():number{return this.generation;}
   constructor(private client:StudioClient,private renderer:THREE.WebGLRenderer){}
   async update(definition:StudioScene):Promise<void>{
-    const signature=JSON.stringify({...definition,revision:0,exposure:undefined,quality:undefined,post:undefined});if(signature===this.signature){this.definition=definition;return;}
+    const signature=JSON.stringify({...definition,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});if(signature===this.signature){this.definition=definition;return;}
     this.signature=signature;this.definition=definition;
     const version=++this.generation,stage=new THREE.Group();let broadcast:BroadcastSet|null=null;this.loading=true;this.error='';
     try{

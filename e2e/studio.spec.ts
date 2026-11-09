@@ -27,7 +27,7 @@ test('Dock drives overlay, detects speech, reserves seats and restores a returni
   await personAction(page,first,'復帰');
   await expect(page.locator('#counts')).toHaveText('6人 / 6席');
   expect(await first.getAttribute('data-slot')).toBe(initialSeat);
-  await page.getByRole('button',{name:'構図固定',exact:true}).click();
+  await page.locator('#auto').click();
   await expect(page.locator('#mode')).toHaveText('HOLD');
   await page.reload();await expect(page.locator('#mode')).toHaveText('HOLD');
   await page.screenshot({path:'.work/preview-dock.png',fullPage:true});

@@ -7,7 +7,7 @@ import {SSRPass} from 'three/addons/postprocessing/SSRPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {FXAAPass} from 'three/addons/postprocessing/FXAAPass.js';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
-import {hasScreenEffects,type QualitySettings} from '../../studio/quality.ts';
+import {hasScreenEffects,effectiveSamples,type QualitySettings} from '../../studio/quality.ts';
 export type QualityStatus='DIRECT'|'EFFECTS'|'EFFECTS_UNAVAILABLE'|'EFFECTS_FAILED';
 /** Official passes compute effects. This adapter alone restores scene depth before
  * drawing display-layer avatars, keeping their RGB outside AO, SSR and AgX. */
@@ -96,7 +96,7 @@ export class QualityRenderer {
     const depth=Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,gl.SAMPLES) as Int32Array);
     this.sampleCounts=color.filter(n=>depth.includes(n)).sort((a,b)=>b-a);
    }
-   const samples=this.sampleCounts.find(n=>n<=q.msaa&&n<=renderer.capabilities.maxSamples)??0;
+   const samples=effectiveSamples(q.msaa,this.sampleCounts,renderer.capabilities.maxSamples);
    if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
    const size=renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
    if(w!==this.w||h!==this.h){this.w=w;this.h=h;for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased,this.reflections,this.giTarget])rt!.setSize(w,h);}

@@ -5,20 +5,20 @@ test('quality switches persist without changing the shot and rear arc is fixed d
  test.setTimeout(90000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());overlay.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
- await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1600);
+ await page.locator('#auto').click();await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1600);
  const old=await snapshot(page);
  await page.locator('#quality-panel > summary').click();await page.locator('#quality-high').click();
  await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS',{timeout:20000});
  await expect(page.locator('#quality-ao')).toBeChecked();await expect(page.locator('#quality-reflections')).toBeChecked();
  expect((await snapshot(page)).camera).toEqual(old.camera);
- await page.locator('#quality-nameplates').selectOption('blue');await expect.poll(async()=>(await snapshot(page)).studio.quality?.nameplates).toBe('blue');
+ await page.locator('#table-settings > summary').click();await page.locator('#quality-nameplates').selectOption('blue');await expect.poll(async()=>(await snapshot(page)).studio.quality?.nameplates).toBe('blue');
  await overlay.screenshot({path:'.work/quality-high-nameplate.png',omitBackground:true});
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();await expect(page.locator('#quality-nameplates')).toHaveValue('blue');
- await page.locator('#quality-default').click();await page.locator('#quality-nameplates').selectOption('white');await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
+ await page.locator('#quality-default').click();await page.locator('#table-settings > summary').click();await page.locator('#quality-nameplates').selectOption('white');await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
  await expect(page.locator('#quality-msaa')).toHaveValue('4');
- await page.locator('#post-tab').click();await page.locator('#post-settings > details > summary').click();
+
  await page.locator('#quality-gi').check();await expect.poll(async()=>(await snapshot(page)).studio.quality?.gi).toBe('ssgi');
- await page.locator('#render-tab').click();await page.locator('#quality-render-scale').selectOption('1.5');
+ await page.locator('#quality-render-scale').selectOption('1.5');
  await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-render-scale'))).toBeGreaterThan(1);
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();
  await expect(page.locator('#quality-gi')).toBeChecked();await expect(page.locator('#quality-render-scale')).toHaveValue('1.5');

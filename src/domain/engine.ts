@@ -1,3 +1,4 @@
+import {DEFAULT_DIRECTION} from '../studio/direction.ts';
 import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
 import { validateProfile, avatarFramingBounds, avatarEnvelopeBounds, requiredAvatarPitch, type AvatarProfile } from '../assets/avatar-profile.ts';
@@ -7,7 +8,7 @@ import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
 import { SpeakerTracker } from './speaker-tracker.ts';
 import { ShotDirector } from './shot-director.ts';
-import { pairPose, planCamera, widePose, fitsCameraFrame, avatarFramePoints, type AvatarExtent } from './camera-planner.ts';
+import { pairPose, planCamera, widePose, wideFaces, fitsCameraFrame, avatarFramePoints, type AvatarExtent } from './camera-planner.ts';
 
 export interface EngineOptions {
   source: AppSnapshot['source'];
@@ -184,7 +185,7 @@ export class AppEngine {
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=validateStudioScene(scene);this.advance(now);
-    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined});
+    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
     const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;
     if(exposureOnly){this.revision++;this.seq++;return;}
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
@@ -194,10 +195,10 @@ export class AppEngine {
   private protect(plan:CameraPlan):CameraPlan{
     const extents=this.avatarExtents();
     const points=[...this.byUser()].flatMap(([id,seat])=>avatarFramePoints(seat,extents.get(id)??{halfWidth:.35,topY:1.6,bottomY:.85}));
-    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values(),this.layout.offsetZ??0),pose=>fitsCameraFrame(pose,points));
+    return protectStudioCamera(plan,this.studio,widePose(this.layout.straightLength,extents.values(),this.layout.offsetZ??0,(this.studio.direction??DEFAULT_DIRECTION).wideHeightRatio,wideFaces(this.byUser(),extents)),pose=>fitsCameraFrame(pose,points));
   }
   private forceWide(reason: string): void {
-    this.camera = this.protect(planCamera(this.camera, { kind: 'WIDE', userIds: [] }, reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0));
+    this.camera = this.protect(planCamera(this.camera, { kind: 'WIDE', userIds: [] }, reason, this.byUser(), this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
   }
   tick(now: number): void {
     this.advance(now);
@@ -208,8 +209,8 @@ export class AppEngine {
     if(this.pendingManual&&this.connection==='ready'&&this.now>=this.layoutHoldUntil){
       const shot=this.pendingManual;this.pendingManual=null;
       if(shot.userIds.every(id=>present.includes(id))){
-        const requested=this.director.manual(shot,this.now);
-        if(requested.changed)this.camera=this.protect(planCamera(this.camera,shot,requested.reason,byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0));
+        const requested=this.director.manual(shot,this.now,this.studio.direction?.manualReturnSeconds??10);
+        if(requested.changed)this.camera=this.protect(planCamera(this.camera,shot,requested.reason,byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
         this.seq++;
       }
     }
@@ -219,7 +220,7 @@ export class AppEngine {
       canPair: (a, b) => !!byUser.get(a) && !!byUser.get(b) && pairPose(byUser.get(a)!, byUser.get(b)!,[a,b].flatMap(id=>extents.has(id)?[extents.get(id)!]:[])) !== null,
     });
     if (this.decision.changed) {
-      this.camera = this.protect(planCamera(this.camera, this.decision.shot, this.decision.reason, byUser, this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0));
+      this.camera = this.protect(planCamera(this.camera, this.decision.shot, this.decision.reason, byUser, this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
       this.director.transitionEndsAt(this.now + this.camera.durationMs);
       this.seq++;
     }
@@ -233,10 +234,10 @@ export class AppEngine {
       if (command.shot.kind === 'TWO_SHOT') throw new Error('MANUAL_PAIR_NOT_AVAILABLE');
       if(this.now<this.layoutHoldUntil){
         // Keep the operator's latest request instead of silently losing it to the safety wide.
-        this.pendingManual=structuredClone(command.shot);this.director.setMode('MANUAL');
+        this.pendingManual=structuredClone(command.shot);if(this.director.mode!=='HOLD')this.director.setMode('MANUAL');
       }else{
-        this.pendingManual=null;const decision=this.director.manual(command.shot,this.now);
-        if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0));
+        this.pendingManual=null;const decision=this.director.manual(command.shot,this.now,this.studio.direction?.manualReturnSeconds??10);
+        if(decision.changed)this.camera=this.protect(planCamera(this.camera,decision.shot,decision.reason,this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
       }
     } else if(command.type==='moderators'){
       if(!this.channel)throw new Error('NO_CHANNEL');
@@ -274,7 +275,7 @@ export class AppEngine {
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.participants.values()],
       session: this.allocator.snapshot(), straightLength: this.layout.straightLength, deskOffsetZ:this.layout.offsetZ??0, seats: this.layout.seats, layoutMotion: this.layoutMotion,
-      mode: this.director.mode, decision: this.decision, camera: this.camera, source: this.options.source,
+      autoResumeAtMs:this.director.autoResumeAtMs, mode: this.director.mode, decision: this.decision, camera: this.camera, source: this.options.source,
     });
   }
 }

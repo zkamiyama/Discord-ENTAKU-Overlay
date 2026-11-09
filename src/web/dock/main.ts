@@ -1,3 +1,5 @@
+import {DirectionPanel} from './direction-panel.ts';
+import {installNumericControls} from './numeric-controls.ts';
 import {PostPanel} from './post-panel.ts';
 import {QualityPanel} from './quality-panel.ts';
 import {ExposurePanel} from './exposure-panel.ts';
@@ -10,15 +12,15 @@ import {decorate,decorateShell,icon} from './icons.ts';
 import {installTheme} from './theme.ts';
 decorateShell();installTheme();
 const client=new StudioClient(),editor=new AvatarEditor(client);
-new StudioEditor(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client);
+new StudioEditor(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client),directionPanel=new DirectionPanel(client);
+installNumericControls();
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false,replayShown=false;
 async function command(value:Record<string,unknown>):Promise<void>{
  if(busy)return;busy=true;errors.textContent='';
  try{await client.command(value);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}
 }
-get('auto').onclick=()=>void command({type:'mode',mode:'AUTO'});
-get('hold').onclick=()=>void command({type:'mode',mode:'HOLD'});
+get('auto').onclick=()=>void command({type:'mode',mode:client.state?.mode==='HOLD'?'AUTO':'HOLD'});
 get('wide').onclick=()=>void command({type:'wide'});
 get('retry').onclick=()=>{if(confirm('Discordの認可画面が表示される場合があります。再接続しますか？'))void command({type:'retry'});};
 get('new-session').onclick=()=>{if(confirm('退出者の席予約を消し、現在の参加者で配置し直しますか？'))void command({type:'new-session',confirm:true});};
@@ -63,7 +65,7 @@ function row(user:DockPerson):Row {
 const compositionNames:Record<string,string>={WIDE:'全景',SINGLE_OTS:'肩越し',SINGLE_CLEAN:'単独',TWO_SHOT:'2人',MODERATOR_SINGLE:'司会',MODERATOR_TWO:'共同司会'};
 const visibilityNames:Record<string,string>={OVER_SHOULDER:'肩越し',ELEVATED_TO_AVOID_OCCLUSION:'高さを補正',SHIFTED_TO_AVOID_OCCLUSION:'横位置を補正',FALLBACK_TO_CLEAN_SINGLE:'通常構図',NO_CLEAR_COMPOSITION:'見通しを確認',TARGET_UNAVAILABLE:'対象待ち'};
 client.onState=state=>{
- exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);
+ exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);directionPanel.update(state);
  get('studio-current').textContent=`シーン ${state.studio.revision} · ${state.studio.objects.length}オブジェクト`;
  get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('camera-transition').textContent=state.camera.transition;
  get('composition').textContent=compositionNames[state.camera.composition??state.camera.shot.kind]??state.camera.shot.kind;
@@ -72,7 +74,7 @@ client.onState=state=>{
  get('foreground').textContent=foreground?`前景：${foreground.displayName}`:'前景なし';
  get('visibility').textContent=visibilityNames[state.camera.visibilityReason??'']??'標準構図';
  get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
- get('auto').setAttribute('aria-pressed',String(state.mode==='AUTO'));get('hold').setAttribute('aria-pressed',String(state.mode==='HOLD'));
+ get('auto').setAttribute('aria-pressed',String(state.mode!=='HOLD'));
  get('counts').textContent=`${state.participants.filter(p=>p.presence==='present').length}人 / ${state.session.capacity}席`;
  get('connection').textContent=`${state.channel?.name??'VC未選択'} · ${state.connection}${state.errorCode?' · '+state.errorCode:''}`;
  get('source').textContent=state.source==='demo'?'デモ入力：マイクボタンで発話を切り替えます。':state.source==='replay'?'記録済みイベントを再生中。':'Discord IPCから受信中。';
