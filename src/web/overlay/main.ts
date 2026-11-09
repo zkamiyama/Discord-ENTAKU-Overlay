@@ -1,23 +1,13 @@
-import {SplitRenderer} from '../studio/split-renderer.ts';
-import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
-import {DEFAULT_POST,resolvePostFocus} from '../../studio/post-effects.ts';
-import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
+import {ProgramRenderer} from './program-renderer.ts';
+import {sampleStage,sampleSeat,cameraPose,setLocalCamera} from './stage-frame.ts';
 import {disposeObject} from '../studio/dispose.ts';
-import {DEFAULT_QUALITY} from '../../studio/quality.ts';
-import {ExposureRenderer,createFallbackLights,protectDisplayObject} from '../studio/exposure-renderer.ts';
-import {DEFAULT_EXPOSURE} from '../../studio/exposure.ts';
-import {NameplateVisual} from '../studio/nameplate.ts';
-import {platePosition} from '../../geometry/desk-props.ts';
-import {BroadcastDesk,deskProps} from '../studio/broadcast-desk.ts';
-import { loadImagePair } from '../shared/image-pair.ts';
+import {Avatar} from './avatar.ts';
+import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
+import {BroadcastDesk} from '../studio/broadcast-desk.ts';
 import { StudioVisual } from '../studio/visual.ts';
-import { CustomAvatarVisual } from './custom-avatar.ts';
-import { avatarFramingBounds,type AvatarProfile } from '../../assets/avatar-profile.ts';
 import * as THREE from 'three';
-import type { AppSnapshot, Participant, SeatTransform } from '../../contracts/domain.ts';
+import type { AppSnapshot } from '../../contracts/domain.ts';
 import { StudioClient } from '../shared/client.ts';
-import { TABLE } from '../../domain/defaults.ts';
-import { samplePlan, widePose } from '../../domain/camera-planner.ts';
 
 const client = new StudioClient();
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
@@ -27,100 +17,12 @@ renderer.toneMapping = THREE.AgXToneMapping;
 const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, DEFAULT_DIRECTION.nearClip, 1000);
 scene.add(stage);
 const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
-const fallbackLights=createFallbackLights();scene.add(fallbackLights);
-const exposureRenderer=new ExposureRenderer(renderer,fallbackLights);
-const splitRenderer=new SplitRenderer(renderer);let wasSplit=false;
 renderer.info.autoReset=false;
 const table=new BroadcastDesk(0);stage.add(table);
-const vertexShader = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
-function imageMaterial(texture:THREE.Texture):THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({uniforms:{map:{value:texture},opacity:{value:1}},vertexShader,fragmentShader:`
-    uniform sampler2D map;uniform float opacity;varying vec2 vUv;
-    void main(){vec4 c=texture2D(map,vUv);if(c.a<.1)discard;c.rgb*=gl_FrontFacing?1.:.35;gl_FragColor=vec4(c.rgb,c.a*opacity);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-    }`,side:THREE.DoubleSide,transparent:true,depthWrite:true});
-}
-function placeholder(user:Participant):THREE.CanvasTexture {
-  const c=document.createElement('canvas');c.width=c.height=256;const x=c.getContext('2d')!;
-  const hue=[...user.userId].reduce((a,b)=>a+b.charCodeAt(0),0)*31%360;
-  x.fillStyle=`hsl(${hue} 26% 30%)`;x.fillRect(0,0,256,256);x.fillStyle='#eff4fa';x.font='600 105px Meiryo, "Yu Gothic", "Noto Sans CJK JP", sans-serif';x.textAlign='center';x.textBaseline='middle';
-  x.fillText([...user.displayName][0]??'?',128,132);
-  const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return texture;
-}
-class Avatar {
-  root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
-  outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
-  private baseYaw=0;
-  user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
-  custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
-  constructor(user:Participant,profile?:AvatarProfile){
-    this.user=user; this.root.visible=this.plate.visible=false;
-    this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
-    this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.60,64),new THREE.ShaderMaterial({
-      uniforms:{strength:{value:0},glowScale:{value:4}},vertexShader,fragmentShader:`uniform float strength;uniform float glowScale;varying vec2 vUv;void main(){float d=(length(vUv-.5)*1.20-.28)/glowScale;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
-    this.root.add(this.outline);
-    this.nameplate=new NameplateVisual(user.displayName);this.plate.add(this.nameplate,deskProps());
-    protectDisplayObject(this.root);
-    stage.add(this.root,this.plate);this.update(user,profile);
-  }
-  update(user:Participant,profile?:AvatarProfile):void {
-    const key=JSON.stringify(profile??null);
-    if(key!==this.profileKey){
-      this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
-      if(!profile){avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
-      else void loadImagePair(client.customImage(profile.assetId),profile.back?client.customImage(profile.back.assetId):undefined).then(async([bitmap,back])=>{
-        try{
-          if(this.disposed||generation!==this.customVersion)return;
-          const next=await CustomAvatarVisual.create(bitmap,profile,back);
-          if(this.disposed||generation!==this.customVersion){next.dispose();return;}
-          avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=next;this.root.add(next.root);this.body.visible=this.outline.visible=false;
-        }finally{bitmap.close();back?.close();}
-      }).catch(()=>{
-        if(this.disposed||generation!==this.customVersion)return;
-        this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;
-        // Rendering remains usable; diagnostic code contains no path, URL or capability.
-        avatarFailures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
-      });
-    }
-    this.nameplate.setName(user.displayName,state?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates);
-    this.user=user;
-    if(!profile&&user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
-      if(user.avatarUrl)void client.avatar(user.userId).then(bitmap=>{
-        if(this.disposed||version!==this.textureVersion){bitmap.close();return;}
-        const texture=new THREE.Texture(bitmap);texture.needsUpdate=true;texture.colorSpace=THREE.SRGBColorSpace;
-        const previous=this.body.material.uniforms.map!.value as THREE.Texture;previous.dispose();
-        if(previous.image instanceof ImageBitmap)previous.image.close();this.body.material.uniforms.map!.value=texture;
-      }).catch(()=>{});
-    }
-  }
-  render(seat:SeatTransform,dt:number,time:number,connected:boolean):void {
-    const visible=this.user.presence==='present'||this.user.presence==='stale';
-    const target=visible?(this.user.presence==='stale'?.45:1):0;
-    this.opacity+=(target-this.opacity)*(1-Math.exp(-dt/.2));this.root.visible=this.plate.visible=this.opacity>.005;
-    this.root.position.fromArray(seat.faceAnchor);
-    if(this.profile){this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX;this.root.position.z-=Math.sin(seat.baseYawRad)*this.profile.offsetX;this.root.position.y+=this.profile.offsetY;}
-    // Follow the current shot immediately. Camera MOVE may interpolate its pose,
-    // but avatars must not keep swivelling after a CUT.
-    this.baseYaw=seat.baseYawRad;this.faceCamera(camera.position);
-    this.body.material.uniforms.opacity!.value=this.opacity;
-    const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
-    this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
-    const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
-    this.outline.material.uniforms.strength!.value=intensity;const glowScale=state?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0,glowScale);
-    this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
-  }
-  faceCamera(position:THREE.Vector3):void{this.root.rotation.y=avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
-  dispose():void {
-    this.disposed=true;avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;stage.remove(this.root,this.plate);
-    this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
-    const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
-    disposeObject(this.plate);
-  }
-}
 const avatarFailures=new Set<string>();
 const avatars=new Map<string,Avatar>();let state:AppSnapshot|null=null;
-client.onState=next=>{state=next;void studioVisual.update(next.studio);for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar(p,profile));}
+const program=new ProgramRenderer(renderer,scene,stage,camera,avatars);
+client.onState=next=>{state=next;void studioVisual.update(next.studio);for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar({client,stage,camera,failures:avatarFailures,state:()=>state},p,profile));}
   const ids=new Set(next.participants.map(p=>p.userId));for(const [id,avatar]of avatars)if(!ids.has(id)){avatar.dispose();avatars.delete(id);}
 };
 let previous=performance.now(),lastLength=-1,reportAt=0,frameMs=16.7;
@@ -129,25 +31,18 @@ let lastPixelRatio=0;
 function resize(){const w=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),h=w*9/16;const requested=Math.min(devicePixelRatio,1.5)*(state?.studio.quality?.renderScale??1);lastPixelRatio=Math.min(requested,4096/w,2304/h);renderer.setPixelRatio(lastPixelRatio);renderer.setSize(w,h);}
 window.addEventListener('resize',resize);resize();
 function frame(time:number):void{
-  requestAnimationFrame(frame);renderer.info.reset();frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
+  if(disposed)return;frameId=requestAnimationFrame(frame);renderer.info.reset();frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
   const requested=Math.min(Math.min(devicePixelRatio,1.5)*(state?.studio.quality?.renderScale??1),4096/Math.max(1,Math.min(innerWidth,innerHeight*16/9)),2304/Math.max(1,Math.min(innerHeight,innerWidth*9/16)));
   if(Math.abs(requested-lastPixelRatio)>.0001)resize();
-  const serverNow=client.now();let length=state?.straightLength??0;
-  let offsetZ=state?.deskOffsetZ??0;let progress=1;const motion=state?.layoutMotion;
-  if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);offsetZ=THREE.MathUtils.lerp(motion.fromDeskOffsetZ??0,offsetZ,progress);}
+  const serverNow=client.now(),{length,offsetZ,progress}=sampleStage(state,serverNow),motion=state?.layoutMotion;
   if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
   table.position.z=offsetZ;
-  const pose=state&&client.connected&&studioVisual.readyForCamera?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0,(state?.studio.direction??DEFAULT_DIRECTION).wideHeightRatio);
+  const pose=cameraPose(state,serverNow,client.connected&&studioVisual.readyForCamera);
   const near=state?.studio.direction?.nearClip??DEFAULT_DIRECTION.nearClip;
-  if(camera.near!==near){camera.near=near;camera.updateProjectionMatrix();}
-  canvas.dataset.cameraNear=String(near);
-  camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
+  setLocalCamera(camera,pose,near);canvas.dataset.cameraNear=String(near);
   if(state)for(const reservation of state.session.reservations){
     const target=state.seats[reservation.slotIndex],avatar=avatars.get(reservation.userId);if(!target||!avatar)continue;
-    let seat=target;const old=motion?.fromSeats[reservation.slotIndex];
-    if(old&&progress<1){const position=target.position.map((x,i)=>THREE.MathUtils.lerp(old.position[i]!,x,progress)) as [number,number,number];
-      seat={...target,position,faceAnchor:[position[0],1.25,position[2]],baseYawRad:old.baseYawRad+Math.atan2(Math.sin(target.baseYawRad-old.baseYawRad),Math.cos(target.baseYawRad-old.baseYawRad))*progress};
-      seat={...seat,inward:[Math.sin(seat.baseYawRad),0,Math.cos(seat.baseYawRad)]};}
+    const seat=sampleSeat(target,motion?.fromSeats[reservation.slotIndex],progress);
     avatar.render(seat,dt,time,client.connected&&state.connection==='ready');
   }
   if(state){const assigned=new Set(state.session.reservations.map(r=>r.userId));for(const [id,avatar]of avatars)if(!assigned.has(id)){avatar.root.visible=avatar.plate.visible=false;}}
@@ -157,34 +52,12 @@ function frame(time:number):void{
     const studioStatus=studioVisual.setLength(length,offsetZ);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
     canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');canvas.dataset.cameraLocalPosition=pose.position.join(',');canvas.dataset.cameraLocalTarget=pose.target.join(',');
   }
-  if(!contextLost){
-    const post=state?.studio.post??DEFAULT_POST;
-    const selected=state?.camera.shot.userIds.length?state.camera.shot.userIds:state?.participants.filter(p=>p.presence==='present').map(p=>p.userId)??[];
-    const subjects=selected.flatMap(id=>{const a=avatars.get(id);return a&&a.user.presence==='present'?[a.root.position.toArray() as [number,number,number]]:[];});
-    const focus=resolvePostFocus(post,pose,subjects);
-    canvas.dataset.focusDistance=String(focus.distance);canvas.dataset.focusRange=String(focus.range);canvas.dataset.excludeAvatars=String(post.excludeAvatars);
-    const panels=state?.camera.shot.kind==='SPLIT'&&client.connected&&studioVisual.readyForCamera?state.camera.panels:undefined;
-    const split=!!panels&&splitRenderer.supported;
-    if(split!==wasSplit){if(split)exposureRenderer.releaseQuality();else splitRenderer.dispose();wasSplit=split;}
-    const exposure=state?.studio.exposure??DEFAULT_EXPOSURE,quality=state?.studio.quality??DEFAULT_QUALITY;
-    const source=String(studioVisual.renderGeneration),lights=studioVisual.root.visible?studioVisual.authoredLights:0;
-    let report;
-    if(split&&panels){
-      const measured=exposureRenderer.prepare(scene,camera,exposure,source,lights,time);
-      const splitReport=splitRenderer.render(scene,panels,quality,post,source+'|'+measured.fallbackLights,(panel,panelCamera)=>{
-        const local=new THREE.Vector3().fromArray(panel.pose.position);
-        for(const avatar of avatars.values())avatar.faceCamera(local);
-        panelCamera.position.copy(stage.localToWorld(local.clone()));panelCamera.lookAt(stage.localToWorld(new THREE.Vector3().fromArray(panel.pose.target)));
-        panelCamera.fov=panel.pose.fov;panelCamera.near=near;panelCamera.far=1000;
-        const subject=avatars.get(panel.userId);return resolvePostFocus(post,panel.pose,subject?[subject.root.position.toArray() as [number,number,number]]:[]);
-      });
-      report={...measured,...splitReport};exposureRenderer.report=report;
-    }else report=exposureRenderer.render(scene,camera,exposure,source,lights,time,quality,post,focus);
-    canvas.dataset.splitCount=split?'2':'1';canvas.dataset.splitStatus=panels&&!split?'UNAVAILABLE':split?'ACTIVE':'OFF';
-    canvas.dataset.splitUsers=split?panels!.map(panel=>panel.userId).join(','):'';
-    canvas.dataset.exposure=String(report.exposure);canvas.dataset.msaaSamples=String(report.msaaSamples??0);canvas.dataset.renderScale=String(lastPixelRatio);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
-    canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
-  }
-  if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}
+  if(!contextLost)Object.assign(canvas.dataset,program.render(state,pose,studioVisual,client.connected,time,length,offsetZ,near));
+  if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report);}
 }
-requestAnimationFrame(frame);client.connect();
+let disposed=false,frameId=requestAnimationFrame(frame);client.connect();
+window.addEventListener('pagehide',()=>{
+ disposed=true;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);client.disconnect();
+ for(const avatar of avatars.values())avatar.dispose();avatars.clear();
+ program.dispose();studioVisual.dispose();disposeObject(table);renderer.dispose();renderer.forceContextLoss();
+},{once:true});

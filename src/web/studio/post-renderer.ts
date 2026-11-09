@@ -1,3 +1,4 @@
+import {saveRenderState} from './render-state.ts';
 import {createFocusMaterial,bloomTexture} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import * as THREE from 'three';
@@ -41,7 +42,8 @@ export class PostRenderer {
   const displaySamples=p.excludeAvatars&&!unlitStudio?0:samples;
   if(this.linear.samples!==displaySamples){this.linear.dispose();this.linear.samples=displaySamples;}
   if(this.w!==input.width||this.h!==input.height){this.w=input.width;this.h=input.height;for(const rt of [this.linear,this.a,this.b,this.c,this.result])rt.setSize(this.w,this.h);this.bloom?.setSize(this.w,this.h);}
-  const outputSpace=renderer.outputColorSpace,mask=camera.layers.mask,background=scene.background,auto=renderer.autoClear;
+  const restore=saveRenderState(renderer,scene,camera);
+  const outputSpace=renderer.outputColorSpace,mask=camera.layers.mask,background=scene.background;
   try{
    // OutputPass reads renderer outputColorSpace. No second AgX/exposure is applied to display art.
    renderer.outputColorSpace=THREE.LinearSRGBColorSpace;renderer.autoClear=true;
@@ -69,7 +71,7 @@ export class PostRenderer {
    if(p.contrast!==1){this.contrast.uniforms.contrast!.value=p.contrast>=1?1-1/p.contrast:p.contrast-1;this.contrast.render(renderer,this.b,color,0,false);color=this.b;}
    (this.premultiply.material as THREE.ShaderMaterial).uniforms.color!.value=color.texture;renderer.setRenderTarget(this.result);this.premultiply.render(renderer);
    return this.result;
-  }finally{renderer.outputColorSpace=outputSpace;camera.layers.mask=mask;scene.background=background;renderer.autoClear=auto;}
+  }finally{restore();}
  }
  dispose():void{
   for(const rt of [this.linear,this.a,this.b,this.c,this.result])rt.dispose();

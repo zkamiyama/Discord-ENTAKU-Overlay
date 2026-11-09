@@ -1,3 +1,4 @@
+import {saveRenderState} from './render-state.ts';
 import * as THREE from 'three';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 /** Render-target materials output working-linear colors, not canvas sRGB. Decode
@@ -18,14 +19,14 @@ export class DisplayComposite {
  render(renderer:THREE.WebGLRenderer,scene:THREE.Scene,camera:THREE.Camera,color:THREE.WebGLRenderTarget,depth:THREE.DepthTexture,samples:number):THREE.WebGLRenderTarget{
   if(this.linear.width!==color.width||this.linear.height!==color.height){this.linear.setSize(color.width,color.height);this.result.setSize(color.width,color.height);}
   if(this.linear.samples!==samples){this.linear.dispose();this.linear.samples=samples;}
-  const mask=camera.layers.mask,background=scene.background,auto=renderer.autoClear;
+  const restore=saveRenderState(renderer,scene,camera);
   try{
    const u=(this.decode.material as THREE.ShaderMaterial).uniforms;u.color!.value=color.texture;u.depth!.value=depth;
    renderer.setRenderTarget(this.linear);renderer.autoClear=false;renderer.clear();this.decode.render(renderer);
    camera.layers.set(this.layer);scene.background=null;renderer.render(scene,camera);
    (this.encode.material as THREE.ShaderMaterial).uniforms.color!.value=this.linear.texture;
    renderer.setRenderTarget(this.result);renderer.clear();this.encode.render(renderer);return this.result;
-  }finally{camera.layers.mask=mask;scene.background=background;renderer.autoClear=auto;}
+  }finally{restore();}
  }
  dispose():void{this.linear.dispose();this.result.dispose();for(const q of [this.decode,this.encode]){q.material.dispose();q.dispose();}}
 }

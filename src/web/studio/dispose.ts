@@ -9,6 +9,7 @@ export function disposeObject(root:THREE.Object3D):void {
       if(object instanceof THREE.Mesh){if(object.customDepthMaterial)materials.add(object.customDepthMaterial);if(object.customDistanceMaterial)materials.add(object.customDistanceMaterial);}
       for(const material of Array.isArray(object.material)?object.material:[object.material])materials.add(material);
     }
+    if(object instanceof THREE.Light)object.dispose();
     if(object instanceof THREE.SkinnedMesh)skeletons.add(object.skeleton);
     if(object instanceof THREE.InstancedMesh)object.dispose();
   });

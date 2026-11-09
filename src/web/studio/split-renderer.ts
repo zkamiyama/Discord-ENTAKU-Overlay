@@ -1,3 +1,4 @@
+import {saveRenderState} from './render-state.ts';
 import * as THREE from 'three';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 import {QualityRenderer,type QualityStatus} from './quality-renderer.ts';
@@ -14,7 +15,7 @@ export class SplitRenderer {
  get supported():boolean{return this.renderer.extensions.has('EXT_color_buffer_float');}
  render(scene:THREE.Scene,panels:readonly [SplitPanel,SplitPanel],quality:QualitySettings,post:PostSettings,source:string,prepare:(panel:SplitPanel,camera:THREE.PerspectiveCamera)=>FocusBand):{qualityStatus:QualityStatus;msaaSamples:number;shadowLights:number}{
   const renderer=this.renderer,size=renderer.getDrawingBufferSize(new THREE.Vector2());
-  const old=renderer.getRenderTarget(),viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),test=renderer.getScissorTest(),auto=renderer.autoClear;
+  const old=renderer.getRenderTarget(),restore=saveRenderState(renderer,scene);
   if(!this.targets.length){
    this.targets=[0,1].map(()=>new THREE.WebGLRenderTarget(1,1,{depthBuffer:true,stencilBuffer:false,generateMipmaps:false}));
    this.effects=[new QualityRenderer(renderer),new QualityRenderer(renderer)];
@@ -40,7 +41,7 @@ export class SplitRenderer {
    renderer.setRenderTarget(old);renderer.setScissorTest(false);renderer.autoClear=false;renderer.clear();
    const uniforms=(this.composite!.material as THREE.ShaderMaterial).uniforms;uniforms.left!.value=this.targets[0]!.texture;uniforms.right!.value=this.targets[1]!.texture;uniforms.seam!.value=1/Math.max(1,size.x);this.composite!.render(renderer);
    return {qualityStatus:this.effects.find(e=>e.status!=='EFFECTS')?.status??'EFFECTS',msaaSamples:Math.min(...this.effects.map(e=>e.msaaSamples)),shadowLights:Math.max(...this.effects.map(e=>e.shadowLights))};
-  }finally{renderer.setRenderTarget(old);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(test);renderer.autoClear=auto;}
+  }finally{restore();}
  }
  dispose():void{for(const effect of this.effects)effect.dispose();for(const target of this.targets)target.dispose();if(this.composite){this.composite.material.dispose();this.composite.dispose();this.composite=undefined;}this.targets=[];this.effects=[];}
 }

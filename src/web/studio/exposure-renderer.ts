@@ -92,10 +92,10 @@ export class ExposureRenderer {
     this.renderer.toneMappingExposure=exposure;
     this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible};return this.report;
   }
-  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY,post:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5}):ExposureReport {
+  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY,post:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},effectsSource=source):ExposureReport {
     if(this.disposed)return this.report;
     const measured=this.prepare(scene,camera,settings,source,authoredLights,now);
-    this.quality.render(scene,camera,quality,source+'|'+this.fallback.visible,post,focus);
+    this.quality.render(scene,camera,quality,effectsSource+'|'+this.fallback.visible,post,focus);
     this.report={...measured,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights,msaaSamples:this.quality.msaaSamples};return this.report;
   }
   releaseQuality():void{this.quality.dispose();}
