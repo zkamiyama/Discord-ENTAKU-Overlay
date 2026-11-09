@@ -13,5 +13,5 @@ export function decisionPhase(reason:string):DecisionPhase {
   }
 }
 export function withDecisionPhase(decision:Decision):Decision {
-  return {...decision,phase:decisionPhase(decision.reason)};
+  return {...decision,phase:decision.phase??decisionPhase(decision.reason)};
 }

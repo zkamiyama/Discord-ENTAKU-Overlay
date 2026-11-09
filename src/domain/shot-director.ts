@@ -1,3 +1,5 @@
+import {sameShot as same,pendingTransition,transitionPhase,type PendingTransition,type TransitionCause} from './shot-transition.ts';
+import type {DecisionPhase} from './decision-phase.ts';
 import {DEFAULT_DIRECTION,directionTiming,type DirectionSettings} from '../studio/direction.ts';
 import {detectDialogue,DIALOGUE,type DialogueEvidence} from './dialogue-detector.ts';
 import type { Decision, DirectorMode, Shot } from '../contracts/domain.ts';
@@ -8,7 +10,6 @@ export interface DirectorContext {
  canPair:(a:string,b:string)=>boolean;preferPair?:(a:string,b:string)=>boolean;splitEnabled?:boolean;canSplit?:(a:string,b:string)=>boolean;
 }
 const wide=():Shot=>({kind:'WIDE',userIds:[]});
-const same=(a:Shot,b:Shot):boolean=>a.kind===b.kind&&a.userIds.join(',')===b.userIds.join(',');
 /** START: configurable actual speech time (default 1.5s), including qualification.
  * STOP: configurable end confirmation and subsequent framing grace.
  * A returning speaker cancels both phases; raw speech totals exclude the silence.
@@ -22,7 +23,7 @@ export class ShotDirector {
  private bridge:{ids:string[];missing:Map<string,number>}|null=null;
  private dialogue?:DialogueEvidence;private splitCandidate:{key:string;since:number}|null=null;private splitWeakAt:number|null=null;private splitCooldownUntil=-Infinity;
  private shot:Shot=wide();private holdUntil=-Infinity;
- private pending:{shot:Shot;reason:string;since:number;kind:'start'|'end';at:number}|null=null;
+ private pending:PendingTransition|null=null;
  private missingSince:number|null=null;private autoSince:number|null=null;private leader?:string;private crowdWide=false;private crowdEndedAt:number|null=null;
  reset():void {this.bridge=null;this.dialogue=undefined;this.splitCandidate=null;this.splitWeakAt=null;this.splitCooldownUntil=-Infinity;this.shot=wide();this.holdUntil=-Infinity;this.pending=null;this.missingSince=null;this.autoResumeAtMs=null;this.autoSince=null;this.leader=undefined;this.crowdWide=false;this.crowdEndedAt=null;}
  current():Shot{return structuredClone(this.shot);}
@@ -31,7 +32,7 @@ export class ShotDirector {
   this.bridge=null;this.splitCandidate=null;this.splitWeakAt=null;
   const fixed=this.mode==='HOLD';this.mode=fixed?'HOLD':'MANUAL';
   this.autoResumeAtMs=fixed?null:now+returnSeconds*1000;this.pending=null;
-  return this.choose(shot,'MANUAL_OVERRIDE',now);
+  return this.choose(shot,'MANUAL_OVERRIDE',now,'MANUAL');
  }
  // Do not add another five-second delay on top of speech qualification / camera MOVE.
  transitionEndsAt(now:number):void {this.holdUntil=Math.max(this.holdUntil,now);}
@@ -41,17 +42,17 @@ export class ShotDirector {
   }
   if(!context.sourceReady||context.layoutMoving){
    this.bridge=null;this.pending=null;this.leader=undefined;this.dialogue=undefined;this.splitCandidate=null;this.splitWeakAt=null;
-   return this.choose(wide(),!context.sourceReady?'SOURCE_LOST':context.layoutReason??'LAYOUT_GROWTH',now);
+   return this.choose(wide(),!context.sourceReady?'SOURCE_LOST':context.layoutReason??'LAYOUT_GROWTH',now,context.sourceReady?'STABLE':'UNAVAILABLE');
   }
   const ids=context.presentIds;
   if(this.shot.userIds.some(id=>!ids.includes(id))){
    this.missingSince??=now;
    if(now-this.missingSince>=this.timing.endGraceMs){this.pending=null;return this.choose(wide(),'TARGET_LEFT',now);}
-   return this.keep('TARGET_LEFT_GRACE',now,this.missingSince+this.timing.endGraceMs);
+   return this.keep('TARGET_LEFT_GRACE',now,this.missingSince+this.timing.endGraceMs,'END_GRACE');
   }
   this.missingSince=null;
   if(this.shot.kind==='SPLIT'&&!context.splitEnabled){this.dialogue=undefined;return this.choose({kind:'SINGLE',userIds:[this.shot.userIds[0]]},'SPLIT_DISABLED',now);}
-  if(this.mode!=='AUTO')return this.keep('MANUAL_OVERRIDE',now);
+  if(this.mode!=='AUTO')return this.keep('MANUAL_OVERRIDE',now,this.holdUntil,'MANUAL');
   this.autoSince??=now;
   const stats=ids.map(id=>tracker.conversationStats(id,now)),active=stats.filter(s=>s.state==='active');
   const qualified=active.filter(s=>s.qualified).sort((a,b)=>b.windowMs-a.windowMs||Number(this.shot.userIds.some(id=>id===b.userId))-Number(this.shot.userIds.some(id=>id===a.userId))||ids.indexOf(a.userId)-ids.indexOf(b.userId));
@@ -67,7 +68,7 @@ export class ShotDirector {
    // A hesitation is not an END and must not restart onset qualification.
    this.pending=null;this.splitWeakAt=null;
    const until=Math.max(...paused.map(s=>s.endPendingUntilMs!));
-   return {...this.keep('SPEECH_END_CONFIRM',now,until),switchAtMs:until};
+   return {...this.keep('SPEECH_END_CONFIRM',now,until,'END_CONFIRMING'),switchAtMs:until};
   }
   const split=this.splitDecision(now,tracker,context,stats,qualified);if(split)return split;
   if(!active.length){
@@ -129,13 +130,13 @@ export class ShotDirector {
   if(active-confirmations.length>=3)return this.keep('THREE_PERSON_DISCUSSION',now);
   if(confirmations.length){
    const until=Math.max(...confirmations);
-   return {...this.keep('THIRD_SPEAKER_END_CONFIRM',now,until),switchAtMs:until};
+   return {...this.keep('THIRD_SPEAKER_END_CONFIRM',now,until,'END_CONFIRMING'),switchAtMs:until};
   }
   if(deadlines.length){
    // When both former speakers stop at different times, wait for the later
    // confirmed END. Counting down only the first would drop the other early.
    const until=Math.max(...deadlines,this.holdUntil);
-   return {...this.keep('THIRD_SPEAKER_END_GRACE',now,until),switchAtMs:until};
+   return {...this.keep('THIRD_SPEAKER_END_GRACE',now,until,'END_GRACE'),switchAtMs:until};
   }
   // The STOP grace has already been paid. Resume normal leadership immediately,
   // but require a new stable two-person scene before allowing another split.
@@ -169,7 +170,7 @@ export class ShotDirector {
    if(active.some(s=>!s.qualified)){this.pending=null;this.splitWeakAt=null;return this.keep('SPEAKER_RESUMED',now);}
    if(evidence.eligible&&evidence.pair?.every(id=>pair.includes(id))){this.splitWeakAt=null;this.pending=null;return this.keep('SPLIT_ACTIVE_DISCUSSION',now);}
    this.splitWeakAt??=now;
-   if(now<Math.max(this.splitWeakAt+this.timing.endGraceMs,this.holdUntil))return this.keep('SPLIT_RELEASE_GRACE',now,Math.max(this.splitWeakAt+this.timing.endGraceMs,this.holdUntil));
+   if(now<Math.max(this.splitWeakAt+this.timing.endGraceMs,this.holdUntil))return this.keep('SPLIT_RELEASE_GRACE',now,Math.max(this.splitWeakAt+this.timing.endGraceMs,this.holdUntil),'END_GRACE');
    this.splitWeakAt=null;this.pending=null;
    const a=qualified[0],b=qualified[1];
    const balanced=a&&b&&!(a.windowMs>=b.windowMs*C.dominanceRatio&&a.windowMs-b.windowMs>=C.dominanceMarginMs);
@@ -191,26 +192,24 @@ export class ShotDirector {
   const key=evidence.pair.join(',');if(this.splitCandidate?.key!==key)this.splitCandidate={key,since:now};
   return this.propose({kind:'SPLIT',userIds:evidence.pair},'SPLIT_'+evidence.reason,now,'start',this.splitCandidate.since+this.timing.startGraceMs);
  }
- private propose(shot:Shot,reason:string,now:number,kind:'start'|'end',readyAt:number):Decision {
+ private propose(shot:Shot,reason:string,now:number,kind:TransitionCause,readyAt:number):Decision {
   if(same(shot,this.shot)){this.pending=null;return this.keep(reason,now);}
   if(this.shot.kind==='WIDE'&&this.crowdWide&&shot.kind!=='WIDE'){
    // A crowd ending is an END transition, not a new speaker's START.
    const stopped=this.crowdEndedAt;
    if(stopped!==null){kind='end';readyAt=Math.max(readyAt,stopped+this.timing.endGraceMs);}
   }
-  if(!this.pending||!same(this.pending.shot,shot)||this.pending.kind!==kind)this.pending={shot:structuredClone(shot),reason,since:now,kind,at:readyAt};
-  this.pending.at=readyAt;this.pending.reason=reason;
-  const confirmAt=kind==='end'?readyAt-this.timing.endGraceMs:-Infinity;
-  if(now<confirmAt)return {...this.keep('SPEECH_END_CONFIRM',now,confirmAt),switchAtMs:confirmAt};
-  const at=Math.max(readyAt,this.holdUntil);
-  if(now<at)return {...this.keep(kind==='start'?'SPEECH_START_GRACE':'SPEECH_END_GRACE',now,at),pendingShot:structuredClone(shot),switchAtMs:at};
+  this.pending=pendingTransition(this.pending,shot,reason,kind,readyAt,now);
+  const wait=transitionPhase(kind,readyAt,this.holdUntil,this.timing.endGraceMs,now);
+  if(wait.phase==='END_CONFIRMING')return {...this.keep('SPEECH_END_CONFIRM',now,wait.deadline,wait.phase),switchAtMs:wait.deadline};
+  if(wait.phase!=='STABLE')return {...this.keep(kind==='start'?'SPEECH_START_GRACE':'SPEECH_END_GRACE',now,wait.deadline,wait.phase),pendingShot:structuredClone(shot),switchAtMs:wait.deadline};
   this.pending=null;return this.choose(shot,reason,now);
  }
- private keep(reason:string,now:number,until=this.holdUntil):Decision{return {shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now),leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};}
- private choose(shot:Shot,reason:string,now:number):Decision {
-  if(same(this.shot,shot))return this.keep(reason,now);
+ private keep(reason:string,now:number,until=this.holdUntil,phase:DecisionPhase='STABLE'):Decision{return {phase,shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now),leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};}
+ private choose(shot:Shot,reason:string,now:number,phase:DecisionPhase='STABLE'):Decision {
+  if(same(this.shot,shot))return this.keep(reason,now,this.holdUntil,phase);
   if(this.shot.kind==='SPLIT'&&shot.kind!=='SPLIT'){this.splitCooldownUntil=now+DIALOGUE.cooldownMs;this.splitCandidate=null;this.splitWeakAt=null;}
   this.bridge=null;this.shot=structuredClone(shot);this.crowdWide=shot.kind==='WIDE'&&(reason==='CROWD_OVERLAP'||reason==='SPLIT_THIRD_SPEAKER');this.crowdEndedAt=null;this.holdUntil=now+this.timing.minShotMs;
-  return {shot:this.current(),reason,changed:true,holdRemainingMs:this.timing.minShotMs,leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};
+  return {phase,shot:this.current(),reason,changed:true,holdRemainingMs:this.timing.minShotMs,leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};
  }
 }
