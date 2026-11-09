@@ -1,3 +1,4 @@
+import type {DecisionPhase} from '../domain/decision-phase.ts';
 import type {DialogueEvidence} from '../domain/dialogue-detector.ts';
 import type { StudioScene } from '../studio/manifest.ts';
 import type { AvatarProfile } from '../assets/avatar-profile.ts';
@@ -28,7 +29,7 @@ export interface SeatSession {
 export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
 export type Shot = { kind: 'WIDE'; userIds: [] } | { kind: 'SINGLE'; userIds: [string] } | { kind: 'TWO_SHOT'; userIds: [string, string] } | { kind: 'SPLIT'; userIds: [string, string] };
 export type DirectorMode = 'AUTO' | 'MANUAL' | 'HOLD';
-export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number; leaderUserId?:string; dialogue?:DialogueEvidence }
+export interface Decision { phase?:DecisionPhase; shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number; leaderUserId?:string; dialogue?:DialogueEvidence }
 export interface CameraPose { position: Vec3; target: Vec3; fov: number }
 export interface SplitPanel {userId:string;pose:CameraPose;foregroundUserId?:string;visibilityReason?:string}
 export interface CameraPlan {

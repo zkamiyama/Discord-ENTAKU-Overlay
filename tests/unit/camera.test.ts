@@ -7,7 +7,7 @@ test('camera plans and interpolation are finite for all supported capacities',()
   const l=makeLayout(n),map=new Map(l.seats.map((s,i)=>[String(i),s]));
   const shot:Shot={kind:'SINGLE',userIds:['0']},pose=shotPose(shot,map,l.straightLength);
   const previous:CameraPlan={id:1,shot,reason:'TEST',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
-  const plan=planCamera(previous,{kind:'SINGLE',userIds:['1']},'TEST',map,n,l.straightLength,1000);
+  const plan=planCamera(previous,{kind:'SINGLE',userIds:['1']},'TEST',map,l.straightLength,1000);
   for(const time of [500,1000,1450,1900,2500]) expect([...samplePlan(plan,time).position,...samplePlan(plan,time).target].every(Number.isFinite)).toBe(true);
   expect(plan.to.position[1]).toBeGreaterThan(0.87);
   expect(widePose(l.straightLength).fov).toBe(45);
@@ -30,7 +30,7 @@ test('opposed discussion and same-side dialogue widen with MOVE and exact endpoi
   for(const pair of [['1','2'],['1','3']] as [string,string][]){
    const solo:Shot={kind:'SINGLE',userIds:[pair[0]]},pose=shotPose(solo,m,l.straightLength);
    const previous:CameraPlan={id:1,shot:solo,reason:'TEST',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
-   const plan=planCamera(previous,{kind:'TWO_SHOT',userIds:pair},'NEARBY_DIALOGUE',m,n,l.straightLength,1000);
+   const plan=planCamera(previous,{kind:'TWO_SHOT',userIds:pair},'NEARBY_DIALOGUE',m,l.straightLength,1000);
    expect(plan.transition).toBe('MOVE');expect(plan.durationMs).toBeGreaterThanOrEqual(1200);
    expect(samplePlan(plan,1000)).toEqual(plan.from);expect(samplePlan(plan,1000+plan.durationMs)).toEqual(plan.to);
    expect(samplePlan(plan,1000+plan.durationMs/2)).not.toEqual(plan.to);
@@ -41,6 +41,6 @@ test('an unrelated far-side subject does not cause a camera fly-through',()=>{
  const l=makeLayout(16),m=new Map(l.seats.map((s,i)=>[String(i),s]));
  const solo:Shot={kind:'SINGLE',userIds:['1']},pose=shotPose(solo,m,l.straightLength);
  const p:CameraPlan={id:1,shot:solo,reason:'TEST',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
- expect(planCamera(p,{kind:'SINGLE',userIds:['14']},'TEST',m,16,l.straightLength,1000).transition).toBe('CUT');
- expect(planCamera(p,{kind:'TWO_SHOT',userIds:['11','13']},'TEST',m,16,l.straightLength,1000).transition).toBe('CUT');
+ expect(planCamera(p,{kind:'SINGLE',userIds:['14']},'TEST',m,l.straightLength,1000).transition).toBe('CUT');
+ expect(planCamera(p,{kind:'TWO_SHOT',userIds:['11','13']},'TEST',m,l.straightLength,1000).transition).toBe('CUT');
 });

@@ -17,9 +17,14 @@ export interface SpeechStats {
 export interface ConversationStats extends SpeechStats {rawState:SpeakingState;endPendingUntilMs?:number}
 export class SpeakerTracker {
   clone(): SpeakerTracker {return Object.assign(new SpeakerTracker(), structuredClone(this));}
+  private cacheTime=-Infinity;
+  private statsCache=new Map<string,SpeechStats>();
+  private intervalsCache=new Map<string,SpeechInterval[]>();
+  private invalidate():void {this.cacheTime=-Infinity;this.statsCache.clear();this.intervalsCache.clear();}
+  private cacheAt(now:number):void {if(now!==this.cacheTime){this.invalidate();this.cacheTime=now;}}
   private timing=directionTiming();
   constructor(settings:DirectionSettings=DEFAULT_DIRECTION){this.configure(settings);}
-  configure(settings:DirectionSettings):void{this.timing=directionTiming(settings);}
+  configure(settings:DirectionSettings):void{this.timing=directionTiming(settings);this.invalidate();}
   get windowMs():number{return this.timing.leadershipWindowMs;}
   private tracks = new Map<string, Track>();
   private history: Episode[] = [];
@@ -30,7 +35,7 @@ export class SpeakerTracker {
     this.lastMs = now;
   }
   update(userId: string, state: SpeakingState, now: number): void {
-    this.check(now);
+    this.check(now);this.invalidate();
     if (state === 'unknown') { this.tracks.delete(userId); this.history = this.history.filter(e => e.userId !== userId); return; }
     let t = this.tracks.get(userId);
     if (!t) {
@@ -59,7 +64,11 @@ export class SpeakerTracker {
     this.prune(now);
   }
   stats(userId: string, now: number): SpeechStats {
-    this.check(now);
+    this.check(now);this.cacheAt(now);
+    const cached=this.statsCache.get(userId);if(cached)return {...cached};
+    const result=this.computeStats(userId,now);this.statsCache.set(userId,result);return {...result};
+  }
+  private computeStats(userId:string,now:number):SpeechStats {
     const t = this.tracks.get(userId);
     if (!t) return { userId, state: 'unknown', activeMs: 0, ratio: 0, qualified: false, recentMs: 0, windowMs: 0, stoppedForMs: Infinity, episodeStart: now };
     const activeMs = t.accumulated + (t.state === 'active' ? now - t.startedAt : 0);
@@ -93,12 +102,15 @@ export class SpeakerTracker {
   }
   /** Exact half-open speaking intervals; pauses never count as speech. */
   intervals(userId:string,now:number,windowMs=this.timing.leadershipWindowMs):SpeechInterval[]{
-    this.check(now);this.prune(now);
+    this.check(now);this.cacheAt(now);
+    const key=userId+':'+windowMs,cached=this.intervalsCache.get(key);if(cached)return cached.map(i=>({...i}));
+    this.prune(now);
     const track=this.tracks.get(userId);if(!track)return [];
     const segments=[...track.segments,...(track.state==='active'?[{start:track.startedAt,end:now}]:[])];
-    return segments.map(s=>({start:Math.max(now-windowMs,s.start),end:Math.min(now,s.end)})).filter(s=>s.end>s.start);
+    const result=segments.map(s=>({start:Math.max(now-windowMs,s.start),end:Math.min(now,s.end)})).filter(s=>s.end>s.start);
+    this.intervalsCache.set(key,result);return result.map(i=>({...i}));
   }
-  clear(): void { this.tracks.clear(); this.history = []; }
+  clear(): void { this.invalidate();this.tracks.clear(); this.history = []; }
   private prune(now: number): void {
     this.history = this.history.filter(e => e.start >= now - 10000).slice(-1024);
     for (const t of this.tracks.values()) t.segments = t.segments.filter(s => s.end >= now - 30000).slice(-512);

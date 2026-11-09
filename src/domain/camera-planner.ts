@@ -103,7 +103,6 @@ export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly Av
   const position=add(add(target,mul(inward,distance)),[0,0.25,0]);
   return front(a,position)&&front(b,position)?{position,target,fov}:null;
 }
-const cross=(a:Vec3,b:Vec3):Vec3=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 export function fitsCameraFrame(pose:CameraPose,points:readonly Vec3[],margin=.86,near=DEFAULT_DIRECTION.nearClip,aspect=16/9):boolean{
   const camera=new PerspectiveCamera(pose.fov,aspect,near,1000);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
@@ -159,7 +158,7 @@ export function samplePlan(plan:CameraPlan,now:number):CameraPose {
   return {position,target:lerp(plan.from.target,plan.to.target,s),fov:plan.from.fov+(plan.to.fov-plan.from.fov)*s};
 }
 /** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
-export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPlan {
+export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPlan {
   if(shot.kind==='SPLIT'){
     const panels=splitPanelCameras(shot.userIds,byUser,straightLength,extents,offsetZ,settings);
     const wide=widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);

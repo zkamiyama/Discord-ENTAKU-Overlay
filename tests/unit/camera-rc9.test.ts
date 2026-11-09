@@ -2,7 +2,7 @@ import {expect,test} from 'bun:test';
 import {makeLayout,perimeter,pointAtDistance} from '../../src/geometry/capsule.ts';
 import {DEFAULT_DIRECTION,validateDirection} from '../../src/studio/direction.ts';
 import {widePose,wideFaces,shotPose,planCamera,samplePlan,moderatorRearLimit,fitsCameraFrame,avatarFramePoints} from '../../src/domain/camera-planner.ts';
-import type {CameraPlan,Vec3} from '../../src/contracts/domain.ts';
+import type {CameraPlan} from '../../src/contracts/domain.ts';
 import {AppEngine} from '../../src/domain/engine.ts';
 import {demoEvents} from '../../src/replay/demo.ts';
 
@@ -24,7 +24,7 @@ test('all single cameras and sampled MOVE paths stay in front of the moderator r
   const l=makeLayout(count,1.1,hosts),m=new Map(l.seats.map((s,i)=>[String(i),s])),rear=moderatorRearLimit(l.straightLength);
   let pose=widePose(l.straightLength),previous:CameraPlan={id:0,shot:{kind:'WIDE',userIds:[]},reason:'test',transition:'CUT',from:pose,to:pose,startMs:0,durationMs:0};
   for(let i=0;i<count;i++){
-   const next=planCamera(previous,{kind:'SINGLE',userIds:[String(i)]},'test',m,count,l.straightLength,i*5000);
+   const next=planCamera(previous,{kind:'SINGLE',userIds:[String(i)]},'test',m,l.straightLength,i*5000);
    expect(next.to.position[2]).toBeGreaterThanOrEqual(rear-1e-9);
    for(let n=0;n<=16;n++)expect(samplePlan(next,next.startMs+next.durationMs*n/16).position[2]).toBeGreaterThanOrEqual(rear-1e-9);
    previous=next;

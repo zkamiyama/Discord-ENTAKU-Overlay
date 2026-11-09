@@ -59,7 +59,7 @@ test('split portrait framing uses 8:9, near clipping and the moderator-front con
   for(const panel of panels!){expect(panel.pose.position[2]).toBeGreaterThanOrEqual(rear);expect(fitsCameraFrame(panel.pose,avatarFramePoints(seats.get(panel.userId)!,{halfWidth:.28,topY:1.53,bottomY:.97}),.9,DEFAULT_DIRECTION.nearClip,8/9)).toBe(true);}
  }
  const wide=widePose(layout.straightLength),initial={id:0,shot:{kind:'WIDE',userIds:[]} as const,reason:'test',transition:'CUT' as const,from:wide,to:wide,startMs:0,durationMs:0};
- const plan=planCamera({...initial,shot:{kind:'WIDE',userIds:[]}},{kind:'SPLIT',userIds:['1','2']},'split',seats,6,layout.straightLength,0);
+ const plan=planCamera({...initial,shot:{kind:'WIDE',userIds:[]}},{kind:'SPLIT',userIds:['1','2']},'split',seats,layout.straightLength,0);
  const panel=plan.panels![1]!.pose.position;
  const scene={...DEFAULT_STUDIO_SCENE,camera:{blockers:[{id:'wall',min:panel.map(x=>x-.2) as [number,number,number],max:panel.map(x=>x+.2) as [number,number,number]}]}};
  expect(protectStudioCamera(plan,scene,wide).shot.kind).toBe('WIDE');expect(protectStudioCamera(plan,scene,wide).panels).toBeUndefined();
