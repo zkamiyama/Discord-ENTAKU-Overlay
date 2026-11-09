@@ -137,7 +137,7 @@ function frame(time:number):void{
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);offsetZ=THREE.MathUtils.lerp(motion.fromDeskOffsetZ??0,offsetZ,progress);}
   if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
   table.position.z=offsetZ;
-  const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0,(state?.studio.direction??DEFAULT_DIRECTION).wideHeightRatio);
+  const pose=state&&client.connected&&studioVisual.readyForCamera?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0,(state?.studio.direction??DEFAULT_DIRECTION).wideHeightRatio);
   const near=state?.studio.direction?.nearClip??DEFAULT_DIRECTION.nearClip;
   if(camera.near!==near){camera.near=near;camera.updateProjectionMatrix();}
   canvas.dataset.cameraNear=String(near);
@@ -163,7 +163,7 @@ function frame(time:number):void{
     const subjects=selected.flatMap(id=>{const a=avatars.get(id);return a&&a.user.presence==='present'?[a.root.position.toArray() as [number,number,number]]:[];});
     const focus=resolvePostFocus(post,pose,subjects);
     canvas.dataset.focusDistance=String(focus.distance);canvas.dataset.focusRange=String(focus.range);canvas.dataset.excludeAvatars=String(post.excludeAvatars);
-    const panels=state?.camera.shot.kind==='SPLIT'&&client.connected&&!studioVisual.loading&&!studioVisual.error?state.camera.panels:undefined;
+    const panels=state?.camera.shot.kind==='SPLIT'&&client.connected&&studioVisual.readyForCamera?state.camera.panels:undefined;
     const split=!!panels&&splitRenderer.supported;
     if(split!==wasSplit){if(split)exposureRenderer.releaseQuality();else splitRenderer.dispose();wasSplit=split;}
     const exposure=state?.studio.exposure??DEFAULT_EXPOSURE,quality=state?.studio.quality??DEFAULT_QUALITY;

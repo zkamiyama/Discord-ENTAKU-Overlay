@@ -1,10 +1,10 @@
+import {createFocusMaterial,bloomTexture} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import * as THREE from 'three';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
-import {BokehShader} from 'three/addons/shaders/BokehShader.js';
 import {VibranceShader} from './vibrance-shader.ts';
 import {BrightnessContrastShader} from 'three/addons/shaders/BrightnessContrastShader.js';
 import type {FocusBand,PostSettings} from '../../studio/post-effects.ts';
@@ -30,13 +30,7 @@ export class PostRenderer {
   this.linear.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
   this.tone.material.depthTest=this.tone.material.depthWrite=false;
   for(const pass of [this.hue,this.contrast]){pass.material.toneMapped=false;pass.material.depthTest=pass.material.depthWrite=false;}
-  const original='float factor = ( focus + viewZ );';
-  if(!BokehShader.fragmentShader.includes(original))throw new Error('THREE_BOKEH_SHADER_CHANGED');
-  this.bokeh=new ShaderPass(new THREE.ShaderMaterial({
-   defines:{...BokehShader.defines,DEPTH_PACKING:0},uniforms:{...THREE.UniformsUtils.clone(BokehShader.uniforms),sharpRange:{value:.5}},vertexShader:BokehShader.vertexShader,
-   fragmentShader:'uniform float sharpRange;\n'+BokehShader.fragmentShader.replace(original,'float delta = focus + viewZ; float factor = sign(delta) * max(0., abs(delta) - sharpRange);').replace('gl_FragColor.a = 1.0;',''),
-   toneMapped:false,depthTest:false,depthWrite:false,blending:THREE.NoBlending,
-  }),'tColor');
+  this.bokeh=new ShaderPass(createFocusMaterial(),'tColor');
   this.depth=screen({depth:{value:null}},'varying vec2 vUv;uniform sampler2D depth;void main(){gl_FragDepth=texture2D(depth,vUv).r;gl_FragColor=vec4(0.);}');
   const d=this.depth.material as THREE.ShaderMaterial;d.colorWrite=false;d.depthTest=d.depthWrite=true;d.depthFunc=THREE.AlwaysDepth;
   this.blend=screen({base:{value:null},glow:{value:null}},'varying vec2 vUv;uniform sampler2D base,glow;void main(){vec4 b=texture2D(base,vUv);vec3 g=max(texture2D(glow,vUv).rgb,vec3(0.));float a=clamp(b.a+max(max(g.r,g.g),g.b),0.,1.);gl_FragColor=vec4(b.rgb+g,a);}');
@@ -67,7 +61,7 @@ export class PostRenderer {
     this.bloom.threshold=p.bloomThreshold;this.bloom.strength=p.bloomStrength;this.bloom.radius=p.bloomRadius;
     // Official blur/mip chain generates bloom; alpha-aware composition is application glue.
     this.bloom.render(renderer,this.b,color,0,false);
-    const u=(this.blend.material as THREE.ShaderMaterial).uniforms;u.base!.value=color.texture;u.glow!.value=this.bloom.renderTargetsHorizontal[0]!.texture;
+    const u=(this.blend.material as THREE.ShaderMaterial).uniforms;u.base!.value=color.texture;u.glow!.value=bloomTexture(this.bloom);
     renderer.setRenderTarget(this.b);this.blend.render(renderer);color=this.b;
    }else if(this.bloom){this.bloom.dispose();this.bloom=undefined;}
    (this.gamma.material as THREE.ShaderMaterial).uniforms.color!.value=color.texture;renderer.setRenderTarget(this.c);this.gamma.render(renderer);color=this.c;
