@@ -7,3 +7,5 @@ dialog{color:var(--text);background:var(--surface);border:1px solid var(--strong
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 
 .exposure-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.exposure-grid label{min-width:0}#exposure-controls>details{margin-top:8px}#exposure-controls>details>summary{font-size:12px;cursor:pointer}#exposure-reference{white-space:normal;height:auto;min-height:30px}
+
+.effect-tabs{display:flex;gap:4px;margin:10px 0}.effect-tabs button{flex:1;min-width:0;font-size:12px;padding:0 6px}.effect-tabs [aria-selected=true]{background:var(--selected);border-color:var(--primary)}#post-controls details{margin:8px 0;border-top:1px solid var(--border);padding-top:6px}#post-controls summary{font-size:12px;cursor:pointer}#post-settings input[type=number]{font-variant-numeric:tabular-nums}

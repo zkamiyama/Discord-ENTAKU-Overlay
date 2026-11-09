@@ -1,3 +1,4 @@
+import {PostPanel} from './post-panel.ts';
 import {QualityPanel} from './quality-panel.ts';
 import {ExposurePanel} from './exposure-panel.ts';
 import {DiagnosticsPanel} from './diagnostics-panel.ts';
@@ -9,7 +10,7 @@ import {decorate,decorateShell,icon} from './icons.ts';
 import {installTheme} from './theme.ts';
 decorateShell();installTheme();
 const client=new StudioClient(),editor=new AvatarEditor(client);
-new StudioEditor(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client);
+new StudioEditor(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client);
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false,replayShown=false;
 async function command(value:Record<string,unknown>):Promise<void>{
@@ -62,7 +63,7 @@ function row(user:DockPerson):Row {
 const compositionNames:Record<string,string>={WIDE:'全景',SINGLE_OTS:'肩越し',SINGLE_CLEAN:'単独',TWO_SHOT:'2人',MODERATOR_SINGLE:'司会',MODERATOR_TWO:'共同司会'};
 const visibilityNames:Record<string,string>={OVER_SHOULDER:'肩越し',ELEVATED_TO_AVOID_OCCLUSION:'高さを補正',SHIFTED_TO_AVOID_OCCLUSION:'横位置を補正',FALLBACK_TO_CLEAN_SINGLE:'通常構図',NO_CLEAR_COMPOSITION:'見通しを確認',TARGET_UNAVAILABLE:'対象待ち'};
 client.onState=state=>{
- exposurePanel.update(state);qualityPanel.update(state);
+ exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);
  get('studio-current').textContent=`シーン ${state.studio.revision} · ${state.studio.objects.length}オブジェクト`;
  get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('camera-transition').textContent=state.camera.transition;
  get('composition').textContent=compositionNames[state.camera.composition??state.camera.shot.kind]??state.camera.shot.kind;

@@ -1,3 +1,5 @@
+import {PostRenderer} from './post-renderer.ts';
+import {DEFAULT_POST,hasPostEffects,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {SSGIPass} from './ssgi-pass.ts';
 import * as THREE from 'three';
 import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
@@ -10,6 +12,7 @@ export type QualityStatus='DIRECT'|'EFFECTS'|'EFFECTS_UNAVAILABLE'|'EFFECTS_FAIL
 /** Official passes compute effects. This adapter alone restores scene depth before
  * drawing display-layer avatars, keeping their RGB outside AO, SSR and AgX. */
 export class QualityRenderer {
+ private post?:PostRenderer;
  private gi?:SSGIPass;private giTarget?:THREE.WebGLRenderTarget;
  private world?:THREE.WebGLRenderTarget;private work?:THREE.WebGLRenderTarget;private aoTarget?:THREE.WebGLRenderTarget;
  private reflections?:THREE.WebGLRenderTarget;private reflectionBlend?:FullScreenQuad;
@@ -72,11 +75,11 @@ export class QualityRenderer {
   });
   this.screen=new FullScreenQuad(material);
  }
- render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string):void{
+ render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5}):void{
   const renderer=this.renderer;
   this.configureShadows(scene,q,source);
-  const options=JSON.stringify(q);if(options!==this.lastOptions){this.failed=false;this.lastOptions=options;}
-  if(!hasScreenEffects(q)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
+  const options=JSON.stringify([q,p]);if(options!==this.lastOptions){this.failed=false;this.lastOptions=options;}
+  if(!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
   if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderer.render(scene,camera);return;}
   if(this.failed){this.status='EFFECTS_FAILED';renderer.render(scene,camera);return;}
   const mask=camera.layers.mask,target=renderer.getRenderTarget(),auto=renderer.autoClear,background=scene.background;
@@ -137,14 +140,17 @@ export class QualityRenderer {
     this.ao.blendIntensity=q.aoStrength;this.ao.updateGtaoMaterial({radius:q.aoRadius,distanceExponent:1,thickness:1,scale:1,samples:8});
     this.ao.render(renderer,this.aoTarget!,input,0,false);input=this.aoTarget!;
    }else if(this.ao){this.ao.dispose();this.ao=undefined;this.aoTarget?.dispose();}
-   this.output!.render(renderer,this.mapped!,input,0,false);
-   let color=this.mapped!;
+   const postActive=hasPostEffects(p);
+   let color:THREE.WebGLRenderTarget;
+   if(postActive){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,p,focus,this.msaaSamples);}
+   else {this.post?.dispose();this.post=undefined;this.output!.render(renderer,this.mapped!,input,0,false);color=this.mapped!;}
+   const coverage=postActive?color.texture:this.world!.texture;
    if(q.fxaa){this.fxaa!.setSize(w,h);this.fxaa!.render(renderer,this.antialiased!,color,0,false);color=this.antialiased!;}else this.antialiased?.dispose();
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
-   uniforms.color!.value=color.texture;uniforms.depth!.value=this.world!.depthTexture;uniforms.coverage!.value=this.world!.texture;
+   uniforms.color!.value=color.texture;uniforms.depth!.value=this.world!.depthTexture;uniforms.coverage!.value=coverage;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
-   camera.layers.set(this.displayLayer);scene.background=null;
-   renderer.render(scene,camera);this.status='EFFECTS';
+   if(!postActive||p.excludeAvatars){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
+   this.status='EFFECTS';
   }catch(error){
    console.warn('QUALITY_EFFECTS_FAILED',error instanceof Error?error.name:'Unknown');this.failed=true;this.status='EFFECTS_FAILED';
    camera.layers.mask=mask;scene.background=background;renderer.autoClear=auto;renderer.setRenderTarget(target);renderer.setClearColor(clear,alpha);renderer.render(scene,camera);
@@ -154,6 +160,7 @@ export class QualityRenderer {
   }
  }
  private releaseEffects():void{
+  this.post?.dispose();this.post=undefined;
   this.gi?.dispose();this.gi=undefined;
   this.ao?.dispose();this.ssr?.ssrMaterial.dispose();this.ssr?.dispose();this.output?.dispose();this.fxaa?.dispose();
   if(this.screen){this.screen.material.dispose();this.screen.dispose();}

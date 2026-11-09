@@ -1,3 +1,4 @@
+import {DEFAULT_POST,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {QualityRenderer,type QualityStatus} from './quality-renderer.ts';
 import {DEFAULT_QUALITY,type QualitySettings} from '../../studio/quality.ts';
 import * as THREE from 'three';
@@ -72,7 +73,7 @@ export class ExposureRenderer {
       renderer.setClearColor(color,alpha);renderer.setViewport(viewport);renderer.setScissor(scissor);renderer.setScissorTest(scissorTest);
     }
   }
-  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY):ExposureReport {
+  render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY,post:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5}):ExposureReport {
     if(this.disposed)return this.report;
     const key=source+'|'+settings.mode+'|'+settings.lighting+'|'+authoredLights;
     if(key!==this.source){this.source=key;this.generation++;this.initialized=false;this.nextMeter=0;}
@@ -88,7 +89,7 @@ export class ExposureRenderer {
     this.lastFrame=now;
     const exposure=clampExposure(this.current*2**settings.compensationEV);
     this.renderer.toneMappingExposure=exposure;
-    this.quality.render(scene,camera,quality,source+'|'+this.fallback.visible);
+    this.quality.render(scene,camera,quality,source+'|'+this.fallback.visible,post,focus);
     this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights,msaaSamples:this.quality.msaaSamples};return this.report;
   }
   dispose():void{this.quality.dispose();this.disposed=true;this.generation++;if(!this.pending)this.target.dispose();}

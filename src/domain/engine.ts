@@ -184,7 +184,7 @@ export class AppEngine {
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=validateStudioScene(scene);this.advance(now);
-    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined});
+    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined});
     const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;
     if(exposureOnly){this.revision++;this.seq++;return;}
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();

@@ -1,3 +1,4 @@
+import {validatePost,type PostSettings} from './post-effects.ts';
 import {validateQuality,type QualitySettings} from './quality.ts';
 import { validateExposure, type ExposureSettings } from './exposure.ts';
 import type { Vec3 } from '../contracts/domain.ts';
@@ -26,6 +27,7 @@ export interface StudioScene {
   camera?: StudioCamera;
   exposure?: ExposureSettings;
   quality?: QualitySettings;
+  post?: PostSettings;
   broadcast?:{enabled:boolean;title:string;subtitle:string};
 }
 export const DEFAULT_STUDIO_SCENE: StudioScene = {
@@ -71,7 +73,7 @@ function transform(v: unknown): StudioTransform {
   return { position: vec3(x.position,-100,100), yawDeg: finite(x.yawDeg,-360,360), scale: vec3(x.scale,0.01,20) };
 }
 export function validateStudioScene(value: unknown): StudioScene {
-  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast','exposure','quality']);
+  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast','exposure','quality','post']);
   if (scene.schemaVersion !== 1) throw new Error('STUDIO_SCHEMA_UNSUPPORTED');
   const rev=finite(scene.revision,0,Number.MAX_SAFE_INTEGER);
   if (!Number.isSafeInteger(rev)) throw new Error('STUDIO_SCENE_INVALID');
@@ -109,6 +111,7 @@ export function validateStudioScene(value: unknown): StudioScene {
     ...(scene.camera===undefined?{}:{camera:validateStudioCamera(scene.camera)}),
     ...(scene.broadcast===undefined?{}:{broadcast:validateBroadcast(scene.broadcast)}),
     ...(scene.quality===undefined?{}:{quality:validateQuality(scene.quality)}),
+    ...(scene.post===undefined?{}:{post:validatePost(scene.post)}),
     ...(scene.exposure===undefined?{}:{exposure:validateExposure(scene.exposure)}),
   };
 }

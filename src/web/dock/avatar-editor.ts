@@ -78,7 +78,7 @@ export class AvatarEditor {
     this.feedback('');this.dialog.showModal();
     this.preview=new PreviewStage($<HTMLCanvasElement>('avatar-3d-preview'));
     this.preview.controls.target.set(0,1.25,3.4);this.preview.camera.position.set(0,1.7,1.5);this.preview.controls.update();
-    this.preview.onFrame=()=>this.previewVisual?.update(1,.85+.15*Math.sin(performance.now()*.006));this.draw();
+    this.preview.onFrame=()=>this.previewVisual?.update(1,.85+.15*Math.sin(performance.now()*.006),0,this.client.state?.studio.post?.speechGlowScale??4);this.draw();
     if(profile){
       const version=++this.generation;this.setBusy(true);
       try{

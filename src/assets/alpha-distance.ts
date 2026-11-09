@@ -24,7 +24,7 @@ function distance(alpha: Uint8Array, width: number, height: number, inside: bool
   return grid;
 }
 export function createDistanceField(alpha: Uint8Array, width: number, height: number, spread = 16): DistanceField {
-  if (![width, height].every(n => Number.isInteger(n) && n > 0 && n <= 1100) || alpha.length !== width * height || !Number.isFinite(spread) || spread <= 0 || spread > 64) throw new Error('INVALID_ALPHA_MASK');
+  if (![width, height].every(n => Number.isInteger(n) && n > 0 && n <= 1280) || alpha.length !== width * height || !Number.isFinite(spread) || spread <= 0 || spread > 64) throw new Error('INVALID_ALPHA_MASK');
   const toInside = distance(alpha, width, height, true), toOutside = distance(alpha, width, height, false), data = new Uint8Array(alpha.length);
   for (let i = 0; i < data.length; i++) {
     const signed = Math.sqrt(toInside[i]!) - Math.sqrt(toOutside[i]!);

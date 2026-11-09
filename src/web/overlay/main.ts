@@ -1,3 +1,4 @@
+import {DEFAULT_POST,resolvePostFocus} from '../../studio/post-effects.ts';
 import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
 import {disposeObject} from '../studio/dispose.ts';
 import {DEFAULT_QUALITY} from '../../studio/quality.ts';
@@ -52,8 +53,8 @@ class Avatar {
   constructor(user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
-    this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.32,64),new THREE.ShaderMaterial({
-      uniforms:{strength:{value:0}},vertexShader,fragmentShader:`uniform float strength;varying vec2 vUv;void main(){float d=length(vUv-.5)*.64-.28;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
+    this.outline=new THREE.Mesh(new THREE.RingGeometry(.281,.60,64),new THREE.ShaderMaterial({
+      uniforms:{strength:{value:0},glowScale:{value:4}},vertexShader,fragmentShader:`uniform float strength;uniform float glowScale;varying vec2 vUv;void main(){float d=(length(vUv-.5)*1.20-.28)/glowScale;float a=max(1.-smoothstep(.003,.009,d),exp(-d*d/.0002)*.28)*strength;gl_FragColor=vec4(vec3(.26,.9,.43)*(gl_FrontFacing?1.:.55),a);}`,transparent:true,depthWrite:false,side:THREE.DoubleSide}));
     this.root.add(this.outline);
     this.nameplate=new NameplateVisual(user.displayName);this.plate.add(this.nameplate,deskProps());
     protectDisplayObject(this.root);
@@ -102,7 +103,7 @@ class Avatar {
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
-    this.outline.material.uniforms.strength!.value=intensity;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0);
+    this.outline.material.uniforms.strength!.value=intensity;const glowScale=state?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0,glowScale);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
   }
   dispose():void {
@@ -149,9 +150,14 @@ function frame(time:number):void{
     canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
   }
   if(!contextLost){
-    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY);
+    const post=state?.studio.post??DEFAULT_POST;
+    const selected=state?.camera.shot.userIds.length?state.camera.shot.userIds:state?.participants.filter(p=>p.presence==='present').map(p=>p.userId)??[];
+    const subjects=selected.flatMap(id=>{const a=avatars.get(id);return a&&a.user.presence==='present'?[a.root.position.toArray() as [number,number,number]]:[];});
+    const focus=resolvePostFocus(post,pose,subjects);
+    canvas.dataset.focusDistance=String(focus.distance);canvas.dataset.focusRange=String(focus.range);canvas.dataset.excludeAvatars=String(post.excludeAvatars);
+    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY,post,focus);
     canvas.dataset.exposure=String(report.exposure);canvas.dataset.msaaSamples=String(report.msaaSamples??0);canvas.dataset.renderScale=String(lastPixelRatio);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
-    canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
+    canvas.dataset.authoredLights=String(studioVisual.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
   }
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}
 }

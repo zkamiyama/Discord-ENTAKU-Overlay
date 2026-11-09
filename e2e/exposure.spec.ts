@@ -89,3 +89,17 @@ test('AO, SSR and FXAA preserve avatar RGB, transparent background and world-dep
  expect(end.memory.textures).toBeLessThanOrEqual(baseline.memory.textures+1);
  expect(errors).toEqual([]);
 });
+
+
+test('lens effects retain display RGB/depth and four-times speech glow widens the actual silhouette',async({page})=>{
+ test.setTimeout(90000);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
+ await page.route('**/exposure-probe',r=>r.fulfill({contentType:'text/html',body:'<canvas></canvas><script type="module" src="/static/exposure-probe.js"></script>'}));await page.route('**/static/exposure-probe.js',r=>r.fulfill({contentType:'text/javascript',body:probe}));await page.goto('/exposure-probe');await page.waitForFunction(()=>!!(window as any).exposureProbe);
+ const baseline=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.manual(.001);return p.pixels();});
+ for(const post of [{saturation:1.2,contrast:1.2},{bloom:true,bloomThreshold:.5,bloomStrength:.4},{dof:true,maxBlur:8,aperture:.01},{saturation:1.2,contrast:1.2,bloom:true,dof:true}]){
+  const result=await page.evaluate(value=>{const p=(window as any).exposureProbe;p.post(value);return p.pixels();},post);
+  for(const id of ['icon','avatar','label'])expect(result[id]).toEqual(baseline[id]);expect(Math.abs(result.occlusion[0]-result.occlusion[1])).toBeLessThan(4);expect(result.alpha[3]).toBe(0);
+ }
+ const widths=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.post({});const count=()=>{const a=p.capture();let n=0;for(let i=0;i<a.length;i+=4)if(a[i+1]>a[i]+30&&a[i+1]>a[i+2]+30)n++;return n;};p.glow(0);const base=count();p.glow(1);const thin=count()-base;p.glow(4);const thick=count()-base;return {thin,thick};});
+ console.log('speech glow silhouette pixels',widths);expect(widths.thin).toBeGreaterThan(0);expect(widths.thick).toBeGreaterThan(widths.thin*2.5);
+ await page.locator('canvas').screenshot({path:'.work/rc7-speech-glow.png',omitBackground:true});expect(errors).toEqual([]);
+});

@@ -1,3 +1,4 @@
+import {DEFAULT_POST} from '../../studio/post-effects.ts';
 import {DEFAULT_QUALITY} from '../../studio/quality.ts';
 import {DEFAULT_EXPOSURE} from '../../studio/exposure.ts';
 import type { StudioClient } from '../shared/client.ts';
@@ -45,7 +46,7 @@ export class StudioEditor {
     this.revision=this.client.state.revision;this.draft=structuredClone(this.client.state.studio);this.files=[];
     this.dialog.showModal();this.preview=new PreviewStage($<HTMLCanvasElement>('studio-preview'));
     this.visual=new StudioVisual(this.client,this.preview.renderer);this.preview.scene.add(this.visual.root);
-    this.preview.onFrame=()=>{const length=this.client.state?.straightLength??3;const z=this.client.state?.deskOffsetZ??0;this.visual?.setLength(length,z);this.preview?.table.update(length);if(this.preview){const a=this.draft.tableAnchor;this.preview.table.position.set(a.position[0]+Math.sin(a.yawDeg*Math.PI/180)*z,a.position[1],a.position[2]+Math.cos(a.yawDeg*Math.PI/180)*z);}if(this.preview){this.preview.exposureSettings=this.draft.exposure??DEFAULT_EXPOSURE;this.preview.qualitySettings=this.draft.quality??DEFAULT_QUALITY;this.preview.authoredLights=this.visual?.root.visible?this.visual.authoredLights:0;this.preview.exposureSource=String(this.visual?.renderGeneration??0);}};
+    this.preview.onFrame=()=>{const length=this.client.state?.straightLength??3;const z=this.client.state?.deskOffsetZ??0;this.visual?.setLength(length,z);this.preview?.table.update(length);if(this.preview){const a=this.draft.tableAnchor;this.preview.table.position.set(a.position[0]+Math.sin(a.yawDeg*Math.PI/180)*z,a.position[1],a.position[2]+Math.cos(a.yawDeg*Math.PI/180)*z);}if(this.preview){this.preview.exposureSettings=this.draft.exposure??DEFAULT_EXPOSURE;this.preview.postSettings=this.draft.post??DEFAULT_POST;this.preview.qualitySettings=this.draft.quality??DEFAULT_QUALITY;this.preview.authoredLights=this.visual?.root.visible?this.visual.authoredLights:0;this.preview.exposureSource=String(this.visual?.renderGeneration??0);}};
     this.changed();
   }
   private id(prefix:string):string{let i=1;while(this.draft.objects.some(o=>o.id===prefix+'_'+i))i++;return prefix+'_'+i;}
