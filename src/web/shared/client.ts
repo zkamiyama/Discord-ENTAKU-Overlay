@@ -1,9 +1,14 @@
+import type {VcChatState} from '../../contracts/vc-chat.ts';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import type { AppSnapshot } from '../../contracts/domain.ts';
 export class StudioClient {
   state: AppSnapshot | null = null;
   connected = false;
+  chat:VcChatState|null=null;
+  onChat:(state:VcChatState|null)=>void=()=>{};
+  private wantsChat=false;
+  watchChat():void{this.wantsChat=true;if(this.connected)this.socket?.send(JSON.stringify({type:'vc-chat-subscribe'}));}
   private socket: WebSocket | null = null;
   private offset = 0;
   private bestRtt = Infinity;
@@ -25,7 +30,7 @@ export class StudioClient {
         const message = JSON.parse(String(event.data));
         if (message.type === 'hello') {
           this.connected = true; this.bestRtt = Infinity;
-          this.onConnection('接続済み'); this.ping();
+          this.onConnection('接続済み'); this.ping();if(this.wantsChat)this.watchChat();
           clearInterval(this.watchdog);this.watchdog=setInterval(()=>{if(performance.now()-this.lastMessage>10000){this.connected=false;socket.close(4000,'STALE');}},1000);
           clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this.ping(), 5000);
         } else if (message.type === 'snapshot' && message.state?.protocolVersion === 1) {
@@ -33,6 +38,8 @@ export class StudioClient {
           if (state.serverEpoch !== this.epoch) { this.epoch = state.serverEpoch; this.bestRtt = Infinity; }
           if (this.bestRtt === Infinity) this.offset = state.serverNowMs - performance.now();
           this.state = state; this.stateReceivedAt=performance.now(); this.onState(state);
+        } else if(message.type==='vc-chat'&&this.wantsChat&&message.state){
+          this.chat=message.state as VcChatState;this.onChat(this.chat);
         } else if (message.type === 'pong') {
           const rtt = performance.now() - message.clientTime;
           if (rtt >= 0 && rtt < this.bestRtt) { this.bestRtt = rtt; this.offset = message.serverTime - (performance.now() + message.clientTime) / 2; }
@@ -40,7 +47,7 @@ export class StudioClient {
       } catch { this.onConnection('状態の受信に失敗しました'); }
     };
     socket.onclose = event => {
-      this.connected = false; clearInterval(this.pingTimer); clearInterval(this.watchdog); this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
+      this.connected = false; this.chat=null;this.onChat(null);clearInterval(this.pingTimer); clearInterval(this.watchdog); this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
       if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), 2000);
     };
   }
