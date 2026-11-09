@@ -52,6 +52,7 @@ Options:
 No arguments starts a DEMO, not a Discord authorization request.
 The live compatibility route is unofficial and identifies as StreamKit.
 It requires your explicit opt-in and Discord's consent dialog.
-It reads voice metadata only; it never records audio or requests voice-write scopes.
+It reads voice participants, speaking state and accessible VC text chat.
+It never records audio, sends chat or requests voice-write scopes.
 This is a development build; live Discord/OBS acceptance is not complete.
 `;

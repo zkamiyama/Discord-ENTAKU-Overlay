@@ -5,7 +5,8 @@ echo ENTAKU Overlay - Discord compatibility connection
 echo.
 echo This uses the Discord StreamKit application identity for authentication.
 echo It is NOT an independently approved Discord application.
-echo Only RPC and voice-state read scopes are requested. No audio is recorded.
+echo RPC and voice-state read scopes are requested.
+echo Accessible VC text chat is also displayed. No audio is recorded or chat sent.
 echo Discord may display a StreamKit consent dialog.
 echo Keep the local Dock and Overlay URLs private.
 echo Close any running ENTAKU demo before continuing.
