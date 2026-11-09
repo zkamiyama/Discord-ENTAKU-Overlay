@@ -16,10 +16,16 @@ export interface RpcOptions {
   handshakeTimeoutMs?: number;
   requestTimeoutMs?: number;
   heartbeatMs?: number;
+  diagnostic?: (event: {event:string;command?:string;code?:string;rpcCode?:number;elapsedMs:number})=>void;
 }
 
 export class RpcClient {
   private decoder = new FrameDecoder();
+  private readonly openedAt = performance.now();
+  private diagnose(event:string,command?:string,error?:DiscordError):void {
+    const entry={event,...(command&&/^[A-Z_]{1,64}$/.test(command)?{command}:{}),...(error?{code:error.code,...(Number.isSafeInteger(error.rpcCode)?{rpcCode:error.rpcCode}:{})}:{}),elapsedMs:Math.round(performance.now()-this.openedAt)};
+    try{if(this.options.diagnostic)this.options.diagnostic(entry);else if(process.env.ENTAKU_RPC_TRACE==='1')console.log('[DISCORD-IPC] '+JSON.stringify(entry));}catch{/* Diagnostics never affect the connection. */}
+  }
   private pending = new Map<string, Pending>();
   private events = new Set<(packet: Packet) => void>();
   private heartbeat?: ReturnType<typeof setInterval>;
@@ -67,6 +73,7 @@ export class RpcClient {
       });
       client.write(encodeJson(Op.HANDSHAKE, { v: 1, client_id: clientId }));
       await ready;
+      client.diagnose('ready');
       const interval = options.heartbeatMs ?? APP.heartbeatMs;
       if (interval > 0) {
         client.heartbeat = setInterval(() => client.checkHeartbeat(), interval);
@@ -90,9 +97,11 @@ export class RpcClient {
     if (this.closed) return Promise.reject(this.closeReason ?? new DiscordError('IPC_DISCONNECTED'));
     if (this.pending.size >= 128) return Promise.reject(new DiscordError('RPC_TOO_MANY_REQUESTS'));
     const nonce = randomUUID();
+    this.diagnose('request',command);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(nonce);
+        this.diagnose('request-failed',command,new DiscordError('RPC_TIMEOUT'));
         reject(new DiscordError('RPC_TIMEOUT'));
       }, timeoutMs);
       this.pending.set(nonce, { command, resolve, reject, timer });
@@ -108,6 +117,7 @@ export class RpcClient {
     if (this.closed) return;
     this.closed = true;
     this.closeReason = reason;
+    this.diagnose('closed',undefined,reason);
     clearInterval(this.heartbeat);
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(reason); }
     this.pending.clear();
@@ -128,7 +138,7 @@ export class RpcClient {
   private checkHeartbeat(): void {
     if (this.closed) return;
     if (this.pingPayload && ++this.misses >= 2) { this.close(new DiscordError('RPC_HEARTBEAT_TIMEOUT')); return; }
-    if (!this.pingPayload) this.pingPayload = Buffer.from(randomUUID());
+    if (!this.pingPayload) this.pingPayload = Buffer.from(JSON.stringify(randomUUID()),'utf8');
     try { this.write(encodeFrame(Op.PING, this.pingPayload)); }
     catch { this.close(new DiscordError('RPC_BACKPRESSURE')); }
   }
@@ -142,7 +152,13 @@ export class RpcClient {
           if (this.pingPayload?.equals(frame.payload)) { this.pingPayload = undefined; this.misses = 0; }
           continue;
         }
-        if (frame.opcode === Op.CLOSE) { this.close(new DiscordError('RPC_PEER_CLOSED')); return; }
+        if (frame.opcode === Op.CLOSE) {
+          // Keep the numerical reason, never the peer's free-form text (which
+          // could contain authorization data). IPC PING payloads are JSON too.
+          let code:number|undefined;
+          try{const data=decodeObject(frame.payload);if(Number.isSafeInteger(data.code))code=data.code as number;}catch{}
+          this.close(new DiscordError('RPC_PEER_CLOSED',code));return;
+        }
         if (frame.opcode !== Op.FRAME) throw new DiscordError('RPC_UNEXPECTED_OPCODE');
         const packet = decodeObject(frame.payload);
         if (typeof packet.cmd !== 'string') throw new DiscordError('RPC_MALFORMED_PACKET');
@@ -152,10 +168,11 @@ export class RpcClient {
           clearTimeout(item.timer);
           if (packet.evt === 'ERROR') {
             const data = packet.data as { code?: unknown } | undefined;
-            item.reject(new DiscordError('RPC_REJECTED', typeof data?.code === 'number' ? data.code : undefined));
+            const error=new DiscordError('RPC_REJECTED', Number.isSafeInteger(data?.code)?data!.code as number:undefined);
+            this.diagnose('request-failed',item.command,error);item.reject(error);
           } else if (packet.cmd !== item.command) {
             item.reject(new DiscordError('RPC_COMMAND_MISMATCH'));
-          } else { item.resolve(packet.data); }
+          } else { this.diagnose('response',item.command);item.resolve(packet.data); }
         } else if (packet.cmd === 'DISPATCH' && typeof packet.evt === 'string') {
           for (const listener of this.events) listener(packet);
         }

@@ -29,6 +29,8 @@ export class StreamKitCompatAuth implements AuthProvider {
         const data = await rpc.request('AUTHORIZE', { client_id: this.clientId, scopes: [...SCOPES] }, undefined, APP.authTimeoutMs) as { code?: unknown };
         code = data?.code;
       } catch (error) {
+        // A broken pipe or heartbeat is not a user declining authorization.
+        if(error instanceof DiscordError&&error.code!=='RPC_REJECTED'&&error.code!=='RPC_TIMEOUT')throw error;
         throw new DiscordError(error instanceof DiscordError && error.code === 'RPC_TIMEOUT' ? 'AUTH_TIMEOUT' : 'AUTH_DECLINED_OR_SCOPE_DENIED',error instanceof DiscordError?error.rpcCode:undefined);
       }
       if (typeof code !== 'string' || !code) throw new DiscordError('AUTH_CODE_MISSING');
@@ -57,6 +59,6 @@ export class StreamKitCompatAuth implements AuthProvider {
       const user=data.user&&typeof data.user==='object'?data.user as Record<string,unknown>:{};
       this.identity={requestedScopes:SCOPES,grantedScopes:scopes,...(typeof user.id==='string'&&/^\d{1,20}$/.test(user.id)?{userId:user.id}:{})};
     }
-    catch(error) { this.clear(); throw new DiscordError('AUTH_REQUIRED',error instanceof DiscordError?error.rpcCode:undefined); }
+    catch(error) { this.clear();if(error instanceof DiscordError&&error.code!=='RPC_REJECTED')throw error;throw new DiscordError('AUTH_REQUIRED',error instanceof DiscordError?error.rpcCode:undefined); }
   }
 }

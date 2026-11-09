@@ -1,3 +1,4 @@
+import {DiscordError} from '../../src/discord/errors.ts';
 import {expect,test} from 'bun:test';
 import {StreamKitCompatAuth} from '../../src/discord/auth-provider.ts';
 import type {RpcClient} from '../../src/discord/rpc-client.ts';
@@ -17,4 +18,11 @@ test('upstream exchange error never exposes a token or raw response',async()=>{
  const rpc:Pick<RpcClient,'request'>={request:async()=>({code:'CODE'})};
  const auth=new StreamKitCompatAuth(true,async()=>{throw new Error('SECRET');});
  try{await auth.authenticate(rpc,true);throw new Error('unexpected success');}catch(e){expect(String(e)).toContain('AUTH_EXCHANGE_FAILED');expect(String(e)).not.toContain('SECRET');}
+});
+
+test('authorization preserves transport failures instead of claiming the user declined',async()=>{
+ for(const code of ['RPC_PEER_CLOSED','RPC_HEARTBEAT_TIMEOUT','IPC_DISCONNECTED']){
+  const failure=new DiscordError(code,4002);const rpc={request:async()=>{throw failure;}};
+  await expect(new StreamKitCompatAuth(true).authenticate(rpc,true)).rejects.toBe(failure);
+ }
 });
