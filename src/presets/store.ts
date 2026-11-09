@@ -7,13 +7,22 @@ export interface PresetEntry {name:string;valid:boolean;error?:string}
 export class PresetStore {
  private memory=new Map<string,ParameterPreset>();
  private selection:ParameterPreset|null=null;
+ private index=new Map<string,{stamp:string;entry:PresetEntry}>();
  constructor(private directory:string|null=null){}
  private async root():Promise<string>{const root=join(this.directory!,'presets');await mkdir(root,{recursive:true,mode:0o700});return root;}
  async list():Promise<PresetEntry[]> {
   const names=this.directory?(await readdir(await this.root())).filter(n=>/\.json$/i.test(n)):[...this.memory.keys()];
   if(names.length>256)throw new Error('PRESET_LIMIT');
   const entries:PresetEntry[]=[];
-  for(const name of names.sort((a,b)=>a.localeCompare(b,'ja'))){try{await this.read(name);entries.push({name,valid:true});}catch(e){entries.push({name,valid:false,error:e instanceof Error?e.message:'PRESET_READ_FAILED'});}}
+  const present=new Set(names);for(const name of this.index.keys())if(!present.has(name))this.index.delete(name);
+  for(const name of names.sort((a,b)=>a.localeCompare(b,'ja'))){
+   let stamp='';
+   try{
+    if(this.directory){const stat=await lstat(join(await this.root(),name));stamp=[stat.ino,stat.size,stat.mtimeMs,stat.ctimeMs,stat.isFile()].join(':');}
+    const cached=this.index.get(name);if(this.directory&&cached?.stamp===stamp){entries.push({...cached.entry});continue;}
+    await this.read(name);const entry={name,valid:true};entries.push(entry);if(this.directory)this.index.set(name,{stamp,entry});
+   }catch(e){const entry={name,valid:false,error:e instanceof Error?e.message:'PRESET_READ_FAILED'};entries.push(entry);if(stamp)this.index.set(name,{stamp,entry});}
+  }
   return entries;
  }
  async read(name:string):Promise<ParameterPreset> {
@@ -38,7 +47,7 @@ export class PresetStore {
    catch(e){throw new Error((e as NodeJS.ErrnoException).code==='EEXIST'?'PRESET_EXISTS':'PRESET_WRITE_FAILED');}
    finally{await unlink(temp).catch(()=>{});}
   }else this.memory.set(name,p);
-  return name;
+  this.index.delete(name);return name;
  }
  /** Last applied preferences supply a template when no per-channel session exists. */
  async preferences(value?:ParameterPreset|null):Promise<ParameterPreset|null>{
