@@ -39,7 +39,6 @@ export function installNumericControls():void {
   }
   syncNumericControls();
  };
- install();new MutationObserver(install).observe(document.body,{childList:true,subtree:true});
- // Script-assigned values do not emit DOM events (preview, reset, persisted state).
- setInterval(syncNumericControls,150);
+ install();
+ // State application and avatar edits explicitly synchronize script-assigned values.
 }

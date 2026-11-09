@@ -1,10 +1,11 @@
+import type {Command} from '../../contracts/commands.ts';
 import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {VcChatPanel} from './vc-chat-panel.ts';
 import {seatLabel} from '../../geometry/seat-label.ts';
 import {PresetPanel} from './preset-panel.ts';
 import {StudioPanel} from './studio-panel.ts';
 import {DirectionPanel} from './direction-panel.ts';
-import {installNumericControls} from './numeric-controls.ts';
+import {installNumericControls,syncNumericControls} from './numeric-controls.ts';
 import {PostPanel} from './post-panel.ts';
 import {QualityPanel} from './quality-panel.ts';
 import {ExposurePanel} from './exposure-panel.ts';
@@ -20,7 +21,7 @@ const studioPanel=new StudioPanel(client),presetPanel=new PresetPanel(client);ne
 installNumericControls();
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false,replayShown=false;
-async function command(value:Record<string,unknown>,expectedRevision?:number):Promise<void>{
+async function command(value:Command,expectedRevision?:number):Promise<void>{
  if(busy)return;busy=true;errors.textContent='';
  try{await client.command(value,expectedRevision);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}
 }
@@ -80,16 +81,17 @@ function row(user:DockPerson):Row {
 const compositionNames:Record<string,string>={SPLIT:'左右2分割',WIDE:'全景',SINGLE_OTS:'肩越し',SINGLE_CLEAN:'単独',TWO_SHOT:'2人',MODERATOR_SINGLE:'司会',MODERATOR_TWO:'共同司会'};
 const visibilityNames:Record<string,string>={OVER_SHOULDER:'肩越し',ELEVATED_TO_AVOID_OCCLUSION:'高さを補正',SHIFTED_TO_AVOID_OCCLUSION:'横位置を補正',FALLBACK_TO_CLEAN_SINGLE:'通常構図',NO_CLEAR_COMPOSITION:'見通しを確認',TARGET_UNAVAILABLE:'対象待ち'};
 client.onState=state=>{
+ const peopleById=new Map(state.participants.map(p=>[p.userId,p])),speechById=new Map(state.speech.map(p=>[p.userId,p]));
  exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);directionPanel.update(state);
  studioPanel.update(state);presetPanel.update(state);
  get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('camera-transition').textContent=state.camera.transition;
  get('composition').textContent=compositionNames[state.camera.composition??state.camera.shot.kind]??state.camera.shot.kind;
  get('composition').dataset.composition=state.camera.composition??state.camera.shot.kind;
- const foreground=state.participants.find(p=>p.userId===state.camera.foregroundUserId);
+ const foreground=peopleById.get(state.camera.foregroundUserId??'');
  get('foreground').textContent=foreground?`前景：${foreground.displayName}`:'前景なし';
  get('visibility').textContent=visibilityNames[state.camera.visibilityReason??'']??'標準構図';
- const leader=state.participants.find(p=>p.userId===state.decision.leaderUserId);
- const led=state.speech.find(s=>s.userId===leader?.userId),windowSeconds=state.studio.direction?.leadershipWindowSeconds??10;
+ const leader=peopleById.get(state.decision.leaderUserId??'');
+ const led=speechById.get(leader?.userId??''),windowSeconds=state.studio.direction?.leadershipWindowSeconds??10;
  get('conversation-leader').textContent=leader?`主 ${leader.displayName} ${(Math.min(windowSeconds*1000,led?.speechWindowMs??0)/1000).toFixed(1)}秒`:'主話者なし';get('conversation-leader').title=`直近${windowSeconds}秒の実発話量`;
  const discussion=state.decision.dialogue;
  const reasons:Record<string,string>={NEED_TWO_SPEAKERS:'2人の発話待ち',THIRD_SPEAKER:'3人目が参加',INSUFFICIENT_SPEECH:'発話量待ち',NOT_A_TWO_PERSON_DISCUSSION:'他の話者も参加',BACKCHANNEL_OR_DOMINANCE:'主話者を優先',DISCUSSION_PAUSED:'会話の再開待ち',INSUFFICIENT_EXCHANGE:'交代・重なり待ち',SUSTAINED_OVERLAP:'同時発話が継続',RAPID_ALTERNATION:'交互の応酬',SPLIT_NO_SAFE_FRAMING:'安全な分割構図なし',ADJACENT_SHARED_CAMERA:'隣接席・1カメラ'};
@@ -109,11 +111,11 @@ client.onState=state=>{
  const people=dockPeople(state),ids=new Set(people.map(p=>p.userId));
  for(const [id,r]of rows)if(!ids.has(id)){r.element.remove();rows.delete(id);}
  let index=0;
- for(const user of people){let r=rows.get(user.userId);if(!r){r=row(user);rows.set(user.userId,r);}r.user=user;r.name.textContent=user.name;r.name.title=user.name;
+ for(const user of people){let r=rows.get(user.userId);if(!r){r=row(user);rows.set(user.userId,r);}r.user=user;if(r.name.textContent!==user.name){r.name.textContent=user.name;r.name.title=user.name;}
   const seat=user.slotIndex===undefined?undefined:state.seats[user.slotIndex],label=seat?seatLabel(seat,state.seats):'待機';
   if(r.seat.dataset.label!==label){r.seat.replaceChildren();if(seat?.zone==='moderator')r.seat.append(icon('crown'));else r.seat.textContent=label;r.seat.title=label;r.seat.setAttribute('aria-label',label);r.seat.dataset.label=label;}
   const presence=user.presence==='present'?(user.speaking==='active'?'発話中':user.speaking==='unknown'?'発話状態未確定':'無音'):user.presence==='absent'?'退出・予約中':'在席確認待ち';
-  const speech=state.speech.find(s=>s.userId===user.userId);r.duration.textContent=user.speaking==='active'?`${((speech?.activeMs??0)/1000).toFixed(1)}s`:user.presence==='present'?'—':'退出';
+  const speech=speechById.get(user.userId);r.duration.textContent=user.speaking==='active'?`${((speech?.activeMs??0)/1000).toFixed(1)}s`:user.presence==='present'?'—':'退出';
   r.status.title=`${label} · ${presence} · 直近${windowSeconds}秒 ${(Math.min(windowSeconds*1000,speech?.speechWindowMs??0)/1000).toFixed(1)}秒`;r.status.setAttribute('aria-label',`${label} · ${presence}`);
   Object.assign(r.element.dataset,{speaking:user.speaking,presence:user.presence,zone:seat?.zone??'',slot:String(user.slotIndex??'')});
   r.focus.disabled=user.presence!=='present'||!seat;r.focus.setAttribute('aria-pressed',String(state.camera.shot.userIds.some(id=>id===user.userId)));
@@ -121,5 +123,6 @@ client.onState=state=>{
   const speakLabel=user.speaking==='active'?'発話 OFF':'発話 ON';if(r.speak.getAttribute('aria-label')!==speakLabel)decorate(r.speak,user.speaking==='active'?'microphone-slash':'microphone',speakLabel);
   const at=get('participants').children[index++];if(at!==r.element)get('participants').insertBefore(r.element,at??null);
  }
+ syncNumericControls();
 };
 const overlayUrl=new URL('/overlay',location.origin).href;get<HTMLInputElement>('overlay-url').value=overlayUrl;get<HTMLAnchorElement>('open-overlay').href=overlayUrl;client.connect();

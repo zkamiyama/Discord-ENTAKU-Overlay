@@ -1,3 +1,4 @@
+import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StoredImage } from '../../assets/store.ts';
@@ -73,12 +74,17 @@ export class StudioClient {
   }
   now(): number { return this.state?.source==='replay'?this.state.serverNowMs+(performance.now()-this.stateReceivedAt)*(this.state.clockRate??1):performance.now()+this.offset; }
   private ping(): void { if (this.socket?.readyState === 1 /* WebSocket.OPEN */) this.socket.send(JSON.stringify({ type: 'ping', clientTime: performance.now() })); }
-  async command(command: Record<string,unknown>, expectedRevision = this.state?.revision): Promise<void> {
+  resync():void {if(this.socket?.readyState===1)this.socket.send(JSON.stringify({type:'resync'}));}
+  async command(command: Command, expectedRevision = this.state?.revision): Promise<void> {
+    await this.requestCommand(command,expectedRevision);
+  }
+  async requestCommand(command: Command, expectedRevision = this.state?.revision): Promise<Record<string,unknown>> {
     if (!this.state) throw new Error('サーバーとの接続を確認してください');
     const response = await fetch('/api/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...command, requestId: crypto.randomUUID(), expectedRevision }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? 'COMMAND_FAILED');
+    return result;
   }
   reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number}):void{
     if(this.connected&&this.socket?.readyState===1 /* WebSocket.OPEN */)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure}));

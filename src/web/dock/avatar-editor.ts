@@ -1,9 +1,11 @@
+import {fitImage,imagePoint} from './image-selection.ts';
+import {loadAvatarImage} from './avatar-image.ts';
+import {syncNumericControls} from './numeric-controls.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
 import { PreviewStage } from '../studio/preview.ts';
 import { CustomAvatarVisual } from '../overlay/custom-avatar.ts';
 import { avatarBounds, validateProfile, type AvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
 import type { StoredImage } from '../../assets/store.ts';
-import { MAX_IMAGE_BYTES } from '../../assets/image.ts';
 import { StudioClient } from '../shared/client.ts';
 const messages: Record<string,string> = {
   IMAGE_TOO_LARGE:'画像は20MiB以下にしてください。', IMAGE_DIMENSIONS_REJECTED:'画像の縦横は4096px以下にしてください。',
@@ -44,7 +46,7 @@ export class AvatarEditor {
     $<HTMLInputElement>('avatar-back-file').onchange=()=>{const file=$<HTMLInputElement>('avatar-back-file').files?.[0];if(file)void this.selectBack(file);};
     $('avatar-back-remove').onclick=()=>{this.backBitmap?.close();this.backBitmap=null;this.backImage=null;this.draw();};
     const backCanvas=$<HTMLCanvasElement>('avatar-back-preview');let backDrag:{x:number;y:number;pointer:number}|null=null;
-    const point=(event:PointerEvent)=>{const rect=backCanvas.getBoundingClientRect();return {x:Math.max(0,Math.min(1,((event.clientX-rect.left)*480/rect.width-this.backFit.x)/this.backFit.w)),y:Math.max(0,Math.min(1,((event.clientY-rect.top)*480/rect.height-this.backFit.y)/this.backFit.h))};};
+    const point=(event:PointerEvent)=>imagePoint(event.clientX,event.clientY,backCanvas.getBoundingClientRect(),480,480,this.backFit);
     backCanvas.onpointerdown=e=>{if(this.busy||!this.backImage)return;backDrag={...point(e),pointer:e.pointerId};backCanvas.setPointerCapture(e.pointerId);};
     backCanvas.onpointermove=e=>{if(!backDrag||e.pointerId!==backDrag.pointer)return;const p=point(e),d=backDrag;this.setNamedRect('back-face',[Math.min(p.x,d.x),Math.min(p.y,d.y),Math.abs(p.x-d.x),Math.abs(p.y-d.y)]);this.draw();};
     backCanvas.onpointerup=e=>{if(backDrag?.pointer===e.pointerId){backDrag=null;backCanvas.releasePointerCapture(e.pointerId);this.draw();}};
@@ -92,7 +94,7 @@ export class AvatarEditor {
   private setBusy(value:boolean):void{
     this.busy=value;
     for(const e of this.dialog.querySelectorAll<HTMLInputElement|HTMLButtonElement>('input,button'))e.disabled=value;
-    if(!value)$<HTMLButtonElement>('avatar-apply').disabled=this.previewPending||!this.validDraft();
+    if(!value)$<HTMLButtonElement>('avatar-apply').disabled=this.previewPending||!this.validDraft();syncNumericControls();
   }
   private feedback(text:string,code=''):void{delete $('avatar-feedback').dataset.validation;$('avatar-feedback').textContent=text;$('avatar-feedback').dataset.errorCode=code;}
   private report(error:unknown):void{const code=error instanceof Error?error.message:'AVATAR_EDIT_FAILED';this.feedback(messages[code]??'画像を読み込み・保存できませんでした。',code);}
@@ -109,33 +111,22 @@ export class AvatarEditor {
   }
   private validDraft():boolean{try{validateProfile(this.draft());return true;}catch{return false;}}
   private point(event:PointerEvent):{x:number;y:number}{
-    const bounds=this.canvas.getBoundingClientRect(),x=(event.clientX-bounds.left)*this.canvas.width/bounds.width,y=(event.clientY-bounds.top)*this.canvas.height/bounds.height;
-    return {x:Math.max(0,Math.min(1,(x-this.fit.x)/this.fit.w)),y:Math.max(0,Math.min(1,(y-this.fit.y)/this.fit.h))};
+    return imagePoint(event.clientX,event.clientY,this.canvas.getBoundingClientRect(),this.canvas.width,this.canvas.height,this.fit);
   }
   private async select(file:File):Promise<void>{
     if(this.busy)return;this.setBusy(true);this.feedback('画像を検証しています。');
     const version=++this.generation;
     try{
-      if(file.size>MAX_IMAGE_BYTES)throw new Error('IMAGE_TOO_LARGE');
-      // Server checks size and dimensions before the browser invokes its image decoder.
-      const image=await this.client.importImage(file);
-      const bitmap=await createImageBitmap(file);
+      const {image,bitmap}=await loadAvatarImage(this.client,file,true);
       if(version!==this.generation){bitmap.close();return;}
-      if(bitmap.width!==image.width||bitmap.height!==image.height){bitmap.close();throw new Error('INVALID_IMAGE');}
-      const check=document.createElement('canvas');check.width=Math.min(256,bitmap.width);check.height=Math.max(1,Math.round(bitmap.height*check.width/bitmap.width));
-      const context=check.getContext('2d',{willReadFrequently:true})!;context.drawImage(bitmap,0,0,check.width,check.height);
-      const pixels=context.getImageData(0,0,check.width,check.height).data;
-      if(!pixels.some((value,index)=>index%4===3&&value>=128)){bitmap.close();throw new Error('EMPTY_AVATAR_IMAGE');}
       this.bitmap?.close();this.bitmap=bitmap;this.image=image;this.feedback('顔を矩形で囲んでください。「適用」するまで映像は変わりません。');
     }catch(e){this.report(e);}finally{this.setBusy(false);this.draw();}
   }
   private async selectBack(file:File):Promise<void>{
     if(this.busy)return;this.setBusy(true);const version=++this.generation;
     try{
-      if(file.size>MAX_IMAGE_BYTES)throw new Error('IMAGE_TOO_LARGE');
-      const image=await this.client.importImage(file),bitmap=await createImageBitmap(file);
+      const {image,bitmap}=await loadAvatarImage(this.client,file,false);
       if(version!==this.generation){bitmap.close();return;}
-      if(bitmap.width!==image.width||bitmap.height!==image.height){bitmap.close();throw new Error('INVALID_IMAGE');}
       this.backBitmap?.close();this.backBitmap=bitmap;this.backImage=image;this.feedback('背面の顔も矩形で指定してください。');
     }catch(e){this.report(e);}finally{this.setBusy(false);this.draw();}
   }
@@ -157,17 +148,16 @@ export class AvatarEditor {
     const canvas=$<HTMLCanvasElement>('avatar-back-preview');canvas.hidden=!this.backBitmap;
     if(!this.backBitmap)return;
     const c=canvas.getContext('2d')!,w=480,h=480;c.fillStyle='#202c3c';c.fillRect(0,0,w,h);
-    const scale=Math.min((w-32)/this.backBitmap.width,(h-32)/this.backBitmap.height);
-    this.backFit={x:(w-this.backBitmap.width*scale)/2,y:(h-this.backBitmap.height*scale)/2,w:this.backBitmap.width*scale,h:this.backBitmap.height*scale};
+    this.backFit=fitImage(this.backBitmap.width,this.backBitmap.height,w,h);
     const f=this.backFit,r=this.getRect('back-face');c.drawImage(this.backBitmap,f.x,f.y,f.w,f.h);c.strokeStyle='#70f1ad';c.lineWidth=2;c.strokeRect(f.x+r[0]*f.w,f.y+r[1]*f.h,r[2]*f.w,r[3]*f.h);
   }
   private draw():void{
+    syncNumericControls();
     this.drawBack();
     const context=this.canvas.getContext('2d')!,w=this.canvas.width,h=this.canvas.height;
     for(let y=0;y<h;y+=20)for(let x=0;x<w;x+=20){context.fillStyle=((x+y)/20)%2?'#253245':'#1b2636';context.fillRect(x,y,20,20);}
     if(!this.bitmap||!this.image){$('avatar-size').textContent='PNG / 静止WebP · 最大4096×4096px / 20MiB';$<HTMLButtonElement>('avatar-apply').disabled=true;return;}
-    const scale=Math.min((w-32)/this.bitmap.width,(h-32)/this.bitmap.height);
-    this.fit={x:(w-this.bitmap.width*scale)/2,y:(h-this.bitmap.height*scale)/2,w:this.bitmap.width*scale,h:this.bitmap.height*scale};
+    this.fit=fitImage(this.bitmap.width,this.bitmap.height,w,h);
     const f=this.fit;context.drawImage(this.bitmap,f.x,f.y,f.w,f.h);
     const draft=this.draft(),r=draft.faceRect;
     context.strokeStyle='#70f1ad';context.lineWidth=2;context.strokeRect(f.x+r[0]*f.w,f.y+r[1]*f.h,r[2]*f.w,r[3]*f.h);

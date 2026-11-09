@@ -1,3 +1,4 @@
+import {SettingForm} from './setting-form.ts';
 import {numericEditing} from './numeric-controls.ts';
 import {DEFAULT_QUALITY,validateQuality,type QualitySettings} from '../../studio/quality.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
@@ -5,8 +6,10 @@ import type {StudioClient} from '../shared/client.ts';
 const input=(id:string)=>document.getElementById(id) as HTMLInputElement;
 const fields:Record<string,keyof QualitySettings>={'quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates','quality-msaa':'msaa','quality-render-scale':'renderScale','quality-gi-strength':'giStrength','quality-gi-radius':'giRadius'};
 export class QualityPanel {
- private busy=false;
+ private form:SettingForm<'quality'>;
+ private get busy(){return this.form.busy;}
  constructor(private client:StudioClient){
+  this.form=new SettingForm(client,'quality',validateQuality,'#quality-controls input,#quality-controls select,#quality-controls button,#table-settings select','quality-message',s=>this.update(s));
   for(const id of [...Object.keys(fields),'quality-ao','quality-reflections','quality-fxaa','quality-gi'])input(id).addEventListener('change',()=>void this.apply());
   input('quality-default').onclick=()=>void this.preset({});
   input('quality-low').onclick=()=>void this.preset({shadows:'off',msaa:0,ao:'off',reflections:false,fxaa:false,gi:'off'});
@@ -24,11 +27,5 @@ export class QualityPanel {
   q.ao=input('quality-ao').checked?'gtao':'off';q.reflections=input('quality-reflections').checked;q.fxaa=input('quality-fxaa').checked;q.gi=input('quality-gi').checked?'ssgi':'off';
   return this.save(q);
  }
- private async save(value:unknown):Promise<void>{
-  if(this.busy||!this.client.state)return;this.busy=true;input('quality-message').textContent='';
-  const controls=[...document.querySelectorAll<HTMLInputElement>('#quality-controls input,#quality-controls select,#quality-controls button,#table-settings select')];controls.forEach(e=>e.disabled=true);
-  try{const state=this.client.state;await this.client.command({type:'studio-set',scene:{...state.studio,quality:validateQuality(value)}},state.revision);}
-  catch(e){input('quality-message').textContent=e instanceof Error?e.message:'画質設定を保存できません';}
-  finally{this.busy=false;controls.forEach(e=>e.disabled=false);if(this.client.state)this.update(this.client.state);}
- }
+ private save(value:unknown):Promise<void>{return this.form.save(value);}
 }

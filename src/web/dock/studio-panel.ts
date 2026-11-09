@@ -3,8 +3,8 @@ import {loadStudioBundle,disposeObject} from '../studio/loader.ts';
 import type {StudioClient} from '../shared/client.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
-/** Direct asset replacement. The temporary loader validates textures/geometry,
- * but owns no visible preview window or persistent WebGL context. */
+/** Parse with the official loader without a WebGL context when possible.
+ * Only GPU-dependent texture transcoding needs a temporary validation renderer. */
 export class StudioPanel {
  private busy=false;private key='uninitialized';private generation=0;
  constructor(private client:StudioClient){
@@ -26,8 +26,14 @@ export class StudioPanel {
   this.lock(true);const state=this.client.state;get('studio-feedback').textContent='素材を検証中…';let renderer:THREE.WebGLRenderer|undefined;
   try{
    const bundle=await this.client.importStudio(files);
-   renderer=new THREE.WebGLRenderer({canvas:document.createElement('canvas'),antialias:false});
-   const model=await loadStudioBundle(this.client,renderer,bundle.bundleId);disposeObject(model);
+   let model:THREE.Group;
+   try{model=await loadStudioBundle(this.client,undefined,bundle.bundleId);}
+   catch(error){
+    if(!(error instanceof Error)||error.message!=='STUDIO_GPU_VALIDATION_REQUIRED')throw error;
+    renderer=new THREE.WebGLRenderer({canvas:document.createElement('canvas'),antialias:false});
+    model=await loadStudioBundle(this.client,renderer,bundle.bundleId);
+   }
+   disposeObject(model);
    await this.client.command({type:'studio-set',scene:{...state.studio,objects:[{id:'studio',kind:'model',bundleId:bundle.bundleId,transform:{position:[0,0,0],yawDeg:0,scale:[1,1,1]}}],camera:{blockers:[]},broadcast:{enabled:false,title:'',subtitle:''}}},state.revision);
    get('studio-feedback').textContent='適用しました';
   }catch(e){this.report(e);}finally{renderer?.dispose();renderer?.forceContextLoss();input.value='';this.lock(false);}
