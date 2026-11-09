@@ -1,3 +1,4 @@
+import {createVcChatProbe,type VcChatProbe,type VcChatProbeOptions,type VcChatProbeSummary} from './vc-chat-probe.ts';
 import type { ProviderEvent, ConnectionStatus } from '../contracts/domain.ts';
 import type { AuthProvider } from './auth-provider.ts';
 import { discover } from './discovery.ts';
@@ -14,7 +15,9 @@ export class IpcVoiceProvider {
   private client:RpcClient|null=null;
   private generation=0;
   private wake: (()=>void)|null=null;
-  constructor(private auth:AuthProvider,private emit:Emit,private now=()=>performance.now(),private paths?:string[]) {}
+  private chat:VcChatProbe|undefined;
+  constructor(private auth:AuthProvider,private emit:Emit,private now=()=>performance.now(),private paths?:string[],probeOptions?:VcChatProbeOptions) {this.chat=createVcChatProbe(probeOptions);}
+  chatProbeSummary():VcChatProbeSummary|undefined{return this.chat?.summary();}
   start():void {
     if(this.running)return;
     this.running=true;
@@ -32,15 +35,18 @@ export class IpcVoiceProvider {
         if(!this.running){this.client.close();break;}
         this.status('authorizing');
         const allowPrompt=interactive;interactive=false;
+        this.chat?.authorizing(this.auth.probeInfo?.());
         await this.auth.authenticate(this.client,allowPrompt);
+        this.chat?.authenticated(this.auth.probeInfo?.());
         await this.session(this.client,()=>{failures=0;});
       } catch(error) {
         if(!this.running)break;
         const code=errorCode(error);
+        this.chat?.failure('VOICE_SESSION',error);
         if(code.startsWith('AUTH_')||code==='COMPAT_CONSENT_REQUIRED') {this.status('auth-required',code);break;}
         this.status('degraded',code);
         failures++;
-      } finally {this.client?.close();this.client=null;}
+      } finally {this.chat?.dispose();this.client?.close();this.client=null;}
       if(this.running) {
         const delay=Math.min(15000,Math.max(2000,1000*2**Math.min(failures,4)*(0.8+Math.random()*0.4)));
         await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.wake=null;resolve();},delay);this.wake=()=>{clearTimeout(timer);this.wake=null;resolve();};});
@@ -73,17 +79,20 @@ export class IpcVoiceProvider {
       else if(event==='VOICE_STATE_CREATE'||event==='VOICE_STATE_UPDATE')send({type:'participant-upsert',participant:normalizeParticipant(data,channelId)});
       if(typeof event==='string'&&event.startsWith('VOICE_STATE_')) {clearTimeout(burst);burst=setTimeout(()=>{void refresh();},1000);}
     };
-    const off=client.onEvent(packet=>{if(syncing){if(queue.length>=4096)throw new DiscordError('SYNC_BUFFER_OVERFLOW');queue.push(packet);}else handle(packet);});
+    const off=client.onEvent(packet=>{if(packet.evt!=='VOICE_CHANNEL_SELECT'&&!CHANNEL_EVENTS.includes(String(packet.evt)))return;if(syncing){if(queue.length>=4096)throw new DiscordError('SYNC_BUFFER_OVERFLOW');queue.push(packet);}else handle(packet);});
     try {
       this.status('subscribing');
       await client.request('SUBSCRIBE',{},'VOICE_CHANNEL_SELECT');
-      let snapshot=normalizeSnapshot(await client.request('GET_SELECTED_VOICE_CHANNEL'));
+      const selected=await client.request('GET_SELECTED_VOICE_CHANNEL');
+      let snapshot=normalizeSnapshot(selected);
       channelId=snapshot.channel?.channelId??null;
       if(snapshot.channel?.kind==='guild-voice') {
         for(const event of CHANNEL_EVENTS)await client.request('SUBSCRIBE',{channel_id:channelId},event);
-        this.status('syncing');snapshot=normalizeSnapshot(await client.request('GET_CHANNEL',{channel_id:channelId}));
+        this.status('syncing');const raw=await client.request('GET_CHANNEL',{channel_id:channelId});
+        this.chat?.start(client,selected,raw);snapshot=normalizeSnapshot(raw);
         if(snapshot.channel?.channelId!==channelId)throw new DiscordError('SOURCE_CHANGED');
       }
+      if(snapshot.channel?.kind!=='guild-voice')this.chat?.start(client,selected);
       send({type:'snapshot',...snapshot});
       syncing=false;for(const packet of queue)handle(packet);queue=[];
       if(client.isClosed)throw await client.whenClosed;
@@ -95,6 +104,6 @@ export class IpcVoiceProvider {
       }
       const reason=await client.whenClosed;
       if(this.running)throw reason;
-    } finally {off();clearInterval(timer);clearTimeout(burst);}
+    } finally {this.chat?.dispose();off();clearInterval(timer);clearTimeout(burst);}
   }
 }

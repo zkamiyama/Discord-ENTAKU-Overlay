@@ -1,7 +1,9 @@
 import { APP } from '../domain/defaults.ts';
 import { DiscordError } from './errors.ts';
 import type { RpcClient } from './rpc-client.ts';
+export interface AuthProbeInfo {requestedScopes:readonly string[];grantedScopes:readonly string[]|null;userId?:string}
 export interface AuthProvider {
+  probeInfo?():AuthProbeInfo;
   readonly clientId: string;
   authenticate(rpc: Pick<RpcClient,'request'>, interactive: boolean): Promise<void>;
   clear(): void;
@@ -12,9 +14,11 @@ const SCOPES = ['rpc', 'rpc.voice.read'] as const;
 export class StreamKitCompatAuth implements AuthProvider {
   readonly clientId = '207646673902501888';
   private token: string | null = null;
+  private identity:AuthProbeInfo={requestedScopes:SCOPES,grantedScopes:null};
+  probeInfo():AuthProbeInfo{return structuredClone(this.identity);}
   private expiresAt = Infinity;
   constructor(private consent: boolean, private fetcher: Fetcher = (url, options) => fetch(url, options), private utcNow = Date.now) {}
-  clear(): void { this.token = null; this.expiresAt = Infinity; }
+  clear(): void { this.token = null; this.expiresAt = Infinity;this.identity={requestedScopes:SCOPES,grantedScopes:null}; }
   async authenticate(rpc: Pick<RpcClient,'request'>, interactive: boolean): Promise<void> {
     if (!this.consent) throw new DiscordError('COMPAT_CONSENT_REQUIRED');
     if (this.utcNow() >= this.expiresAt) this.clear();
@@ -25,7 +29,7 @@ export class StreamKitCompatAuth implements AuthProvider {
         const data = await rpc.request('AUTHORIZE', { client_id: this.clientId, scopes: [...SCOPES] }, undefined, APP.authTimeoutMs) as { code?: unknown };
         code = data?.code;
       } catch (error) {
-        throw new DiscordError(error instanceof DiscordError && error.code === 'RPC_TIMEOUT' ? 'AUTH_TIMEOUT' : 'AUTH_DECLINED_OR_SCOPE_DENIED');
+        throw new DiscordError(error instanceof DiscordError && error.code === 'RPC_TIMEOUT' ? 'AUTH_TIMEOUT' : 'AUTH_DECLINED_OR_SCOPE_DENIED',error instanceof DiscordError?error.rpcCode:undefined);
       }
       if (typeof code !== 'string' || !code) throw new DiscordError('AUTH_CODE_MISSING');
       try {
@@ -45,7 +49,14 @@ export class StreamKitCompatAuth implements AuthProvider {
         this.expiresAt = typeof data.expires_in === 'number' && Number.isFinite(data.expires_in) && data.expires_in > 0 ? this.utcNow() + data.expires_in * 1000 : Infinity;
       } catch { this.clear(); throw new DiscordError('AUTH_EXCHANGE_FAILED'); }
     }
-    try { await rpc.request('AUTHENTICATE', { access_token: this.token }); }
-    catch { this.clear(); throw new DiscordError('AUTH_REQUIRED'); }
+    try {
+      const raw=await rpc.request('AUTHENTICATE', { access_token: this.token });
+      // Retain only explicitly selected metadata; never expose the raw auth response.
+      const data=raw&&typeof raw==='object'?raw as Record<string,unknown>:{};
+      const scopes=Array.isArray(data.scopes)&&data.scopes.length<=64&&data.scopes.every(s=>typeof s==='string'&&/^[a-z][a-z0-9._-]{0,80}$/.test(s))?data.scopes as string[]:null;
+      const user=data.user&&typeof data.user==='object'?data.user as Record<string,unknown>:{};
+      this.identity={requestedScopes:SCOPES,grantedScopes:scopes,...(typeof user.id==='string'&&/^\d{1,20}$/.test(user.id)?{userId:user.id}:{})};
+    }
+    catch(error) { this.clear(); throw new DiscordError('AUTH_REQUIRED',error instanceof DiscordError?error.rpcCode:undefined); }
   }
 }

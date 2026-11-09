@@ -1,0 +1,43 @@
+name: VC Chat Probe
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/discord/**'
+      - 'scripts/*vc-chat*'
+      - 'scripts/Start-VC-Chat-Probe.cmd'
+      - 'tests/**/vc-chat*'
+      - 'docs/vc-chat-probe.md'
+      - '.github/workflows/vc-chat-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run build:probe
+      - run: bun run scripts/smoke-vc-chat-probe.ts
+      - if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: entaku-vc-chat-probe-windows
+          path: |
+            dist/ENTAKU-VC-Chat-Probe.exe
+            dist/VC-CHAT-PROBE-BUILD.json
+            scripts/Start-VC-Chat-Probe.cmd
+            docs/vc-chat-probe.md
+            LICENSE
+            licenses/Bun-LICENSE.md
+          if-no-files-found: error
+          retention-days: 14
