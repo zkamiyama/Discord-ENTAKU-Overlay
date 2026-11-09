@@ -23,7 +23,7 @@ const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
 renderer.setClearColor(0, 0); renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.AgXToneMapping;
-const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, .05, 200);
+const scene = new THREE.Scene(), stage=new THREE.Group(), camera = new THREE.PerspectiveCamera(45, 16/9, DEFAULT_DIRECTION.nearClip, 1000);
 scene.add(stage);
 const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
 const fallbackLights=createFallbackLights();scene.add(fallbackLights);
@@ -134,6 +134,9 @@ function frame(time:number):void{
   if(Math.abs(length-lastLength)>.00001){table.update(length);lastLength=length;}
   table.position.z=offsetZ;
   const pose=state&&client.connected&&!studioVisual.loading&&!studioVisual.error?samplePlan(state.camera,serverNow):widePose(state?.straightLength??0,state?.avatarProfiles.map(p=>{const b=avatarFramingBounds(p);return {halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)};})??[],state?.deskOffsetZ??0,(state?.studio.direction??DEFAULT_DIRECTION).wideHeightRatio);
+  const near=state?.studio.direction?.nearClip??DEFAULT_DIRECTION.nearClip;
+  if(camera.near!==near){camera.near=near;camera.updateProjectionMatrix();}
+  canvas.dataset.cameraNear=String(near);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);if(camera.fov!==pose.fov){camera.fov=pose.fov;camera.updateProjectionMatrix();}
   if(state)for(const reservation of state.session.reservations){
     const target=state.seats[reservation.slotIndex],avatar=avatars.get(reservation.userId);if(!target||!avatar)continue;
@@ -148,7 +151,7 @@ function frame(time:number):void{
     stage.position.fromArray(state.studio.tableAnchor.position);stage.rotation.y=THREE.MathUtils.degToRad(state.studio.tableAnchor.yawDeg);stage.updateMatrixWorld(true);
     const target=stage.localToWorld(new THREE.Vector3().fromArray(pose.target));stage.localToWorld(camera.position);camera.lookAt(target);
     const studioStatus=studioVisual.setLength(length,offsetZ);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
-    canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');
+    canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');canvas.dataset.cameraLocalPosition=pose.position.join(',');canvas.dataset.cameraLocalTarget=pose.target.join(',');
   }
   if(!contextLost){
     const post=state?.studio.post??DEFAULT_POST;

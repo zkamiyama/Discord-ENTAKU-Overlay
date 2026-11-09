@@ -73,6 +73,9 @@ client.onState=state=>{
  const foreground=state.participants.find(p=>p.userId===state.camera.foregroundUserId);
  get('foreground').textContent=foreground?`前景：${foreground.displayName}`:'前景なし';
  get('visibility').textContent=visibilityNames[state.camera.visibilityReason??'']??'標準構図';
+ const leader=state.participants.find(p=>p.userId===state.decision.leaderUserId);
+ const led=state.speech.find(s=>s.userId===leader?.userId);
+ get('conversation-leader').textContent=leader?`${leader.displayName} ${(Math.min(10000,led?.speechMs10s??0)/1000).toFixed(1)}秒`:'—';
  get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
  get('auto').setAttribute('aria-pressed',String(state.mode!=='HOLD'));
  get('counts').textContent=`${state.participants.filter(p=>p.presence==='present').length}人 / ${state.session.capacity}席`;
@@ -89,7 +92,7 @@ client.onState=state=>{
   if(r.seat.dataset.label!==label){r.seat.replaceChildren();if(seat?.zone==='moderator')r.seat.append(icon('crown'));else r.seat.textContent=label;r.seat.title=label;r.seat.setAttribute('aria-label',label);r.seat.dataset.label=label;}
   const presence=user.presence==='present'?(user.speaking==='active'?'発話中':user.speaking==='unknown'?'発話状態未確定':'無音'):user.presence==='absent'?'退出・予約中':'在席確認待ち';
   const speech=state.speech.find(s=>s.userId===user.userId);r.duration.textContent=user.speaking==='active'?`${((speech?.activeMs??0)/1000).toFixed(1)}s`:user.presence==='present'?'—':'退出';
-  r.status.title=`${label} · ${presence}`;r.status.setAttribute('aria-label',`${label} · ${presence}`);
+  r.status.title=`${label} · ${presence} · 直近10秒 ${(Math.min(10000,speech?.speechMs10s??0)/1000).toFixed(1)}秒`;r.status.setAttribute('aria-label',`${label} · ${presence}`);
   Object.assign(r.element.dataset,{speaking:user.speaking,presence:user.presence,zone:seat?.zone??'',slot:String(user.slotIndex??'')});
   r.focus.disabled=user.presence!=='present'||!seat;r.focus.setAttribute('aria-pressed',String(state.camera.shot.userIds.some(id=>id===user.userId)));
   r.speak.hidden=state.source!=='demo'||!user.participant;r.speak.disabled=user.presence!=='present';

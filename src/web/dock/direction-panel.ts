@@ -2,7 +2,7 @@ import {DEFAULT_DIRECTION,validateDirection} from '../../studio/direction.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
 import {numericEditing,syncNumericControls} from './numeric-controls.ts';
-const fields={'camera-return':'manualReturnSeconds','camera-fov':'portraitFov','camera-wide-height':'wideHeightRatio'} as const;
+const fields={'camera-return':'manualReturnSeconds','camera-fov':'portraitFov','camera-wide-height':'wideHeightRatio','camera-near':'nearClip'} as const;
 const get=(id:string)=>document.getElementById(id) as HTMLInputElement;
 export class DirectionPanel {
  private busy=false;

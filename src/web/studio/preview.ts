@@ -1,3 +1,4 @@
+import {DEFAULT_DIRECTION,type DirectionSettings} from '../../studio/direction.ts';
 import {DEFAULT_POST,resolvePostFocus,type PostSettings} from '../../studio/post-effects.ts';
 import {DEFAULT_QUALITY,type QualitySettings} from '../../studio/quality.ts';
 import {ExposureRenderer,createFallbackLights} from './exposure-renderer.ts';
@@ -11,7 +12,8 @@ export function makePreviewTable(length=3):BroadcastDesk{return new BroadcastDes
 export class PreviewStage {
   readonly renderer:THREE.WebGLRenderer;
   readonly scene=new THREE.Scene();
-  readonly camera=new THREE.PerspectiveCamera(45,1,.05,500);
+  readonly camera=new THREE.PerspectiveCamera(45,1,DEFAULT_DIRECTION.nearClip,1000);
+  directionSettings:DirectionSettings={...DEFAULT_DIRECTION};
   readonly controls:OrbitControls;
   readonly table=makePreviewTable();
   postSettings:PostSettings={...DEFAULT_POST};
@@ -43,7 +45,7 @@ export class PreviewStage {
     if(this.renderer.domElement.width!==Math.round(width*this.renderer.getPixelRatio())||this.renderer.domElement.height!==Math.round(height*this.renderer.getPixelRatio())){
       this.renderer.setSize(width,height,false);this.camera.aspect=width/height;this.camera.updateProjectionMatrix();
     }
-    this.controls.update();this.onFrame();this.exposureRenderer.render(this.scene,this.camera,this.exposureSettings,this.exposureSource,this.authoredLights,time,this.qualitySettings,this.postSettings,resolvePostFocus(this.postSettings,{position:this.camera.position.toArray(),target:this.controls.target.toArray(),fov:this.camera.fov},[]));
+    this.controls.update();this.onFrame();if(this.camera.near!==this.directionSettings.nearClip){this.camera.near=this.directionSettings.nearClip;this.camera.updateProjectionMatrix();}this.exposureRenderer.render(this.scene,this.camera,this.exposureSettings,this.exposureSource,this.authoredLights,time,this.qualitySettings,this.postSettings,resolvePostFocus(this.postSettings,{position:this.camera.position.toArray(),target:this.controls.target.toArray(),fov:this.camera.fov},[]));
     this.canvas.dataset.exposure=String(this.exposureRenderer.report.exposure);this.canvas.dataset.exposureStatus=this.exposureRenderer.report.exposureStatus;
   };
   dispose():void{this.stopped=true;cancelAnimationFrame(this.frame);this.controls.dispose();this.exposureRenderer.dispose();disposeObject(this.scene);this.renderer.dispose();this.renderer.forceContextLoss();this.canvas.replaceWith(this.canvas.cloneNode(false));}
