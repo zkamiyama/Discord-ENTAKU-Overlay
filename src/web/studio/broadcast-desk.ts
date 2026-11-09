@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import {MICROPHONE} from '../../geometry/desk-props.ts';
 import {createRingData,updateRingData} from '../../geometry/table-geometry-data.ts';
-/** Pale timber, white edging and gray structural ribs; same mesh in preview/program. */
+/** Continuous lacquered timber top, dark edge trim and gray structural ribs; same mesh in preview/program. */
 export class BroadcastDesk extends THREE.Group {
  private lastLength=NaN;
  private rings:Array<{data:ReturnType<typeof createRingData>;geometry:THREE.BufferGeometry;inner:number;outer:number;bottom:number;top:number}>=[];
  constructor(length=0){
   super();this.userData.entakuDesk=true;
   const c=document.createElement('canvas');c.width=1024;c.height=512;const x=c.getContext('2d')!;
-  x.fillStyle='#b48249';x.fillRect(0,0,c.width,c.height);
+  x.fillStyle='#985b2d';x.fillRect(0,0,c.width,c.height);
   // Periodic analytic grain repeats without random changes when the table grows.
   for(let y=0;y<c.height;y++){
    const grain=Math.sin(y*.83+Math.sin(y*.033)*3)*.5+Math.sin(y*.19)*.28;
@@ -18,14 +18,14 @@ export class BroadcastDesk extends THREE.Group {
   const wood=new THREE.CanvasTexture(c);wood.colorSpace=THREE.SRGBColorSpace;wood.wrapS=wood.wrapT=THREE.RepeatWrapping;wood.repeat.set(.75,.75);wood.anisotropy=8;
   const bump=wood.clone();bump.colorSpace=THREE.NoColorSpace;
   const parts=[
-   [.72,1.44,.685,.758,0xf4f2e8], [.79,1.375,.744,.762,0xffffff],
+   [.72,1.44,.685,.762,0xffffff], [.719,1.441,.708,.720,0x393129],
    [.76,.86,.12,.685,0xb5b3ab], [1.12,1.24,.1,.685,0xc4c3bd], [.83,1.28,.025,.1,0x898c8b],
   ];
   parts.forEach(([inner,outer,bottom,top,color],i)=>{
    const data=createRingData(),geometry=new THREE.BufferGeometry();
    geometry.setAttribute('position',new THREE.BufferAttribute(data.positions,3));geometry.setAttribute('normal',new THREE.BufferAttribute(data.normals,3));geometry.setAttribute('uv',new THREE.BufferAttribute(data.uvs,2));geometry.setIndex(new THREE.BufferAttribute(data.indices,1));
-   this.add(new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({color,roughness:i===1?.38:.72,metalness:0,...(i===1?{map:wood,bumpMap:bump,bumpScale:.0012,clearcoat:.25,clearcoatRoughness:.36}:{})})));
-   const mesh=this.children.at(-1) as THREE.Mesh;mesh.castShadow=mesh.receiveShadow=true;if(i===1)mesh.userData.entakuReflective=true;
+   this.add(new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({color,roughness:i===0?.20:.72,metalness:0,...(i===0?{map:wood,bumpMap:bump,bumpScale:.00045,clearcoat:.95,clearcoatRoughness:.10}:{})})));
+   const mesh=this.children.at(-1) as THREE.Mesh;mesh.castShadow=mesh.receiveShadow=true;if(i===0){mesh.userData.entakuReflective=true;mesh.userData.entakuWoodTop=true;mesh.name='Continuous lacquered wood top';}
    this.rings.push({data,geometry,inner:inner!,outer:outer!,bottom:bottom!,top:top!});
   });this.update(length);
  }

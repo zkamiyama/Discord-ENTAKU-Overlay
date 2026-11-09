@@ -1,3 +1,4 @@
+import {layoutNameGlyphs,nameGraphemes} from '../../geometry/nameplate-text.ts';
 import * as THREE from 'three';
 import {NAMEPLATE} from '../../geometry/desk-props.ts';
 import {protectDisplayObject} from './exposure-renderer.ts';
@@ -27,11 +28,12 @@ export class NameplateVisual extends THREE.Group {
   if(name===this.current&&style===this.style)return;this.current=name;this.style=style;
   const c=this.texture.image as HTMLCanvasElement,x=c.getContext('2d')!;
   x.fillStyle=style==='blue'?'#123d80':'#faf8f0';x.fillRect(0,0,c.width,c.height);
-  const text=[...name].slice(0,32).join('')||'—';
+  const glyphs=nameGraphemes(name);
   x.font='900 264px "Yu Gothic","Meiryo","Noto Sans CJK JP",sans-serif';
   x.fillStyle=style==='blue'?'#ffffff':'#123d80';x.strokeStyle=x.fillStyle;x.lineWidth=1.3;x.textAlign='left';x.textBaseline='middle';
-  const width=c.width-56,actual=x.measureText(text).width;
-  x.save();x.translate(28,c.height*.52);x.scale(width/Math.max(1,actual),1);x.fillText(text,0,0);x.strokeText(text,0,0);x.restore();
+  const width=c.width-56,layout=layoutNameGlyphs(glyphs.map(g=>x.measureText(g).width),width);
+  glyphs.forEach((glyph,i)=>{x.save();x.translate(28+layout.positions[i]!,c.height*.52);x.scale(layout.scaleX,1);x.fillText(glyph,0,0);x.strokeText(glyph,0,0);x.restore();});
+  this.userData.textLayout={...layout,glyphs};
   this.texture.needsUpdate=true;
  }
 }
