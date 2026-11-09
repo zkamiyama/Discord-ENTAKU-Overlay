@@ -157,7 +157,7 @@ function frame(time:number):void{
     canvas.dataset.focusDistance=String(focus.distance);canvas.dataset.focusRange=String(focus.range);canvas.dataset.excludeAvatars=String(post.excludeAvatars);
     const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY,post,focus);
     canvas.dataset.exposure=String(report.exposure);canvas.dataset.msaaSamples=String(report.msaaSamples??0);canvas.dataset.renderScale=String(lastPixelRatio);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
-    canvas.dataset.authoredLights=String(studioVisual.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
+    canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
   }
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}
 }
