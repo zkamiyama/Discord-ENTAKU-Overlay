@@ -15,7 +15,7 @@ export function protectStudioCamera(plan:CameraPlan,scene:StudioScene,defaultWid
   const boxes=(scene.camera?.blockers??[]).map(b=>new Box3(vec(b.min),vec(b.max)).applyMatrix4(inverse));
   if(!boxes.length)return plan;
   const clear=(pose:CameraPose)=>boxes.every(box=>!box.clone().expandByScalar(.12).containsPoint(vec(pose.position))&&!segmentHit(pose.position,pose.target,box));
-  if(clear(plan.to)){
+  if(plan.panels?plan.panels.every(panel=>clear(panel.pose)):clear(plan.to)){
     if(plan.transition==='MOVE'){
       let safe=true;let previous=plan.from.position;
       for(let i=0;safe&&i<=12;i++){
@@ -30,5 +30,5 @@ export function protectStudioCamera(plan:CameraPlan,scene:StudioScene,defaultWid
   // The overlay applies tableAnchor once when rendering the camera.
   const custom=scene.camera?.safeWide?structuredClone(scene.camera.safeWide):null;
   const pose=custom&&clear(custom)&&wideFits(custom)?custom:defaultWide;
-  return {...plan,shot:{kind:'WIDE',userIds:[]},composition:'WIDE',foregroundUserId:undefined,to:pose,transition:'CUT',durationMs:0,studioHidden:!clear(pose),safetyReason:clear(pose)?'STUDIO_SHOT_BLOCKED':'STUDIO_HIDDEN_FOR_CAMERA'};
+  return {...plan,panels:undefined,shot:{kind:'WIDE',userIds:[]},composition:'WIDE',foregroundUserId:undefined,to:pose,transition:'CUT',durationMs:0,studioHidden:!clear(pose),safetyReason:clear(pose)?'STUDIO_SHOT_BLOCKED':'STUDIO_HIDDEN_FOR_CAMERA'};
 }

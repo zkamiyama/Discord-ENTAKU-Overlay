@@ -1,3 +1,4 @@
+import {DisplayComposite} from './display-composite.ts';
 import {PostRenderer} from './post-renderer.ts';
 import {DEFAULT_POST,hasPostEffects,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {SSGIPass} from './ssgi-pass.ts';
@@ -12,7 +13,7 @@ export type QualityStatus='DIRECT'|'EFFECTS'|'EFFECTS_UNAVAILABLE'|'EFFECTS_FAIL
 /** Official passes compute effects. This adapter alone restores scene depth before
  * drawing display-layer avatars, keeping their RGB outside AO, SSR and AgX. */
 export class QualityRenderer {
- private post?:PostRenderer;
+ private post?:PostRenderer;private displayComposite?:DisplayComposite;
  private gi?:SSGIPass;private giTarget?:THREE.WebGLRenderTarget;
  private world?:THREE.WebGLRenderTarget;private work?:THREE.WebGLRenderTarget;private aoTarget?:THREE.WebGLRenderTarget;
  private reflections?:THREE.WebGLRenderTarget;private reflectionBlend?:FullScreenQuad;
@@ -75,11 +76,11 @@ export class QualityRenderer {
   });
   this.screen=new FullScreenQuad(material);
  }
- render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5}):void{
+ render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false):void{
   const renderer=this.renderer;
   this.configureShadows(scene,q,source);
   const options=JSON.stringify([q,p]);if(options!==this.lastOptions){this.failed=false;this.lastOptions=options;}
-  if(!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
+  if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
   if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderer.render(scene,camera);return;}
   if(this.failed){this.status='EFFECTS_FAILED';renderer.render(scene,camera);return;}
   const mask=camera.layers.mask,target=renderer.getRenderTarget(),auto=renderer.autoClear,background=scene.background;
@@ -98,7 +99,7 @@ export class QualityRenderer {
    }
    const samples=effectiveSamples(q.msaa,this.sampleCounts,renderer.capabilities.maxSamples);
    if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
-   const size=renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
+   const size=target?new THREE.Vector2(target.width,target.height):renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
    if(w!==this.w||h!==this.h){this.w=w;this.h=h;for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased,this.reflections,this.giTarget])rt!.setSize(w,h);}
    camera.layers.disable(this.displayLayer);renderer.setScissorTest(false);renderer.autoClear=true;
    renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
@@ -144,12 +145,16 @@ export class QualityRenderer {
    let color:THREE.WebGLRenderTarget;
    if(postActive){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,p,focus,this.msaaSamples);}
    else {this.post?.dispose();this.post=undefined;this.output!.render(renderer,this.mapped!,input,0,false);color=this.mapped!;}
-   const coverage=postActive?color.texture:this.world!.texture;
+   let coverage=postActive?color.texture:this.world!.texture;
    if(q.fxaa){this.fxaa!.setSize(w,h);this.fxaa!.render(renderer,this.antialiased!,color,0,false);color=this.antialiased!;}else this.antialiased?.dispose();
+   if(target&&(!postActive||p.excludeAvatars)){
+    this.displayComposite??=new DisplayComposite(this.displayLayer);
+    color=this.displayComposite.render(renderer,scene,camera,color,this.world!.depthTexture!,this.msaaSamples);coverage=color.texture;
+   }
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
    uniforms.color!.value=color.texture;uniforms.depth!.value=this.world!.depthTexture;uniforms.coverage!.value=coverage;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
-   if(!postActive||p.excludeAvatars){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
+   if(!target&&(!postActive||p.excludeAvatars)){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
    this.status='EFFECTS';
   }catch(error){
    console.warn('QUALITY_EFFECTS_FAILED',error instanceof Error?error.name:'Unknown');this.failed=true;this.status='EFFECTS_FAILED';
@@ -160,6 +165,7 @@ export class QualityRenderer {
   }
  }
  private releaseEffects():void{
+  this.displayComposite?.dispose();this.displayComposite=undefined;
   this.post?.dispose();this.post=undefined;
   this.gi?.dispose();this.gi=undefined;
   this.ao?.dispose();this.ssr?.ssrMaterial.dispose();this.ssr?.dispose();this.output?.dispose();this.fxaa?.dispose();

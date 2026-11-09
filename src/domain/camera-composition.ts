@@ -28,8 +28,8 @@ function targets(seat:SeatTransform,extent:AvatarExtent):Vector3[]{
  points.push(...plateFramePoints(seat).map(v));
  return points;
 }
-export function subjectsVisible(pose:CameraPose,ids:readonly string[],seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,near=DEFAULT_DIRECTION.nearClip):boolean {
- const origin=v(pose.position),camera=new PerspectiveCamera(pose.fov,16/9,near,1000);
+export function subjectsVisible(pose:CameraPose,ids:readonly string[],seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,near=DEFAULT_DIRECTION.nearClip,aspect=16/9):boolean {
+ const origin=v(pose.position),camera=new PerspectiveCamera(pose.fov,aspect,near,1000);
  camera.position.copy(origin);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
  const blockers=[...seats].filter(([id])=>!ids.includes(id)).map(([id,s])=>avatarOccluder(s,extents.get(id)??DEFAULT_EXTENT));
  if(blockers.some(box=>box.clone().expandByScalar(.08).containsPoint(origin)))return false;
@@ -43,8 +43,8 @@ export function subjectsVisible(pose:CameraPose,ids:readonly string[],seats:Read
  }
  return true;
 }
-function foregroundArea(pose:CameraPose,seat:SeatTransform,extent:AvatarExtent,near=DEFAULT_DIRECTION.nearClip):number {
- const camera=new PerspectiveCamera(pose.fov,16/9,near,1000);camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
+function foregroundArea(pose:CameraPose,seat:SeatTransform,extent:AvatarExtent,near=DEFAULT_DIRECTION.nearClip,aspect=16/9):number {
+ const camera=new PerspectiveCamera(pose.fov,aspect,near,1000);camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
  const box=avatarOccluder(seat,extent),points:Vector3[]=[];
  for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z])points.push(new Vector3(x,y,z).project(camera));
  if(points.some(p=>p.z< -1||p.z>1))return 0;
@@ -57,7 +57,7 @@ function foregroundArea(pose:CameraPose,seat:SeatTransform,extent:AvatarExtent,n
  return Math.max(0,right-left)*Math.max(0,top-bottom)/4;
 }
 export interface Composition {pose:CameraPose;composition:NonNullable<CameraPlan['composition']>;foregroundUserId?:string;visibilityReason?:string}
-export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,clean:CameraPose,portraitFov=22,rearLimit=-Infinity,near=DEFAULT_DIRECTION.nearClip):Composition {
+export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>,clean:CameraPose,portraitFov=22,rearLimit=-Infinity,near=DEFAULT_DIRECTION.nearClip,aspect=16/9):Composition {
  if(shot.kind==='WIDE')return {pose:clean,composition:'WIDE'};
  const primary=seats.get(shot.userIds[0]);if(!primary)return {pose:clean,composition:'SINGLE_CLEAN',visibilityReason:'TARGET_UNAVAILABLE'};
  const host=primary.zone==='moderator';
@@ -76,7 +76,7 @@ export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransfo
     const faceView=position.clone().sub(v(primary.faceAnchor)).setY(0).normalize().dot(v(primary.inward));
     if(faceView<.25)continue;
     let pose:CameraPose|undefined;
-    for(const fov of [portraitFov,Math.min(35,portraitFov+4)]){const candidate={position:tuple(position),target:tuple(target),fov};const area=foregroundArea(candidate,seat,extent,near);if(area>=.01&&area<=.38&&subjectsVisible(candidate,shot.userIds,seats,extents,near)){pose=candidate;break;}}
+    for(const fov of [portraitFov,Math.min(35,portraitFov+4)]){const candidate={position:tuple(position),target:tuple(target),fov};const area=foregroundArea(candidate,seat,extent,near,aspect);if(area>=.01&&area<=.38&&subjectsVisible(candidate,shot.userIds,seats,extents,near,aspect)){pose=candidate;break;}}
     if(!pose)continue;
     const score=rise*3+lateral*.7+(seat.slotIndex===primary.oppositeSlot?0:1.3)+(pose.fov-portraitFov)*.25+back*.06;
     if(!best||score<best.score)best={score,value:{pose,composition:host?'MODERATOR_SINGLE':'SINGLE_OTS',foregroundUserId:id,visibilityReason:rise>0?'ELEVATED_TO_AVOID_OCCLUSION':lateral>width?'SHIFTED_TO_AVOID_OCCLUSION':'OVER_SHOULDER'}};
@@ -95,7 +95,7 @@ export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransfo
   const position=direction.clone().applyAxisAngle(new Vector3(0,1,0),angle).multiplyScalar(scale).add(v(clean.target));position.y+=rise;
   if(position.z<rearLimit)continue;
   const pose={...clean,position:tuple(position)};
-  if(subjectsVisible(pose,shot.userIds,seats,extents,near))return {pose,composition,visibilityReason:rise?'ELEVATED_TO_AVOID_OCCLUSION':shot.kind==='SINGLE'?'FALLBACK_TO_CLEAN_SINGLE':undefined};
+  if(subjectsVisible(pose,shot.userIds,seats,extents,near,aspect))return {pose,composition,visibilityReason:rise?'ELEVATED_TO_AVOID_OCCLUSION':shot.kind==='SINGLE'?'FALLBACK_TO_CLEAN_SINGLE':undefined};
  }
  return {pose:clean,composition,visibilityReason:'NO_CLEAR_COMPOSITION'};
 }

@@ -1,3 +1,4 @@
+import {SplitRenderer} from '../studio/split-renderer.ts';
 import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {DEFAULT_POST,resolvePostFocus} from '../../studio/post-effects.ts';
 import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
@@ -28,6 +29,7 @@ scene.add(stage);
 const studioVisual=new StudioVisual(client,renderer);scene.add(studioVisual.root);
 const fallbackLights=createFallbackLights();scene.add(fallbackLights);
 const exposureRenderer=new ExposureRenderer(renderer,fallbackLights);
+const splitRenderer=new SplitRenderer(renderer);let wasSplit=false;
 renderer.info.autoReset=false;
 const table=new BroadcastDesk(0);stage.add(table);
 const vertexShader = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
@@ -49,6 +51,7 @@ function placeholder(user:Participant):THREE.CanvasTexture {
 class Avatar {
   root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
   outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
+  private baseYaw=0;
   user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
   custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
   constructor(user:Participant,profile?:AvatarProfile){
@@ -99,7 +102,7 @@ class Avatar {
     if(this.profile){this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX;this.root.position.z-=Math.sin(seat.baseYawRad)*this.profile.offsetX;this.root.position.y+=this.profile.offsetY;}
     // Follow the current shot immediately. Camera MOVE may interpolate its pose,
     // but avatars must not keep swivelling after a CUT.
-    this.root.rotation.y=avatarFacingYaw(seat.baseYawRad,camera.position.x-this.root.position.x,camera.position.z-this.root.position.z);
+    this.baseYaw=seat.baseYawRad;this.faceCamera(camera.position);
     this.body.material.uniforms.opacity!.value=this.opacity;
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
@@ -107,6 +110,7 @@ class Avatar {
     this.outline.material.uniforms.strength!.value=intensity;const glowScale=state?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,state?.studio.tableAnchor.position[1]??0,glowScale);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
   }
+  faceCamera(position:THREE.Vector3):void{this.root.rotation.y=avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
   dispose():void {
     this.disposed=true;avatarFailures.delete(this.user.userId);this.custom?.dispose();this.custom=null;stage.remove(this.root,this.plate);
     this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
@@ -159,7 +163,25 @@ function frame(time:number):void{
     const subjects=selected.flatMap(id=>{const a=avatars.get(id);return a&&a.user.presence==='present'?[a.root.position.toArray() as [number,number,number]]:[];});
     const focus=resolvePostFocus(post,pose,subjects);
     canvas.dataset.focusDistance=String(focus.distance);canvas.dataset.focusRange=String(focus.range);canvas.dataset.excludeAvatars=String(post.excludeAvatars);
-    const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY,post,focus);
+    const panels=state?.camera.shot.kind==='SPLIT'&&client.connected&&!studioVisual.loading&&!studioVisual.error?state.camera.panels:undefined;
+    const split=!!panels&&splitRenderer.supported;
+    if(split!==wasSplit){if(split)exposureRenderer.releaseQuality();else splitRenderer.dispose();wasSplit=split;}
+    const exposure=state?.studio.exposure??DEFAULT_EXPOSURE,quality=state?.studio.quality??DEFAULT_QUALITY;
+    const source=String(studioVisual.renderGeneration),lights=studioVisual.root.visible?studioVisual.authoredLights:0;
+    let report;
+    if(split&&panels){
+      const measured=exposureRenderer.prepare(scene,camera,exposure,source,lights,time);
+      const splitReport=splitRenderer.render(scene,panels,quality,post,source+'|'+measured.fallbackLights,(panel,panelCamera)=>{
+        const local=new THREE.Vector3().fromArray(panel.pose.position);
+        for(const avatar of avatars.values())avatar.faceCamera(local);
+        panelCamera.position.copy(stage.localToWorld(local.clone()));panelCamera.lookAt(stage.localToWorld(new THREE.Vector3().fromArray(panel.pose.target)));
+        panelCamera.fov=panel.pose.fov;panelCamera.near=near;panelCamera.far=1000;
+        const subject=avatars.get(panel.userId);return resolvePostFocus(post,panel.pose,subject?[subject.root.position.toArray() as [number,number,number]]:[]);
+      });
+      report={...measured,...splitReport};exposureRenderer.report=report;
+    }else report=exposureRenderer.render(scene,camera,exposure,source,lights,time,quality,post,focus);
+    canvas.dataset.splitCount=split?'2':'1';canvas.dataset.splitStatus=panels&&!split?'UNAVAILABLE':split?'ACTIVE':'OFF';
+    canvas.dataset.splitUsers=split?panels!.map(panel=>panel.userId).join(','):'';
     canvas.dataset.exposure=String(report.exposure);canvas.dataset.msaaSamples=String(report.msaaSamples??0);canvas.dataset.renderScale=String(lastPixelRatio);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
     canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
   }

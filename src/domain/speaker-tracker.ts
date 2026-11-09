@@ -1,6 +1,7 @@
 import { DIRECTOR } from './defaults.ts';
 import type { SpeakingState } from '../contracts/domain.ts';
-interface Segment { start: number; end: number }
+export interface SpeechInterval { start: number; end: number }
+type Segment = SpeechInterval;
 interface Episode { userId: string; start: number; activeMs: number; order: number }
 interface Track {
   state: SpeakingState; startedAt: number; stoppedAt: number;
@@ -64,9 +65,16 @@ export class SpeakerTracker {
     const current = [...this.tracks.entries()].map(([userId, t]) => ({ userId, start: t.episodeStart, activeMs: t.accumulated + (t.state === 'active' ? now - t.startedAt : 0), order: t.order }));
     return [...this.history, ...current].filter(e => e.start >= now - windowMs && e.activeMs >= 250).sort((a, b) => a.start - b.start || a.order - b.order);
   }
+  /** Exact half-open speaking intervals; pauses never count as speech. */
+  intervals(userId:string,now:number,windowMs=DIRECTOR.leadershipWindowMs):SpeechInterval[]{
+    this.check(now);this.prune(now);
+    const track=this.tracks.get(userId);if(!track)return [];
+    const segments=[...track.segments,...(track.state==='active'?[{start:track.startedAt,end:now}]:[])];
+    return segments.map(s=>({start:Math.max(now-windowMs,s.start),end:Math.min(now,s.end)})).filter(s=>s.end>s.start);
+  }
   clear(): void { this.tracks.clear(); this.history = []; }
   private prune(now: number): void {
-    this.history = this.history.filter(e => e.start >= now - 10000);
-    for (const t of this.tracks.values()) t.segments = t.segments.filter(s => s.end >= now - 10000);
+    this.history = this.history.filter(e => e.start >= now - 10000).slice(-1024);
+    for (const t of this.tracks.values()) t.segments = t.segments.filter(s => s.end >= now - 10000).slice(-512);
   }
 }

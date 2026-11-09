@@ -1,9 +1,10 @@
+import {detectDialogue,DIALOGUE,type DialogueEvidence} from './dialogue-detector.ts';
 import type { Decision, DirectorMode, Shot } from '../contracts/domain.ts';
 import { DIRECTOR as C } from './defaults.ts';
 import { SpeakerTracker, type SpeechStats } from './speaker-tracker.ts';
 export interface DirectorContext {
  presentIds:readonly string[];sourceReady:boolean;layoutMoving:boolean;layoutReason?:string;
- canPair:(a:string,b:string)=>boolean;
+ canPair:(a:string,b:string)=>boolean;splitEnabled?:boolean;canSplit?:(a:string,b:string)=>boolean;
 }
 const wide=():Shot=>({kind:'WIDE',userIds:[]});
 const same=(a:Shot,b:Shot):boolean=>a.kind===b.kind&&a.userIds.join(',')===b.userIds.join(',');
@@ -12,13 +13,16 @@ const same=(a:Shot,b:Shot):boolean=>a.kind===b.kind&&a.userIds.join(',')===b.use
  * Leadership is measured by exact overlap with the last ten seconds, not START order. */
 export class ShotDirector {
  mode:DirectorMode='AUTO';autoResumeAtMs:number|null=null;
+ private bridge:{ids:string[];missing:Map<string,number>}|null=null;
+ private dialogue?:DialogueEvidence;private splitCandidate:{key:string;since:number}|null=null;private splitWeakAt:number|null=null;private splitCooldownUntil=-Infinity;
  private shot:Shot=wide();private holdUntil=-Infinity;
  private pending:{shot:Shot;reason:string;since:number;kind:'start'|'end';at:number}|null=null;
  private missingSince:number|null=null;private autoSince:number|null=null;private leader?:string;private crowdWide=false;private crowdEndedAt:number|null=null;
- reset():void {this.shot=wide();this.holdUntil=-Infinity;this.pending=null;this.missingSince=null;this.autoResumeAtMs=null;this.autoSince=null;this.leader=undefined;this.crowdWide=false;this.crowdEndedAt=null;}
+ reset():void {this.bridge=null;this.dialogue=undefined;this.splitCandidate=null;this.splitWeakAt=null;this.splitCooldownUntil=-Infinity;this.shot=wide();this.holdUntil=-Infinity;this.pending=null;this.missingSince=null;this.autoResumeAtMs=null;this.autoSince=null;this.leader=undefined;this.crowdWide=false;this.crowdEndedAt=null;}
  current():Shot{return structuredClone(this.shot);}
- setMode(mode:DirectorMode):void {this.mode=mode;this.autoResumeAtMs=null;this.pending=null;this.missingSince=null;this.autoSince=null;}
+ setMode(mode:DirectorMode):void {this.bridge=null;this.splitCandidate=null;this.splitWeakAt=null;this.mode=mode;this.autoResumeAtMs=null;this.pending=null;this.missingSince=null;this.autoSince=null;}
  manual(shot:Shot,now:number,returnSeconds=10):Decision {
+  this.bridge=null;this.splitCandidate=null;this.splitWeakAt=null;
   const fixed=this.mode==='HOLD';this.mode=fixed?'HOLD':'MANUAL';
   this.autoResumeAtMs=fixed?null:now+returnSeconds*1000;this.pending=null;
   return this.choose(shot,'MANUAL_OVERRIDE',now);
@@ -30,7 +34,7 @@ export class ShotDirector {
    this.mode='AUTO';this.autoResumeAtMs=null;this.pending=null;this.autoSince=now;
   }
   if(!context.sourceReady||context.layoutMoving){
-   this.pending=null;this.leader=undefined;
+   this.bridge=null;this.pending=null;this.leader=undefined;this.dialogue=undefined;this.splitCandidate=null;this.splitWeakAt=null;
    return this.choose(wide(),!context.sourceReady?'SOURCE_LOST':context.layoutReason??'LAYOUT_GROWTH',now);
   }
   const ids=context.presentIds;
@@ -40,6 +44,7 @@ export class ShotDirector {
    return this.keep('TARGET_LEFT_GRACE',now,this.missingSince+C.endGraceMs);
   }
   this.missingSince=null;
+  if(this.shot.kind==='SPLIT'&&!context.splitEnabled){this.dialogue=undefined;return this.choose({kind:'SINGLE',userIds:[this.shot.userIds[0]]},'SPLIT_DISABLED',now);}
   if(this.mode!=='AUTO')return this.keep('MANUAL_OVERRIDE',now);
   this.autoSince??=now;
   const stats=ids.map(id=>tracker.stats(id,now)),active=stats.filter(s=>s.state==='active');
@@ -49,6 +54,8 @@ export class ShotDirector {
    const stops=stats.filter(s=>s.state==='inactive'&&s.activeMs>=C.qualifyMs).map(s=>now-s.stoppedForMs);
    this.crowdEndedAt=stops.length?Math.max(...stops):null;
   }
+  const bridge=this.bridgeDecision(now,stats,qualified);if(bridge)return bridge;
+  const split=this.splitDecision(now,tracker,context,stats,qualified);if(split)return split;
   if(!active.length){
    const lastStop=Math.max(this.autoSince,...stats.filter(s=>s.state==='inactive').map(s=>now-s.stoppedForMs));
    return this.propose(wide(),'SILENCE',now,'end',lastStop+C.endGraceMs);
@@ -91,6 +98,67 @@ export class ShotDirector {
   const since=this.pending&&same(this.pending.shot,target)&&this.pending.kind==='start'?this.pending.since:now;
   return this.propose(target,dominates||scoreChange?'DOMINANT_SPEAKER_10S':'SPEAKER_QUALIFIED',now,'start',scoreChange?Math.max(readiness([a]),since+C.startGraceMs):readiness([a]));
  }
+ /** A third participant opens the scene before it is reframed. Do not let the
+  * ten-second leaderboard immediately collapse this establishing wide shot. */
+ private bridgeDecision(now:number,stats:SpeechStats[],qualified:SpeechStats[]):Decision|null{
+  const bridge=this.bridge;if(!bridge||this.shot.kind!=='WIDE')return null;
+  for(const s of qualified)if(s.activeMs>=C.startGraceMs&&!bridge.ids.includes(s.userId))bridge.ids.push(s.userId);
+  let active=0;const deadlines:number[]=[];
+  for(const id of bridge.ids){
+   const s=stats.find(s=>s.userId===id);
+   if(s?.state==='active'){active++;bridge.missing.delete(id);continue;}
+   const stopped=s?.state==='inactive'?now-s.stoppedForMs:bridge.missing.get(id)??now;
+   bridge.missing.set(id,stopped);const deadline=stopped+C.endGraceMs;
+   if(deadline>now)deadlines.push(deadline);
+  }
+  this.pending=null;
+  if(active>=3)return this.keep('THREE_PERSON_DISCUSSION',now);
+  if(active+deadlines.length>=3){
+   deadlines.sort((a,b)=>a-b);
+   const until=deadlines[active+deadlines.length-3]!;
+   return this.keep('THIRD_SPEAKER_END_GRACE',now,Math.max(until,this.holdUntil));
+  }
+  // The STOP grace has already been paid. Resume normal leadership immediately,
+  // but require a new stable two-person scene before allowing another split.
+  this.bridge=null;this.crowdWide=false;this.crowdEndedAt=null;
+  this.splitCandidate=null;this.splitCooldownUntil=Math.max(this.splitCooldownUntil,now+DIALOGUE.cooldownMs);
+  return null;
+ }
+ /** Split is a presentation state above the existing conversational director. */
+ private splitDecision(now:number,tracker:SpeakerTracker,context:DirectorContext,stats:SpeechStats[],qualified:SpeechStats[]):Decision|null{
+  if(!context.splitEnabled){this.dialogue=undefined;this.splitCandidate=null;this.splitWeakAt=null;if(this.shot.kind==='SPLIT')return this.choose(qualified[0]?{kind:'SINGLE',userIds:[qualified[0].userId]}:wide(),'SPLIT_DISABLED',now);return null;}
+  const evidence=detectDialogue(tracker,context.presentIds,now);this.dialogue=evidence;
+  if(this.shot.kind==='SPLIT'){
+   const pair=this.shot.userIds,members=stats.filter(s=>pair.includes(s.userId));
+   const outsiders=qualified.filter(s=>!pair.includes(s.userId));
+   if(outsiders.length){
+    // One established newcomer is sufficient. A fourth person's later START
+    // must not keep postponing the third person's deadline.
+    const readyAt=Math.min(...outsiders.map(s=>now+Math.max(0,C.startGraceMs-s.activeMs)));
+    const decision=this.propose(wide(),'SPLIT_THIRD_SPEAKER',now,'start',readyAt);
+    if(decision.changed)this.bridge={ids:[...pair,...outsiders.filter(s=>s.activeMs>=C.startGraceMs).map(s=>s.userId)],missing:new Map()};
+    return decision;
+   }
+   const active=members.filter(s=>s.state==='active');
+   if(active.length<2){
+    // Renewed speech cancels this exact STOP-based deadline on the next tick.
+    const stop=Math.max(...members.filter(s=>s.state==='inactive').map(s=>now-s.stoppedForMs));
+    const target:Shot=active[0]?{kind:'SINGLE',userIds:[active[0].userId]}:wide();
+    return this.propose(target,active.length?'SPLIT_SPEECH_ENDED':'SILENCE',now,'end',stop+C.endGraceMs);
+   }
+   if(evidence.eligible&&evidence.pair?.every(id=>pair.includes(id))){this.splitWeakAt=null;this.pending=null;return this.keep('SPLIT_ACTIVE_DISCUSSION',now);}
+   this.splitWeakAt??=now;
+   if(now<Math.max(this.splitWeakAt+DIALOGUE.releaseMs,this.holdUntil))return this.keep('SPLIT_RELEASE_GRACE',now,Math.max(this.splitWeakAt+DIALOGUE.releaseMs,this.holdUntil));
+   this.splitWeakAt=null;this.pending=null;
+   const a=qualified[0],b=qualified[1];
+   const balanced=a&&b&&!(a.windowMs>=b.windowMs*C.dominanceRatio&&a.windowMs-b.windowMs>=C.dominanceMarginMs);
+   return this.choose(balanced&&context.canPair(a.userId,b.userId)?{kind:'TWO_SHOT',userIds:pair}:a?{kind:'SINGLE',userIds:[a.userId]}:wide(),'SPLIT_DISCUSSION_SETTLED',now);
+  }
+  if(!evidence.eligible||!evidence.pair||now<this.splitCooldownUntil){this.splitCandidate=null;return null;}
+  if(!context.canSplit?.(...evidence.pair)){this.splitCandidate=null;this.dialogue={...evidence,eligible:false,reason:'SPLIT_NO_SAFE_FRAMING'};return null;}
+  const key=evidence.pair.join(',');if(this.splitCandidate?.key!==key)this.splitCandidate={key,since:now};
+  return this.propose({kind:'SPLIT',userIds:evidence.pair},'SPLIT_'+evidence.reason,now,'start',this.splitCandidate.since+DIALOGUE.confirmMs);
+ }
  private propose(shot:Shot,reason:string,now:number,kind:'start'|'end',readyAt:number):Decision {
   if(same(shot,this.shot)){this.pending=null;return this.keep(reason,now);}
   if(this.shot.kind==='WIDE'&&this.crowdWide&&shot.kind!=='WIDE'){
@@ -104,10 +172,11 @@ export class ShotDirector {
   if(now<at)return {...this.keep(kind==='start'?'SPEECH_START_GRACE':'SPEECH_END_GRACE',now,at),pendingShot:structuredClone(shot),switchAtMs:at};
   this.pending=null;return this.choose(shot,reason,now);
  }
- private keep(reason:string,now:number,until=this.holdUntil):Decision{return {shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now),leaderUserId:this.leader};}
+ private keep(reason:string,now:number,until=this.holdUntil):Decision{return {shot:this.current(),reason,changed:false,holdRemainingMs:Math.max(0,until-now),leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};}
  private choose(shot:Shot,reason:string,now:number):Decision {
   if(same(this.shot,shot))return this.keep(reason,now);
-  this.shot=structuredClone(shot);this.crowdWide=shot.kind==='WIDE'&&reason==='CROWD_OVERLAP';this.crowdEndedAt=null;this.holdUntil=now+C.minShotMs;
-  return {shot:this.current(),reason,changed:true,holdRemainingMs:C.minShotMs,leaderUserId:this.leader};
+  if(this.shot.kind==='SPLIT'&&shot.kind!=='SPLIT'){this.splitCooldownUntil=now+DIALOGUE.cooldownMs;this.splitCandidate=null;this.splitWeakAt=null;}
+  this.bridge=null;this.shot=structuredClone(shot);this.crowdWide=shot.kind==='WIDE'&&(reason==='CROWD_OVERLAP'||reason==='SPLIT_THIRD_SPEAKER');this.crowdEndedAt=null;this.holdUntil=now+C.minShotMs;
+  return {shot:this.current(),reason,changed:true,holdRemainingMs:C.minShotMs,leaderUserId:this.leader,...(this.dialogue?{dialogue:this.dialogue}:{})};
  }
 }

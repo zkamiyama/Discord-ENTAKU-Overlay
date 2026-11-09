@@ -1,3 +1,4 @@
+import type {DialogueEvidence} from '../domain/dialogue-detector.ts';
 import type { StudioScene } from '../studio/manifest.ts';
 import type { AvatarProfile } from '../assets/avatar-profile.ts';
 export type SpeakingState = 'active' | 'inactive' | 'unknown';
@@ -25,14 +26,16 @@ export interface SeatSession {
   reservations: Reservation[]; waitingUserIds: string[];
 }
 export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }
-export type Shot = { kind: 'WIDE'; userIds: [] } | { kind: 'SINGLE'; userIds: [string] } | { kind: 'TWO_SHOT'; userIds: [string, string] };
+export type Shot = { kind: 'WIDE'; userIds: [] } | { kind: 'SINGLE'; userIds: [string] } | { kind: 'TWO_SHOT'; userIds: [string, string] } | { kind: 'SPLIT'; userIds: [string, string] };
 export type DirectorMode = 'AUTO' | 'MANUAL' | 'HOLD';
-export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number; leaderUserId?:string }
+export interface Decision { shot: Shot; reason: string; changed: boolean; holdRemainingMs: number; pendingShot?: Shot; switchAtMs?: number; leaderUserId?:string; dialogue?:DialogueEvidence }
 export interface CameraPose { position: Vec3; target: Vec3; fov: number }
+export interface SplitPanel {userId:string;pose:CameraPose;foregroundUserId?:string;visibilityReason?:string}
 export interface CameraPlan {
+  panels?:[SplitPanel,SplitPanel];
   id: number; shot: Shot; reason: string; transition: 'CUT' | 'MOVE';
   via?: Vec3; from: CameraPose; to: CameraPose; startMs: number; durationMs: number;
-  studioHidden?: boolean; safetyReason?: string; composition?: 'WIDE' | 'SINGLE_OTS' | 'SINGLE_CLEAN' | 'TWO_SHOT' | 'MODERATOR_SINGLE' | 'MODERATOR_TWO'; foregroundUserId?: string; visibilityReason?: string;
+  studioHidden?: boolean; safetyReason?: string; composition?: 'SPLIT' | 'WIDE' | 'SINGLE_OTS' | 'SINGLE_CLEAN' | 'TWO_SHOT' | 'MODERATOR_SINGLE' | 'MODERATOR_TWO'; foregroundUserId?: string; visibilityReason?: string;
 }
 export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;

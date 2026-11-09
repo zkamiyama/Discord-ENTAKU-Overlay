@@ -57,7 +57,7 @@ export class PostRenderer {
    let color=this.linear;
    if(p.dof&&p.maxBlur>0&&p.aperture>0){
     const u=this.bokeh.uniforms;u.tDepth!.value=p.excludeAvatars?worldDepth:this.linear.depthTexture;u.focus!.value=focus.distance;u.sharpRange!.value=focus.range;
-    u.aspect!.value=camera.aspect;u.aperture!.value=p.aperture;u.maxblur!.value=p.maxBlur*2.5/Math.max(1,renderer.getSize(new THREE.Vector2()).x);u.nearClip!.value=camera.near;u.farClip!.value=camera.far;
+    u.aspect!.value=camera.aspect;u.aperture!.value=p.aperture;u.maxblur!.value=p.maxBlur*2.5/Math.max(1,this.w/renderer.getPixelRatio());u.nearClip!.value=camera.near;u.farClip!.value=camera.far;
     this.bokeh.render(renderer,this.a,color,0,false);color=this.a;
    }
    if(p.bloom&&p.bloomStrength>0){

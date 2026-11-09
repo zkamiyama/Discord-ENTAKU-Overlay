@@ -2,7 +2,7 @@ import {DEFAULT_DIRECTION,type DirectionSettings} from '../studio/direction.ts';
 import {plateFramePoints} from '../geometry/desk-props.ts';
 import {QuadraticBezierCurve3,Vector3,MathUtils,PerspectiveCamera} from 'three';
 import {chooseComposition,subjectsVisible} from './camera-composition.ts';
-import type { CameraPlan, CameraPose, SeatTransform, Shot, Vec3 } from '../contracts/domain.ts';
+import type { CameraPlan, CameraPose, SeatTransform, Shot, SplitPanel, Vec3 } from '../contracts/domain.ts';
 import { TABLE } from './defaults.ts';
 import { perimeter, pointAtDistance } from '../geometry/capsule.ts';
 export const add = (a: Vec3, b: Vec3): Vec3 => [a[0]+b[0],a[1]+b[1],a[2]+b[2]];
@@ -95,8 +95,8 @@ export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly Av
   return front(a,position)&&front(b,position)?{position,target,fov}:null;
 }
 const cross=(a:Vec3,b:Vec3):Vec3=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-export function fitsCameraFrame(pose:CameraPose,points:readonly Vec3[],margin=.86,near=DEFAULT_DIRECTION.nearClip):boolean{
-  const camera=new PerspectiveCamera(pose.fov,16/9,near,1000);
+export function fitsCameraFrame(pose:CameraPose,points:readonly Vec3[],margin=.86,near=DEFAULT_DIRECTION.nearClip,aspect=16/9):boolean{
+  const camera=new PerspectiveCamera(pose.fov,aspect,near,1000);
   camera.position.fromArray(pose.position);camera.lookAt(...pose.target);camera.updateMatrixWorld(true);
   const point=new Vector3();
   return points.every(p=>{point.fromArray(p).project(camera);return point.z>=-1&&point.z<1&&Math.abs(point.x)<=margin&&Math.abs(point.y)<=margin;});
@@ -109,7 +109,7 @@ export function avatarFramePoints(seat:SeatTransform,extent:AvatarExtent):Vec3[]
   points.push(...plateFramePoints(seat));
   return points;
 }
-function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION): CameraPose {
+function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, straightLength:number, extents: ReadonlyMap<string,AvatarExtent> = new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION,aspect=16/9): CameraPose {
   if(shot.kind==='WIDE') return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);
   const a=byUser.get(shot.userIds[0]); if(!a) return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);
   if(shot.kind==='TWO_SHOT') {const b=byUser.get(shot.userIds[1]);return b?pairPose(a,b,shot.userIds.flatMap(id=>extents.has(id)?[extents.get(id)!]:[]),settings.portraitFov)??widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip):widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);}
@@ -120,11 +120,23 @@ function cleanShotPose(shot: Shot, byUser: ReadonlyMap<string,SeatTransform>, st
     const points=avatarFramePoints(a,extent);
     for(let distance=2.15;distance<100;distance+=.1){
       const pose={position:add(add(target,mul(a.inward,distance)),[0,.18,0]),target,fov:settings.portraitFov};
-      if(fitsCameraFrame(pose,points,.86,settings.nearClip))return pose;
+      if(fitsCameraFrame(pose,points,.86,settings.nearClip,aspect))return pose;
     }
     return widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);
   }
   return {position:add(add(a.faceAnchor,mul(a.inward,2.15)),[0,0.18,0]),target:add(a.faceAnchor,[0,-.12,0]),fov:settings.portraitFov};
+}
+/** Two portrait views use their real 8:9 aspect. Never crop a 16:9 shot in half. */
+export function splitPanelCameras(ids:readonly [string,string],byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):[SplitPanel,SplitPanel]|null{
+ const panels:SplitPanel[]=[];
+ for(const userId of ids){
+  const shot:Shot={kind:'SINGLE',userIds:[userId]};
+  const clean=cleanShotPose(shot,byUser,straightLength,extents,offsetZ,settings,8/9);
+  const selected=chooseComposition(shot,byUser,extents,clean,settings.portraitFov,moderatorRearLimit(straightLength,offsetZ),settings.nearClip,8/9);
+  if(selected.visibilityReason==='NO_CLEAR_COMPOSITION'||selected.visibilityReason==='TARGET_UNAVAILABLE')return null;
+  panels.push({userId,pose:selected.pose,foregroundUserId:selected.foregroundUserId,visibilityReason:selected.visibilityReason});
+ }
+ return panels as [SplitPanel,SplitPanel];
 }
 export function shotPose(shot:Shot,byUser:ReadonlyMap<string,SeatTransform>,straightLength:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPose {
  const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ,settings),settings.portraitFov,moderatorRearLimit(straightLength,offsetZ),settings.nearClip);
@@ -139,6 +151,11 @@ export function samplePlan(plan:CameraPlan,now:number):CameraPose {
 }
 /** Plan in table-local coordinates; protectStudioCamera applies the imported studio constraints. */
 export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:ReadonlyMap<string,SeatTransform>,capacity:number,straightLength:number,now:number,extents:ReadonlyMap<string,AvatarExtent>=new Map(),offsetZ=0,settings:DirectionSettings=DEFAULT_DIRECTION):CameraPlan {
+  if(shot.kind==='SPLIT'){
+    const panels=splitPanelCameras(shot.userIds,byUser,straightLength,extents,offsetZ,settings);
+    const wide=widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);
+    return {id:previous.id+1,shot:panels?shot:{kind:'WIDE',userIds:[]},reason,transition:'CUT',from:samplePlan(previous,now),to:wide,startMs:now,durationMs:0,composition:panels?'SPLIT':'WIDE',...(panels?{panels}:{visibilityReason:'NO_CLEAR_COMPOSITION'})};
+  }
   const selected=chooseComposition(shot,byUser,extents,cleanShotPose(shot,byUser,straightLength,extents,offsetZ,settings),settings.portraitFov,moderatorRearLimit(straightLength,offsetZ),settings.nearClip);
   if(selected.visibilityReason==='NO_CLEAR_COMPOSITION'){
     const from=samplePlan(previous,now),to=widePose(straightLength,extents.values(),offsetZ,settings.wideHeightRatio,wideFaces(byUser,extents),settings.nearClip);
@@ -194,5 +211,6 @@ export function planCamera(previous:CameraPlan,shot:Shot,reason:string,byUser:Re
       ?Math.min(1600,Math.max(1200,Math.round(850+travel*150)))
       :Math.min(1400,Math.max(950,Math.round(750+travel*120)));
   }
+  if(previous.shot.kind==='SPLIT'){durationMs=0;via=undefined;}
   return {id:previous.id+1,shot,reason,transition:durationMs?'MOVE':'CUT',...(via?{via}:{}),from,to,startMs:now,durationMs,composition:selected.composition,foregroundUserId:selected.foregroundUserId,visibilityReason:selected.visibilityReason};
 }

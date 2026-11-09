@@ -62,7 +62,7 @@ function row(user:DockPerson):Row {
  speak.onclick=()=>void command({type:'demo-speaking',userId:user.userId,active:result.user.speaking!=='active'});
  more.onclick=()=>openMenu(result);get('participants').append(element);return result;
 }
-const compositionNames:Record<string,string>={WIDE:'全景',SINGLE_OTS:'肩越し',SINGLE_CLEAN:'単独',TWO_SHOT:'2人',MODERATOR_SINGLE:'司会',MODERATOR_TWO:'共同司会'};
+const compositionNames:Record<string,string>={SPLIT:'左右2分割',WIDE:'全景',SINGLE_OTS:'肩越し',SINGLE_CLEAN:'単独',TWO_SHOT:'2人',MODERATOR_SINGLE:'司会',MODERATOR_TWO:'共同司会'};
 const visibilityNames:Record<string,string>={OVER_SHOULDER:'肩越し',ELEVATED_TO_AVOID_OCCLUSION:'高さを補正',SHIFTED_TO_AVOID_OCCLUSION:'横位置を補正',FALLBACK_TO_CLEAN_SINGLE:'通常構図',NO_CLEAR_COMPOSITION:'見通しを確認',TARGET_UNAVAILABLE:'対象待ち'};
 client.onState=state=>{
  exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);directionPanel.update(state);
@@ -76,6 +76,11 @@ client.onState=state=>{
  const leader=state.participants.find(p=>p.userId===state.decision.leaderUserId);
  const led=state.speech.find(s=>s.userId===leader?.userId);
  get('conversation-leader').textContent=leader?`${leader.displayName} ${(Math.min(10000,led?.speechMs10s??0)/1000).toFixed(1)}秒`:'—';
+ const discussion=state.decision.dialogue;
+ const reasons:Record<string,string>={NEED_TWO_SPEAKERS:'2人の発話待ち',THIRD_SPEAKER:'3人目が参加',INSUFFICIENT_SPEECH:'発話量待ち',NOT_A_TWO_PERSON_DISCUSSION:'他の話者も参加',BACKCHANNEL_OR_DOMINANCE:'主話者を優先',DISCUSSION_PAUSED:'会話の再開待ち',INSUFFICIENT_EXCHANGE:'交代・重なり待ち',SUSTAINED_OVERLAP:'同時発話が継続',RAPID_ALTERNATION:'交互の応酬',SPLIT_NO_SAFE_FRAMING:'安全な分割構図なし'};
+ const thirdChecking=state.camera.shot.kind==='SPLIT'&&state.decision.pendingShot?.kind==='WIDE'&&discussion?.thirdActive;
+ get('dialogue-state').textContent=!state.studio.direction?.splitEnabled?'OFF':state.mode!=='AUTO'?'手動優先':thirdChecking?'3人目の発話を確認中':state.decision.reason==='THREE_PERSON_DISCUSSION'?'3人以上の会話・全景':state.decision.reason==='THIRD_SPEAKER_END_GRACE'?'会話の収束を確認中':state.camera.shot.kind==='SPLIT'?'左右2分割中':discussion?(reasons[discussion.reason]??discussion.reason):'判定待ち';
+ get('dialogue-state').title=discussion?`2人の占有率 ${(discussion.pairShare*100).toFixed(0)}%・少ない側 ${(discussion.minorShare*100).toFixed(0)}%・交代 ${discussion.alternations}回・重なり ${(discussion.overlapMs/1000).toFixed(1)}秒`:'';
  get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
  get('auto').setAttribute('aria-pressed',String(state.mode!=='HOLD'));
  get('counts').textContent=`${state.participants.filter(p=>p.presence==='present').length}人 / ${state.session.capacity}席`;

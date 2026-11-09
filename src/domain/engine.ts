@@ -20,6 +20,7 @@ export interface EngineOptions {
   sessionId?: () => string;
 }
 export class AppEngine {
+  private splitCache=new Map<string,boolean>();private splitSignature="";
   private observers=new Set<(event:ProviderEvent,processingMs:number)=>void>();
   private studio: StudioScene;
   private profiles = new Map<string,AvatarProfile>();
@@ -217,6 +218,14 @@ export class AppEngine {
     const extents=this.avatarExtents();
     this.decision = this.director.update(this.now, this.tracker, {
       presentIds: present, sourceReady: this.connection === 'ready', layoutMoving: this.now < this.layoutHoldUntil, layoutReason:this.layoutHoldReason,
+      splitEnabled:(this.studio.direction??DEFAULT_DIRECTION).splitEnabled,
+      canSplit:(a,b)=>{
+        const signature=JSON.stringify([this.layout,[...byUser],[...extents],this.studio.direction,this.studio.camera,this.studio.tableAnchor]);
+        if(signature!==this.splitSignature){this.splitCache.clear();this.splitSignature=signature;}
+        const key=a+','+b;const cached=this.splitCache.get(key);if(cached!==undefined)return cached;
+        const candidate=this.protect(planCamera(this.camera,{kind:'SPLIT',userIds:[a,b]},'SPLIT_FEASIBILITY',byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,extents,this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
+        const ok=candidate.shot.kind==='SPLIT';if(this.splitCache.size>=32)this.splitCache.delete(this.splitCache.keys().next().value!);this.splitCache.set(key,ok);return ok;
+      },
       canPair: (a, b) => !!byUser.get(a) && !!byUser.get(b) && pairPose(byUser.get(a)!, byUser.get(b)!,[a,b].flatMap(id=>extents.has(id)?[extents.get(id)!]:[])) !== null,
     });
     if (this.decision.changed) {
@@ -231,7 +240,7 @@ export class AppEngine {
     if (command.type === 'mode') {this.pendingManual=null;this.director.setMode(command.mode);}
     else if (command.type === 'shot') {
       if (command.shot.userIds.some(id => this.participants.get(id)?.presence !== 'present' || !this.byUser().has(id))) throw new Error('TARGET_NOT_PRESENT');
-      if (command.shot.kind === 'TWO_SHOT') throw new Error('MANUAL_PAIR_NOT_AVAILABLE');
+      if (command.shot.kind === 'TWO_SHOT'||command.shot.kind==='SPLIT') throw new Error('MANUAL_PAIR_NOT_AVAILABLE');
       if(this.now<this.layoutHoldUntil){
         // Keep the operator's latest request instead of silently losing it to the safety wide.
         this.pendingManual=structuredClone(command.shot);if(this.director.mode!=='HOLD')this.director.setMode('MANUAL');
