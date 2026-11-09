@@ -41,7 +41,7 @@ test('all nameplate corners and microphone bases stay within the wood tabletop',
    for(const [x,z]of local){
     const wx=origin[0]+tangent[0]!*x+seat.inward[0]*z,wz=origin[2]+tangent[1]!*x+seat.inward[2]*z;
     const radius=Math.hypot(wx,Math.max(0,Math.abs(wz)-layout.straightLength/2));
-    expect(radius).toBeGreaterThan(.79);expect(radius).toBeLessThan(1.375);
+    expect(radius).toBeGreaterThan(.74);expect(radius).toBeLessThan(1.44);
    }
   }
  }

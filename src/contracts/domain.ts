@@ -22,7 +22,7 @@ export type ProviderEvent = { sourceGeneration: number; receivedAtMs: number } &
 export interface Reservation { userId: string; seatId: string; slotIndex: number; reservedAtUtc: string }
 export interface SeatSession {
   schemaVersion: 1; sessionId: string; channelId: string; revision: number;
-  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number; moderatorIds?: string[]; straightLengthFloor?: number; growthAnchorLength?: number;
+  minSeats: number; capacity: number; peakPresentCount: number; seatPitch?: number; moderatorIds?: string[]; moderatorSlots?: number[]; straightLengthFloor?: number; growthAnchorLength?: number;
   reservations: Reservation[]; waitingUserIds: string[];
 }
 export interface SeatTransform { zone?: 'moderator' | 'left' | 'right' | 'front'; oppositeSlot?: number; row?: number; slotIndex: number; position: Vec3; inward: Vec3; baseYawRad: number; faceAnchor: Vec3 }

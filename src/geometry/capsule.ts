@@ -59,7 +59,7 @@ export function makeLayout(count:number,pitch:number=TABLE.seatPitch,moderatorSl
     const add=(slotIndex:number,x:number,z:number,ix:number,iz:number,zone:SeatTransform['zone'],extra:Partial<SeatTransform>={})=>{
       seats[slotIndex]={slotIndex,zone,position:[x,0,z],inward:[ix,0,iz],baseYawRad:Math.atan2(ix,iz),faceAnchor:[x,1.25,z],...extra};
     };
-    const angle=Math.asin(Math.min(.9,Math.max(.34,pitch/(2*radius))));
+    const angle=Math.asin(Math.min(.9,Math.max(Math.sin(Math.PI/5),pitch/(2*radius))));
     hosts.forEach((slot,i)=>{const a=hosts.length===1?0:(i===0?-angle:angle);add(slot,radius*Math.sin(a),-L/2-radius*Math.cos(a),-Math.sin(a),Math.cos(a),'moderator');});
     for(let row=0;row<pairs;row++){
       const z=(row-(pairs-1)/2)*pitch,left=remaining[2*row]!,right=remaining[2*row+1]!;
@@ -76,7 +76,7 @@ export function makeLayout(count:number,pitch:number=TABLE.seatPitch,moderatorSl
   throw new RangeError('NO_VALID_LAYOUT');
 }
 export function makeSessionLayout(session:SeatSession):DeskLayout {
-  const slots=(session.moderatorIds??[]).flatMap(id=>{const r=session.reservations.find(r=>r.userId===id);return r?[r.slotIndex]:[];});
+  const slots=session.moderatorSlots??(session.moderatorIds??[]).flatMap(id=>{const r=session.reservations.find(r=>r.userId===id);return r?[r.slotIndex]:[];});
   const layout=makeLayout(session.capacity,session.seatPitch,slots.length?slots:[0],session.straightLengthFloor??0);
   // The first occupied layout fixes the rear arc. Later growth is all towards +Z.
   // Missing anchor on an older session initially preserves its existing placement.

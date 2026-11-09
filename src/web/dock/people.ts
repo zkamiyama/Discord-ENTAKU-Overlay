@@ -16,7 +16,7 @@ export function dockPeople(state: AppSnapshot): DockPerson[] {
   const reservations = new Map(state.session.reservations.map(r => [r.userId, r]));
   const membershipKnown = state.connection === 'ready' && state.channel?.channelId === state.session.channelId;
   const ids = new Set([...participants.keys(), ...reservations.keys()]);
-  return [...ids].map(userId => {
+  return [...ids].filter(id=>reservations.has(id)||participants.get(id)?.presence!=='absent').map(userId => {
     const participant = participants.get(userId), reservation = reservations.get(userId);
     const presence = participant?.presence ?? (membershipKnown ? 'absent' : 'unverified');
     return {

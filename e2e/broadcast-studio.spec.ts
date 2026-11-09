@@ -17,7 +17,8 @@ test('compact Dock supports themes, keyboard menus and one/two moderator layouts
  await expect(page.locator('.person[data-zone=moderator]')).toHaveCount(2);await expect(page.locator('.person[data-zone=front]')).toHaveCount(1);
  await page.reload();await expect(page.locator('.person[data-zone=moderator]')).toHaveCount(2);
  await personAction(page,page.locator('.person').first(),'司会に指定');
- await personAction(page,page.locator('.person').nth(5),'復帰');
+ // Resetting reservations now removes the departed row; add a fresh demo participant.
+ await expect(page.locator('.person')).toHaveCount(5);await page.locator('#add').click();await expect(page.locator('.person')).toHaveCount(6);
  await openSession(page);page.once('dialog',d=>void d.accept());await page.locator('#new-session').click();await expect(page.locator('#counts')).toHaveText('6人 / 6席');
  const trigger=page.locator('.person').first().getByRole('button',{name:'参加者メニュー',exact:true});await trigger.click();
  await page.keyboard.press('ArrowDown');await expect(page.getByRole('menuitem',{name:'司会に指定',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(trigger).toBeFocused();

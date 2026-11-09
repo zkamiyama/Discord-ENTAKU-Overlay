@@ -20,10 +20,13 @@ export function validateSession(input: unknown): SeatSession {
   if(!Number.isFinite(pitch)||pitch<TABLE.seatPitch||pitch>3)throw new Error('INVALID_SEAT_PITCH');
   const moderatorIds=s.moderatorIds??[];
   if(!Array.isArray(moderatorIds)||moderatorIds.length>2||new Set(moderatorIds).size!==moderatorIds.length||moderatorIds.some(id=>!validId(id)||!s.reservations.some(r=>r.userId===id)))throw new Error('INVALID_MODERATORS');
+  const moderatorSlots=s.moderatorSlots??(moderatorIds.length?moderatorIds.map(id=>s.reservations.find(r=>r.userId===id)!.slotIndex):[0]);
+  if(!Array.isArray(moderatorSlots)||moderatorSlots.length<1||moderatorSlots.length>2||new Set(moderatorSlots).size!==moderatorSlots.length||moderatorSlots.some(i=>!Number.isInteger(i)||i<0||i>=s.capacity))throw new Error('INVALID_MODERATORS');
+  const assignedHosts=moderatorSlots.flatMap(slot=>{const r=s.reservations.find(r=>r.slotIndex===slot);return r?[r.userId]:[];});
   const floor=s.straightLengthFloor??0;
   if(!Number.isFinite(floor)||floor<0||floor>100)throw new Error('INVALID_LAYOUT_FLOOR');
   if(s.growthAnchorLength!==undefined&&(!Number.isFinite(s.growthAnchorLength)||s.growthAnchorLength<0||s.growthAnchorLength>100))throw new Error('INVALID_GROWTH_ANCHOR');
-  return {...structuredClone(s),seatPitch:pitch,moderatorIds:[...moderatorIds],straightLengthFloor:floor};
+  return {...structuredClone(s),seatPitch:pitch,moderatorIds:assignedHosts,moderatorSlots:[...moderatorSlots],straightLengthFloor:floor};
 }
 export function newSession(channelId: string, sessionId: string, minSeats: number = TABLE.minSeats): SeatSession {
   return validateSession({ schemaVersion: 1, sessionId, channelId, revision: 0, minSeats, capacity: minSeats, peakPresentCount: 0, reservations: [], waitingUserIds: [] });
@@ -48,7 +51,7 @@ export class SeatAllocator {
   }
   setModerators(ids:readonly string[]):void {
     if(ids.length<1||ids.length>2||new Set(ids).size!==ids.length||ids.some(id=>!this.session.reservations.some(r=>r.userId===id)))throw new Error('INVALID_MODERATORS');
-    this.session.moderatorIds=[...ids];this.session.revision++;
+    this.session.moderatorIds=[...ids];this.session.moderatorSlots=ids.map(id=>this.session.reservations.find(r=>r.userId===id)!.slotIndex);this.session.revision++;
   }
   updatePresent(ids: readonly string[], utc: string): { changed: boolean; grew: boolean } {
     if (ids.some(id => !validId(id)) || new Set(ids).size !== ids.length || !Number.isFinite(Date.parse(utc))) throw new Error('INVALID_PARTICIPANTS');
@@ -68,12 +71,26 @@ export class SeatAllocator {
       this.session.capacity = Math.max(this.session.capacity, slotIndex + 1);
       this.session.reservations.push({ userId, seatId: `seat-${slotIndex}`, slotIndex, reservedAtUtc: utc });
     }
-    if(!this.session.moderatorIds?.length&&this.session.reservations.length){
-      this.session.moderatorIds=[this.session.reservations.slice().sort((a,b)=>a.slotIndex-b.slotIndex)[0]!.userId];
-    }
+    this.refreshModerators();
     const changed = JSON.stringify(this.session) !== before;
     if (changed) this.session.revision++;
     return { changed, grew: this.session.capacity > capacity };
+  }
+  private refreshModerators():void {
+    this.session.moderatorIds=(this.session.moderatorSlots??[0]).flatMap(slot=>{
+      const r=this.session.reservations.find(r=>r.slotIndex===slot);return r?[r.userId]:[];
+    });
+  }
+  /** Move to a physical slot; occupied slots swap, including their moderator role. */
+  move(userId:string,targetSlot:number):void {
+    if(!Number.isInteger(targetSlot)||targetSlot<0||targetSlot>=this.session.capacity)throw new Error('INVALID_SEAT_TARGET');
+    const moving=this.session.reservations.find(r=>r.userId===userId);
+    if(!moving)throw new Error('RESERVATION_NOT_FOUND');
+    if(moving.slotIndex===targetSlot)return;
+    const other=this.session.reservations.find(r=>r.slotIndex===targetSlot),old=moving.slotIndex;
+    moving.slotIndex=targetSlot;moving.seatId=`seat-${targetSlot}`;
+    if(other){other.slotIndex=old;other.seatId=`seat-${old}`;}
+    this.refreshModerators();this.session.revision++;
   }
   release(userId: string, currentPresentIds?: readonly string[]): void {
     // Membership updates may still be waiting in the layout debounce window.
@@ -83,7 +100,7 @@ export class SeatAllocator {
     const index = this.session.reservations.findIndex(r => r.userId === userId);
     if (index < 0) throw new Error('RESERVATION_NOT_FOUND');
     this.session.reservations.splice(index, 1);
-    this.session.moderatorIds=this.session.moderatorIds?.filter(id=>id!==userId);
+    this.refreshModerators();
     this.session.revision++;
   }
 }

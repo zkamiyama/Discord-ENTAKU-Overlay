@@ -91,7 +91,7 @@ export function chooseComposition(shot:Shot,seats:ReadonlyMap<string,SeatTransfo
  const direction=v(clean.position).sub(v(clean.target));
  const opposing=shot.kind==='TWO_SHOT'&&v(primary.inward).dot(v(seats.get(shot.userIds[1])!.inward))<-.65;
  const sign=primary.position[0]<=0?1:-1;
- for(const angle of (opposing?[0,.22*sign,-.22*sign,.45*sign,-.45*sign]:[0,-.3,.3,-.6,.6]))for(const scale of [1,1.35,1.8])for(const rise of [0,.35,.75,1.25,2,3.5,5]){
+ for(const angle of (opposing?[0,.22*sign,-.22*sign,.45*sign,-.45*sign]:[0,-.3,.3,-.6,.6,-.9,.9]))for(const scale of [1,1.35,1.8])for(const rise of [0,.35,.75,1.25,2,3.5,5]){
   const position=direction.clone().applyAxisAngle(new Vector3(0,1,0),angle).multiplyScalar(scale).add(v(clean.target));position.y+=rise;
   if(position.z<rearLimit)continue;
   const pose={...clean,position:tuple(position)};
