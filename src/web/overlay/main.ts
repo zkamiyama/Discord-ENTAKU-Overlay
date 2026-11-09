@@ -83,7 +83,7 @@ class Avatar {
         avatarFailures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
       });
     }
-    this.nameplate.setName(user.displayName,state?.studio.quality?.nameplates??'white');
+    this.nameplate.setName(user.displayName,state?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates);
     this.user=user;
     if(!profile&&user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
       if(user.avatarUrl)void client.avatar(user.userId).then(bitmap=>{

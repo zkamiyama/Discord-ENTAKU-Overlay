@@ -9,7 +9,7 @@ export class QualityPanel {
  constructor(private client:StudioClient){
   for(const id of [...Object.keys(fields),'quality-ao','quality-reflections','quality-fxaa','quality-gi'])input(id).addEventListener('change',()=>void this.apply());
   input('quality-default').onclick=()=>void this.preset({});
-  input('quality-low').onclick=()=>void this.preset({shadows:'off',msaa:0});
+  input('quality-low').onclick=()=>void this.preset({shadows:'off',msaa:0,ao:'off',reflections:false,fxaa:false,gi:'off'});
   input('quality-high').onclick=()=>void this.preset({shadows:'soft',shadowSize:2048,ao:'gtao',reflections:true,fxaa:false,msaa:4,renderScale:1.5});
  }
  update(state:AppSnapshot):void{
@@ -17,7 +17,7 @@ export class QualityPanel {
   for(const [id,key]of Object.entries(fields))if(!numericEditing(input(id)))input(id).value=String(q[key]);
   input('quality-ao').checked=q.ao==='gtao';input('quality-reflections').checked=q.reflections;input('quality-fxaa').checked=q.fxaa;input('quality-gi').checked=q.gi==='ssgi';
  }
- private preset(value:Partial<QualitySettings>):Promise<void>{return this.save({...DEFAULT_QUALITY,nameplates:this.client.state?.studio.quality?.nameplates??'white',...value});}
+ private preset(value:Partial<QualitySettings>):Promise<void>{return this.save({...DEFAULT_QUALITY,nameplates:this.client.state?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates,...value});}
  private apply():Promise<void>{
   const q:Record<string,unknown>={...DEFAULT_QUALITY};
   for(const [id,key]of Object.entries(fields))q[key]=typeof DEFAULT_QUALITY[key]==='number'?Number(input(id).value):input(id).value;

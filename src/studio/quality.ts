@@ -6,7 +6,7 @@ export interface QualitySettings {
  msaa:0|2|4|8;renderScale:1|1.5|2;
  gi:'off'|'ssgi';giStrength:number;giRadius:number;
 }
-export const DEFAULT_QUALITY:QualitySettings={shadows:'soft',shadowSize:1024,shadowLights:2,ao:'off',aoStrength:.8,aoRadius:.35,reflections:false,reflectionOpacity:.18,effectsScale:.5,fxaa:false,nameplates:'white',msaa:4,renderScale:1,gi:'off',giStrength:.6,giRadius:1.5};
+export const DEFAULT_QUALITY:QualitySettings={shadows:'soft',shadowSize:1024,shadowLights:8,ao:'gtao',aoStrength:.8,aoRadius:.35,reflections:true,reflectionOpacity:.18,effectsScale:.5,fxaa:true,nameplates:'blue',msaa:4,renderScale:1,gi:'off',giStrength:.6,giRadius:1.5};
 export function validateQuality(value:unknown):QualitySettings {
  if(value===undefined)return {...DEFAULT_QUALITY};
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('STUDIO_QUALITY_INVALID');

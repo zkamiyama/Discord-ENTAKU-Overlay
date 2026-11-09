@@ -15,10 +15,10 @@ test('frontal wide and near clip settings reach the renderer and survive Dock re
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#camera-settings > summary').click();await expect(page.locator('#camera-near')).toHaveValue('0.35');
  expect(errors).toEqual([]);
 });
-test('first real turn is eligible at 2.5 seconds and the leader label counts actual speech',async({page})=>{
+test('first real turn is eligible at 1.5 seconds and the leader label counts actual speech',async({page})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const start=Date.now();await page.locator('.person').nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();
- await page.waitForTimeout(1400);await expect(page.locator('#shot')).toHaveText('WIDE');
- await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});expect(Date.now()-start).toBeGreaterThan(2300);
+ await page.waitForTimeout(600);await expect(page.locator('#shot')).toHaveText('WIDE');
+ await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});expect(Date.now()-start).toBeGreaterThan(1300);
  await expect(page.locator('#conversation-leader')).toContainText('ミナト');
 });

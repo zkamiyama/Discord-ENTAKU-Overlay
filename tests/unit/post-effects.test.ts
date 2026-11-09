@@ -1,13 +1,14 @@
+const POST_FIXTURE={...DEFAULT_POST,bloom:true,dof:true};
 import {expect,test} from 'bun:test';
 import {Matrix4,Vector3} from 'three';
-import {DEFAULT_POST,NATURAL_POST,validatePost,hasPostEffects,resolvePostFocus} from '../../src/studio/post-effects.ts';
+import {DEFAULT_POST,validatePost,hasPostEffects,resolvePostFocus} from '../../src/studio/post-effects.ts';
 import {layoutNameGlyphs,nameGraphemes} from '../../src/geometry/nameplate-text.ts';
 import {AppEngine} from '../../src/domain/engine.ts';
 import {demoEvents} from '../../src/replay/demo.ts';
 import {validateStudioScene} from '../../src/studio/manifest.ts';
-test('post defaults are neutral, protect display art, and speech glow defaults to four times',()=>{
- expect(validatePost(undefined)).toEqual(DEFAULT_POST);expect(hasPostEffects(DEFAULT_POST)).toBe(false);expect(DEFAULT_POST.excludeAvatars).toBe(true);expect(DEFAULT_POST.speechGlowScale).toBe(4);
- expect(hasPostEffects(NATURAL_POST)).toBe(true);expect(hasPostEffects({...NATURAL_POST,enabled:false})).toBe(false);
+test('post defaults use selective saturation and contrast, protect display art, and speech glow defaults to four times',()=>{
+ expect(validatePost(undefined)).toEqual(DEFAULT_POST);expect(hasPostEffects(DEFAULT_POST)).toBe(true);expect(DEFAULT_POST.excludeAvatars).toBe(true);expect(DEFAULT_POST.speechGlowScale).toBe(4);
+ expect(hasPostEffects(POST_FIXTURE)).toBe(true);expect(hasPostEffects({...POST_FIXTURE,enabled:false})).toBe(false);
  for(const bad of [{saturation:NaN},{contrast:0},{maxBlur:17},{focusMode:'centre'},{dof:'yes'},{focusDistance:0},{speechGlowScale:9},{arbitrary:true}])expect(()=>validatePost(bad)).toThrow('STUDIO_POST_INVALID');
 });
 test('focus covers both subjects in view depth and can extend behind them or be fixed',()=>{
@@ -28,6 +29,6 @@ test('short names use tracking with bounded glyph width; long names never trunca
 });
 test('post-only edits persist without moving seats or resetting a shot',()=>{
  const e=new AppEngine({source:'demo',serverEpoch:'post'});for(const event of demoEvents())e.apply(event);e.tick(3000);
- const old=e.snapshot(),scene=validateStudioScene({...old.studio,post:NATURAL_POST});e.setStudioScene(scene,old.revision,3100);
- expect(e.snapshot().camera).toEqual(old.camera);expect(e.snapshot().session).toEqual(old.session);expect(e.snapshot().studio.post).toEqual(NATURAL_POST);
+ const old=e.snapshot(),scene=validateStudioScene({...old.studio,post:POST_FIXTURE});e.setStudioScene(scene,old.revision,3100);
+ expect(e.snapshot().camera).toEqual(old.camera);expect(e.snapshot().session).toEqual(old.session);expect(e.snapshot().studio.post).toEqual(POST_FIXTURE);
 });

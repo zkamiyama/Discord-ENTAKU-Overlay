@@ -21,7 +21,7 @@ async function fixture(){
  const avatar=new THREE.Mesh(new THREE.PlaneGeometry(.6,.6),new THREE.MeshBasicMaterial({color:0x22aaff}));avatar.position.set(-1.7,0,.2);protectDisplayObject(avatar);scene.add(avatar);
  return {type:art!.material instanceof THREE.MeshBasicMaterial,alphaTest:(art!.material as THREE.Material).alphaTest};
 }
-function render(exposure=.00255,q:Record<string,unknown>={},p:Record<string,unknown>={}){return pipeline.render(scene,camera,{...DEFAULT_EXPOSURE,mode:'manual',manualExposure:exposure,lighting:'studio'},String(source),1,performance.now(),{...DEFAULT_QUALITY,shadows:'off',...q},{...DEFAULT_POST,...p});}
+function render(exposure=.00255,q:Record<string,unknown>={},p:Record<string,unknown>={}){return pipeline.render(scene,camera,{...DEFAULT_EXPOSURE,mode:'manual',manualExposure:exposure,lighting:'studio'},String(source),1,performance.now(),{...DEFAULT_QUALITY,ao:'off',reflections:false,fxaa:false,shadows:'off',...q},{...DEFAULT_POST,saturation:1,contrast:1,...p});}
 function pixel(point:number[]){camera.updateMatrixWorld();const v=new THREE.Vector3(...point as [number,number,number]).project(camera),b=new Uint8Array(4),gl=renderer.getContext();gl.readPixels(Math.round((v.x+1)*320),Math.round((v.y+1)*180),1,1,gl.RGBA,gl.UNSIGNED_BYTE,b);return [...b];}
 function shadow(mode:'BLEND'|'MASK'){
  reset();const map=new THREE.CanvasTexture(texture());map.colorSpace=THREE.SRGBColorSpace;

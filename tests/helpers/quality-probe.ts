@@ -31,7 +31,7 @@ function bounce(){
  const back=new THREE.Mesh(new THREE.PlaneGeometry(4,3),new THREE.MeshStandardMaterial({color:0x999999,roughness:1}));back.position.set(0,1.5,-2);scene.add(back);
  const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(4,5,3);scene.add(light);
 }
-function render(value:Partial<QualitySettings>){effects.render(scene,camera,{...DEFAULT_QUALITY,shadows:'off',...value},String(source));return {status:effects.status,samples:effects.msaaSamples,shadowLights:effects.shadowLights};}
+function render(value:Partial<QualitySettings>){effects.render(scene,camera,{...DEFAULT_QUALITY,ao:'off',reflections:false,fxaa:false,shadows:'off',...value},String(source));return {status:effects.status,samples:effects.msaaSamples,shadowLights:effects.shadowLights};}
 function capture(){const gl=renderer.getContext(),p=new Uint8Array(480*270*4);gl.readPixels(0,0,480,270,gl.RGBA,gl.UNSIGNED_BYTE,p);return [...p];}
 function floorSample(){const gl=renderer.getContext(),p=new THREE.Vector3(-.65,.002,0).project(camera),data=new Uint8Array(9*9*4);gl.readPixels(Math.round((p.x+1)*240)-4,Math.round((p.y+1)*135)-4,9,9,gl.RGBA,gl.UNSIGNED_BYTE,data);const rgb=[0,0,0];for(let i=0;i<data.length;i+=4)for(let c=0;c<3;c++)rgb[c]!+=data[i+c]!/81;return rgb;}
 (window as any).qualityProbe={thin,edges,bounce,shadowRig(){

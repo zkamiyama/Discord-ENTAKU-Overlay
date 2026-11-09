@@ -14,7 +14,7 @@ test('legacy quality settings acquire real MSAA and SSGI remains opt-in',()=>{
  const old=validateQuality({ao:'off',reflections:false,fxaa:false});
  expect(old.msaa).toBe(4);expect(old.renderScale).toBe(1);expect(old.gi).toBe('off');
  expect(hasScreenEffects(old)).toBe(true);
- expect(hasScreenEffects({...DEFAULT_QUALITY,msaa:0})).toBe(false);
+ expect(hasScreenEffects({...DEFAULT_QUALITY,msaa:0,ao:'off',reflections:false,fxaa:false})).toBe(false);
  expect(hasScreenEffects({...DEFAULT_QUALITY,msaa:0,gi:'ssgi'})).toBe(true);
  for(const q of [{msaa:3},{renderScale:4},{gi:'path-traced'},{giRadius:0},{giStrength:NaN},{giStrength:3}])expect(()=>validateQuality(q)).toThrow('STUDIO_QUALITY_INVALID');
 });

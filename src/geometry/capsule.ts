@@ -59,8 +59,10 @@ export function makeLayout(count:number,pitch:number=TABLE.seatPitch,moderatorSl
     const add=(slotIndex:number,x:number,z:number,ix:number,iz:number,zone:SeatTransform['zone'],extra:Partial<SeatTransform>={})=>{
       seats[slotIndex]={slotIndex,zone,position:[x,0,z],inward:[ix,0,iz],baseYawRad:Math.atan2(ix,iz),faceAnchor:[x,1.25,z],...extra};
     };
-    const angle=Math.asin(Math.min(.9,Math.max(Math.sin(Math.PI/5),pitch/(2*radius))));
-    hosts.forEach((slot,i)=>{const a=hosts.length===1?0:(i===0?-angle:angle);add(slot,radius*Math.sin(a),-L/2-radius*Math.cos(a),-Math.sin(a),Math.cos(a),'moderator');});
+    hosts.forEach((slot,i)=>{
+      const x=hosts.length===1?0:(i===0?-1:1)*Math.max(.55,pitch/2);
+      add(slot,x,-L/2-Math.sqrt(radius*radius-x*x),0,1,'moderator');
+    });
     for(let row=0;row<pairs;row++){
       const z=(row-(pairs-1)/2)*pitch,left=remaining[2*row]!,right=remaining[2*row+1]!;
       add(left,-radius,z,1,0,'left',{row,oppositeSlot:right});

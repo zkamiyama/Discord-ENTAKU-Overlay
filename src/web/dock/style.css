@@ -28,3 +28,11 @@ dialog{color:var(--text);background:var(--surface);border:1px solid var(--strong
 .chat-time{margin-left:auto;flex-shrink:0;font-variant-numeric:tabular-nums}.chat-body{white-space:pre-wrap;margin:2px 0 0}
 .chat-body a{color:var(--primary);text-decoration:underline;overflow-wrap:anywhere}.chat-extra{font-size:11px;color:var(--muted)}
 #vc-chat-latest{display:block;margin:4px auto;height:24px;font-size:11px}#vc-chat-feedback:empty{display:none}
+
+/* Equal pickers, checkbox first-line alignment, and one-line camera status. */
+.asset-buttons{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:4px}.asset-buttons button{height:28px;min-height:28px;min-width:0;font-size:11px;padding:0 4px;gap:3px}.asset-buttons .icon{width:14px;height:14px}
+label:has(>input[type=checkbox]){display:flex;align-items:flex-start;gap:6px;line-height:18px}
+label>input[type=checkbox],.pane label>input[type=checkbox]{display:block;flex:0 0 14px;width:14px;height:14px;min-width:14px;min-height:14px;margin:2px 0 0;padding:0;border:0;border-radius:0;align-self:flex-start}
+.camera-status{display:flex;align-items:center;gap:5px;flex-shrink:0;min-height:24px;padding:2px 8px;background:var(--sidebar);border-bottom:1px solid var(--border);font-size:11px;line-height:18px;white-space:nowrap;overflow:hidden}
+.camera-status strong{font-size:12px;flex-shrink:0}.camera-status>span:not(.sr-only){color:var(--muted);overflow:hidden;text-overflow:ellipsis;min-width:0}.camera-status #reason{flex:0 1 auto;max-width:22%}.camera-status #conversation-leader{flex:1}.camera-status #auto-countdown{font-size:11px;min-width:0;margin-left:auto;flex-shrink:0}.camera-status #camera-transition{font:10px ui-monospace,monospace;flex-shrink:0}
+.camera-bar{padding:3px 8px}.timing-controls{border-top:1px solid var(--border);padding-top:3px;margin-top:4px}

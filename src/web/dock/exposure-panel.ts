@@ -1,5 +1,5 @@
 import {numericEditing} from './numeric-controls.ts';
-import {BLENDER_REFERENCE_EXPOSURE,DEFAULT_EXPOSURE,validateExposure,type ExposureSettings} from '../../studio/exposure.ts';
+import {DEFAULT_EXPOSURE,validateExposure,type ExposureSettings} from '../../studio/exposure.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {RuntimeDiagnostics} from '../../contracts/diagnostics.ts';
 import type {StudioClient} from '../shared/client.ts';
@@ -8,7 +8,6 @@ export class ExposurePanel {
   private busy=false;
   constructor(private readonly client:StudioClient){
     for(const id of ['exposure-auto','exposure-ev','exposure-manual','exposure-lighting'])$(id).addEventListener('change',()=>void this.apply());
-    $('exposure-reference').onclick=()=>void this.save({mode:'manual',manualExposure:BLENDER_REFERENCE_EXPOSURE,compensationEV:0,lighting:'studio'});
     $('exposure-reset').onclick=()=>void this.save({...DEFAULT_EXPOSURE});
     $('exposure-lock').onclick=()=>void this.lock();
     const poll=async()=>{if(client.connected&&!document.hidden){try{

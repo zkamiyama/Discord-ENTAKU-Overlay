@@ -1,8 +1,10 @@
+import {DEFAULT_DIRECTION} from '../../src/studio/direction.ts';
+const LEGACY_TIMING={...DEFAULT_DIRECTION,startGraceSeconds:2.5};
 import {expect,test} from 'bun:test';
 import {SpeakerTracker} from '../../src/domain/speaker-tracker.ts';
 import {ShotDirector,type DirectorContext} from '../../src/domain/shot-director.ts';
 const context:DirectorContext={presentIds:['1','2','3'],sourceReady:true,layoutMoving:false,canPair:()=>true,splitEnabled:true,canSplit:()=>true};
-function split(){const t=new SpeakerTracker(),d=new ShotDirector();for(const id of ['1','2'])t.update(id,'active',0);d.update(2500,t,context);d.update(5000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');return {t,d};}
+function split(){const t=new SpeakerTracker(),d=new ShotDirector(LEGACY_TIMING);for(const id of ['1','2'])t.update(id,'active',0);d.update(2500,t,context);d.update(5000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');return {t,d};}
 test('raw STOP remains inactive but the conversation pauses for exactly 2500ms',()=>{
  const t=new SpeakerTracker();t.update('1','active',0);t.update('1','inactive',4000);
  expect(t.stats('1',4000).state).toBe('inactive');
@@ -28,7 +30,7 @@ test('repeated STOP cannot extend confirmation, and unknown clears the conversat
  t.update('1','unknown',5500);expect(t.conversationStats('1',5500).state).toBe('unknown');expect(t.conversationStats('1',5500).endPendingUntilMs).toBeUndefined();
 });
 test('silence neither earns onset time nor turns a short acknowledgement into a qualified turn',()=>{
- const t=new SpeakerTracker(),d=new ShotDirector();t.update('1','active',0);t.update('1','inactive',400);
+ const t=new SpeakerTracker(),d=new ShotDirector(LEGACY_TIMING);t.update('1','active',0);t.update('1','inactive',400);
  for(const at of [1000,2000,2899]){expect(t.conversationStats('1',at).activeMs).toBe(400);expect(t.conversationStats('1',at).qualified).toBe(false);expect(d.update(at,t,context).shot.kind).toBe('WIDE');}
 });
 test('a split survives a two-second hesitation and renewed speech cancels both end phases',()=>{
@@ -53,7 +55,7 @@ test('manual override and connection loss do not wait for speech-end confirmatio
 });
 
 test('onset across a hesitation accumulates real speech only, not the silent gap',()=>{
- const t=new SpeakerTracker(),d=new ShotDirector();t.update('1','active',0);t.update('1','inactive',650);
+ const t=new SpeakerTracker(),d=new ShotDirector(LEGACY_TIMING);t.update('1','active',0);t.update('1','inactive',650);
  d.update(2000,t,context);t.update('1','active',2650);
  expect(d.update(4499,t,context).shot.kind).toBe('WIDE');
  expect(t.conversationStats('1',4499).activeMs).toBe(2499);

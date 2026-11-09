@@ -6,7 +6,7 @@ import {protectDisplayObject} from './exposure-renderer.ts';
 export class NameplateVisual extends THREE.Group {
  private texture:THREE.CanvasTexture;private printed:THREE.MeshBasicMaterial;
  private current='';private style='';
- constructor(name:string,style='white'){
+ constructor(name:string,style='blue'){
   super();this.name='ENTAKU double-sided nameplate';
   const {width,height,baseDepth,topDepth}=NAMEPLATE;
   const profile=new THREE.Shape();profile.moveTo(-baseDepth/2,0);profile.lineTo(baseDepth/2,0);profile.lineTo(topDepth/2,height);profile.lineTo(-topDepth/2,height);profile.closePath();
@@ -24,7 +24,7 @@ export class NameplateVisual extends THREE.Group {
   }
   protectDisplayObject(this);body.layers.set(0);body.castShadow=body.receiveShadow=true;this.setName(name,style);
  }
- setName(name:string,style='white'):void{
+ setName(name:string,style='blue'):void{
   if(name===this.current&&style===this.style)return;this.current=name;this.style=style;
   const c=this.texture.image as HTMLCanvasElement,x=c.getContext('2d')!;
   x.fillStyle=style==='blue'?'#123d80':'#faf8f0';x.fillRect(0,0,c.width,c.height);

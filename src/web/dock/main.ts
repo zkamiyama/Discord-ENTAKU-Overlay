@@ -1,3 +1,4 @@
+import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {VcChatPanel} from './vc-chat-panel.ts';
 import {seatLabel} from '../../geometry/seat-label.ts';
 import {PresetPanel} from './preset-panel.ts';
@@ -88,14 +89,16 @@ client.onState=state=>{
  get('foreground').textContent=foreground?`前景：${foreground.displayName}`:'前景なし';
  get('visibility').textContent=visibilityNames[state.camera.visibilityReason??'']??'標準構図';
  const leader=state.participants.find(p=>p.userId===state.decision.leaderUserId);
- const led=state.speech.find(s=>s.userId===leader?.userId);
- get('conversation-leader').textContent=leader?`${leader.displayName} ${(Math.min(10000,led?.speechMs10s??0)/1000).toFixed(1)}秒`:'—';
+ const led=state.speech.find(s=>s.userId===leader?.userId),windowSeconds=state.studio.direction?.leadershipWindowSeconds??10;
+ get('conversation-leader').textContent=leader?`主 ${leader.displayName} ${(Math.min(windowSeconds*1000,led?.speechWindowMs??0)/1000).toFixed(1)}秒`:'主話者なし';get('conversation-leader').title=`直近${windowSeconds}秒の実発話量`;
  const discussion=state.decision.dialogue;
- const reasons:Record<string,string>={NEED_TWO_SPEAKERS:'2人の発話待ち',THIRD_SPEAKER:'3人目が参加',INSUFFICIENT_SPEECH:'発話量待ち',NOT_A_TWO_PERSON_DISCUSSION:'他の話者も参加',BACKCHANNEL_OR_DOMINANCE:'主話者を優先',DISCUSSION_PAUSED:'会話の再開待ち',INSUFFICIENT_EXCHANGE:'交代・重なり待ち',SUSTAINED_OVERLAP:'同時発話が継続',RAPID_ALTERNATION:'交互の応酬',SPLIT_NO_SAFE_FRAMING:'安全な分割構図なし'};
+ const reasons:Record<string,string>={NEED_TWO_SPEAKERS:'2人の発話待ち',THIRD_SPEAKER:'3人目が参加',INSUFFICIENT_SPEECH:'発話量待ち',NOT_A_TWO_PERSON_DISCUSSION:'他の話者も参加',BACKCHANNEL_OR_DOMINANCE:'主話者を優先',DISCUSSION_PAUSED:'会話の再開待ち',INSUFFICIENT_EXCHANGE:'交代・重なり待ち',SUSTAINED_OVERLAP:'同時発話が継続',RAPID_ALTERNATION:'交互の応酬',SPLIT_NO_SAFE_FRAMING:'安全な分割構図なし',ADJACENT_SHARED_CAMERA:'隣接席・1カメラ'};
  const thirdChecking=state.camera.shot.kind==='SPLIT'&&state.decision.pendingShot?.kind==='WIDE'&&discussion?.thirdActive;
- get('dialogue-state').textContent=!state.studio.direction?.splitEnabled?'OFF':state.mode!=='AUTO'?'手動優先':thirdChecking?'3人目の発話を確認中':state.decision.reason==='THREE_PERSON_DISCUSSION'?'3人以上の会話・全景':state.decision.reason==='THIRD_SPEAKER_END_CONFIRM'?'言い淀み・再発話を確認中':state.decision.reason==='THIRD_SPEAKER_END_GRACE'?'会話の収束を確認中':state.camera.shot.kind==='SPLIT'?'左右2分割中':discussion?(reasons[discussion.reason]??discussion.reason):'判定待ち';
+ get('dialogue-state').textContent=!(state.studio.direction?.splitEnabled??DEFAULT_DIRECTION.splitEnabled)?'OFF':state.mode!=='AUTO'?'手動優先':thirdChecking?'3人目の発話を確認中':state.decision.reason==='THREE_PERSON_DISCUSSION'?'3人以上の会話・全景':state.decision.reason==='THIRD_SPEAKER_END_CONFIRM'?'言い淀み・再発話を確認中':state.decision.reason==='THIRD_SPEAKER_END_GRACE'?'会話の収束を確認中':state.camera.shot.kind==='SPLIT'?'左右2分割中':discussion?(reasons[discussion.reason]??discussion.reason):'判定待ち';
  get('dialogue-state').title=discussion?`2人の占有率 ${(discussion.pairShare*100).toFixed(0)}%・少ない側 ${(discussion.minorShare*100).toFixed(0)}%・交代 ${discussion.alternations}回・重なり ${(discussion.overlapMs/1000).toFixed(1)}秒`:'';
- get('reason').textContent=state.camera.safetyReason??state.decision.reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
+ const reason=state.camera.safetyReason??state.decision.reason;
+ const reasonNames:Record<string,string>={SPEECH_START_GRACE:'発話確認',SPEECH_END_CONFIRM:'終了確認',SPEECH_END_GRACE:'終了猶予',SILENCE:'無音',BACKCHANNEL_IGNORED:'相槌・待機',SPEAKER_QUALIFIED:'発話中',DOMINANT_SPEAKER_WINDOW:'主話者',BALANCED_DIALOGUE:'対話',ADJACENT_SHARED_CAMERA:'隣接席',MANUAL_OVERRIDE:'手動',SOURCE_LOST:'接続待ち',LEADER_MARGIN:'主話者維持',SPEAKER_RESUMED:'発話再開',SPLIT_ACTIVE_DISCUSSION:'応酬',THREE_PERSON_DISCUSSION:'3人以上'};
+ get('reason').textContent=reasonNames[reason]??reason;get('reason').title=reason;get('remaining').textContent=`${(state.decision.holdRemainingMs/1000).toFixed(1)} 秒`;
  get('auto').setAttribute('aria-pressed',String(state.mode!=='HOLD'));
  get('counts').textContent=`${state.participants.filter(p=>p.presence==='present').length}人 / ${state.session.capacity}席`;
  get('connection').textContent=`${state.channel?.name??'VC未選択'} · ${state.connection}${state.errorCode?' · '+state.errorCode:''}`;
@@ -111,7 +114,7 @@ client.onState=state=>{
   if(r.seat.dataset.label!==label){r.seat.replaceChildren();if(seat?.zone==='moderator')r.seat.append(icon('crown'));else r.seat.textContent=label;r.seat.title=label;r.seat.setAttribute('aria-label',label);r.seat.dataset.label=label;}
   const presence=user.presence==='present'?(user.speaking==='active'?'発話中':user.speaking==='unknown'?'発話状態未確定':'無音'):user.presence==='absent'?'退出・予約中':'在席確認待ち';
   const speech=state.speech.find(s=>s.userId===user.userId);r.duration.textContent=user.speaking==='active'?`${((speech?.activeMs??0)/1000).toFixed(1)}s`:user.presence==='present'?'—':'退出';
-  r.status.title=`${label} · ${presence} · 直近10秒 ${(Math.min(10000,speech?.speechMs10s??0)/1000).toFixed(1)}秒`;r.status.setAttribute('aria-label',`${label} · ${presence}`);
+  r.status.title=`${label} · ${presence} · 直近${windowSeconds}秒 ${(Math.min(windowSeconds*1000,speech?.speechWindowMs??0)/1000).toFixed(1)}秒`;r.status.setAttribute('aria-label',`${label} · ${presence}`);
   Object.assign(r.element.dataset,{speaking:user.speaking,presence:user.presence,zone:seat?.zone??'',slot:String(user.slotIndex??'')});
   r.focus.disabled=user.presence!=='present'||!seat;r.focus.setAttribute('aria-pressed',String(state.camera.shot.userIds.some(id=>id===user.userId)));
   r.speak.hidden=state.source!=='demo'||!user.participant;r.speak.disabled=user.presence!=='present';

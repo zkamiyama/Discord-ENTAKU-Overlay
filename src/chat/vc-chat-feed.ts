@@ -27,7 +27,7 @@ export class VcChatFeed {
   private off:(()=>void)|null=null;private generation=0;
   // Live changes win over GET_CHANNEL responses already in flight.
   private touched=new Set<string>();private deleted=new Set<string>();
-  constructor(status:VcChatStatus='connecting'){this.state=emptyVcChat(status);}
+  constructor(status:VcChatStatus='connecting',private readonly sinceUtcMs=Date.now()){this.state=emptyVcChat(status);}
   snapshot():VcChatState{return structuredClone(this.state);}
   observe(listener:(state:VcChatState)=>void):()=>void{this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
   private publish():void {
@@ -75,7 +75,7 @@ export class VcChatFeed {
     if(!channelId||channel?.id!==channelId||channel.type!==2||!Array.isArray(channel.messages))return;
     const before=JSON.stringify(this.state.messages),messages=new Map(this.state.messages.map(m=>[m.id,m]));
     for(const rawMessage of channel.messages.slice(0,500)){
-      const message=normalize(rawMessage,channelId);if(!message||this.touched.has(message.id))continue;
+      const message=normalize(rawMessage,channelId);if(!message||Date.parse(message.timestamp)<this.sinceUtcMs||this.touched.has(message.id))continue;
       messages.set(message.id,message);
     }
     this.replace([...messages.values()]);if(JSON.stringify(this.state.messages)!==before)this.publish();
@@ -96,7 +96,7 @@ export class VcChatFeed {
     const previous=this.state.messages.find(p=>p.id===m.id);
     if(packet.evt==='MESSAGE_CREATE'&&previous)return;
     const remove=packet.evt==='MESSAGE_DELETE'||m.blocked===true;
-    const next=remove?null:normalize(m,this.state.channelId,previous);if(!remove&&!next)return;
+    const next=remove?null:normalize(m,this.state.channelId,previous);if(!remove&&(!next||Date.parse(next.timestamp)<this.sinceUtcMs))return;
     this.touched.add(m.id);if(this.touched.size>1000)this.touched.delete(this.touched.values().next().value!);
     if(remove){this.deleted.add(m.id);if(this.deleted.size>1000)this.deleted.delete(this.deleted.values().next().value!);if(previous){this.state.messages=this.state.messages.filter(p=>p.id!==m.id);this.publish();}return;}
     if(previous&&JSON.stringify(next)===JSON.stringify(previous))return;

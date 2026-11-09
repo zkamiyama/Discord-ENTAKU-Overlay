@@ -1,5 +1,5 @@
 import {numericEditing} from './numeric-controls.ts';
-import {DEFAULT_POST,NATURAL_POST,validatePost,type PostSettings} from '../../studio/post-effects.ts';
+import {DEFAULT_POST,validatePost,type PostSettings} from '../../studio/post-effects.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
 const get=(id:string)=>document.getElementById(id) as HTMLInputElement;
@@ -8,7 +8,6 @@ export class PostPanel {
  private busy=false;
  constructor(private client:StudioClient){
   for(const id of Object.keys(fields))get(id).addEventListener('change',()=>void this.apply());
-  get('post-natural').onclick=()=>void this.save({...NATURAL_POST,excludeAvatars:this.client.state?.studio.post?.excludeAvatars??true});
   get('post-reset').onclick=()=>void this.save({...DEFAULT_POST});
 
  }

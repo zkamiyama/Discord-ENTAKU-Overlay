@@ -40,6 +40,7 @@ test('dense Dock has a range for every number and separate quality, post and stu
 
 test('a hesitation cancels end confirmation without extinguishing the camera turn',async({page})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ await page.locator('#camera-settings > summary').click();await page.locator('#camera-split').uncheck();
  const people=page.locator('.person');for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#shot')).toHaveText('TWO_SHOT',{timeout:12000});
  await people.nth(2).getByRole('button',{name:'発話 OFF',exact:true}).click();

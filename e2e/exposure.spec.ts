@@ -20,18 +20,22 @@ test('AgX exposure changes the world but not icons, real custom avatar pixels, l
  const auto=await page.evaluate(()=>{const p=(window as any).exposureProbe;return p.auto();});
  expect(auto.exposureStatus).toBe('AUTO');expect(auto.exposure).toBeLessThan(.01);expect(auto.fallbackLights).toBe(false);
  const hidden=await page.evaluate(()=>(window as any).exposureProbe.hideDisplay(true));expect(hidden.exposure).toBeCloseTo(auto.exposure,6);
- const compensated=await page.evaluate(()=>(window as any).exposureProbe.compensate(1));expect(compensated.exposure).toBeCloseTo(hidden.exposure*2,6);
+ const compensated=await page.evaluate(()=>(window as any).exposureProbe.compensate(1));expect(compensated.exposure).toBeCloseTo(hidden.exposure*Math.SQRT2,6);
  await page.waitForTimeout(650);const report=await page.evaluate(()=>(window as any).exposureProbe.report());expect(report.exposureStatus).toBe('AUTO');
  expect(errors).toEqual([]);
 });
-test('Dock defaults to auto and supports the provided fixed comparison without resetting a shot',async({page,context})=>{
+test('Dock defaults to EV +0.5 and manual exposure controls preserve the current shot',async({page,context})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
  await page.locator('#exposure-panel > summary').click();await expect(page.locator('#exposure-auto')).toBeChecked();
  await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','AUTO');
  await page.locator('#auto').click();await page.locator('.person').first().getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1700);
  const before=await overlay.locator('#scene').getAttribute('data-camera-position');
- await page.locator('#exposure-controls > details > summary').click();await page.locator('#exposure-reference').click();
+ await expect(page.locator('#exposure-ev')).toHaveValue('0.5');
+ await page.locator('#exposure-auto').uncheck();await expect(page.locator('#exposure-manual')).toBeEnabled();
+ await page.locator('#exposure-ev').fill('0');await page.locator('#exposure-ev').press('Tab');await expect(page.locator('#exposure-manual')).toBeEnabled();
+ await page.locator('#exposure-manual').fill(String(2**.8/683));await page.locator('#exposure-manual').press('Tab');await expect(page.locator('#exposure-lighting')).toBeEnabled();
+ await page.selectOption('#exposure-lighting','studio');
  await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','MANUAL');
  await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-exposure'))).toBeCloseTo(2**.8/683,8);
  await expect(overlay.locator('#scene')).toHaveAttribute('data-fallback-lights','false');await expect(page.locator('#shot')).toHaveText('SINGLE');

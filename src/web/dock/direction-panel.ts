@@ -2,12 +2,13 @@ import {DEFAULT_DIRECTION,validateDirection} from '../../studio/direction.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
 import {numericEditing,syncNumericControls} from './numeric-controls.ts';
-const fields={'camera-return':'manualReturnSeconds','camera-fov':'portraitFov','camera-wide-height':'wideHeightRatio','camera-near':'nearClip'} as const;
+const fields={'camera-return':'manualReturnSeconds','camera-fov':'portraitFov','camera-wide-height':'wideHeightRatio','camera-near':'nearClip','camera-onset':'startGraceSeconds','camera-end-confirm':'endConfirmSeconds','camera-end-grace':'endGraceSeconds','camera-lead-window':'leadershipWindowSeconds'} as const;
 const get=(id:string)=>document.getElementById(id) as HTMLInputElement;
 export class DirectionPanel {
  private busy=false;
  constructor(private client:StudioClient){
   get('camera-split').addEventListener('change',()=>void this.save());
+  get('camera-reset').onclick=()=>void this.save(true);
   for(const id of Object.keys(fields))get(id).addEventListener('change',()=>void this.save());
   const countdown=()=>{
    const state=client.state,output=get('auto-countdown');if(!state)return;
@@ -24,10 +25,10 @@ export class DirectionPanel {
   get('camera-split').checked=d.splitEnabled;
   for(const [id,key]of Object.entries(fields))if(!numericEditing(get(id)))get(id).value=String(d[key]);syncNumericControls();
  }
- private async save():Promise<void>{
+ private async save(reset=false):Promise<void>{
   if(this.busy||!this.client.state)return;this.busy=true;get('camera-message').textContent='';
   try{const state=this.client.state,d={...state.studio.direction,...Object.fromEntries(Object.entries(fields).map(([id,key])=>[key,Number(get(id).value)])),splitEnabled:get('camera-split').checked};
-   await this.client.command({type:'studio-set',scene:{...state.studio,direction:validateDirection(d)}},state.revision);
+   await this.client.command({type:'studio-set',scene:{...state.studio,direction:validateDirection(reset?DEFAULT_DIRECTION:d)}},state.revision);
   }catch(e){get('camera-message').textContent=e instanceof Error?e.message:'撮影設定を保存できません';}
   finally{this.busy=false;if(this.client.state)this.update(this.client.state);}
  }

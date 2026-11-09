@@ -1,3 +1,4 @@
+const LEGACY_TIMING={...DEFAULT_DIRECTION,startGraceSeconds:2.5};
 import {expect,test} from 'bun:test';
 import {SpeakerTracker} from '../../src/domain/speaker-tracker.ts';
 import {detectDialogue} from '../../src/domain/dialogue-detector.ts';
@@ -10,7 +11,7 @@ import {DEFAULT_STUDIO_SCENE} from '../../src/studio/manifest.ts';
 const ids=['1','2','3'];
 const context:DirectorContext={presentIds:ids,sourceReady:true,layoutMoving:false,canPair:()=>true,splitEnabled:true,canSplit:()=>true};
 function active(){const t=new SpeakerTracker();t.update('1','active',0);t.update('2','active',0);return t;}
-function established(){const t=active(),d=new ShotDirector();d.update(2500,t,context);d.update(5000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');return {t,d};}
+function established(){const t=active(),d=new ShotDirector(LEGACY_TIMING);d.update(2500,t,context);d.update(5000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');return {t,d};}
 test('10-second detector separates overlap duration, speech occupancy and stable seating order',()=>{
  const t=active(),e=detectDialogue(t,ids,10000);
  expect(e).toMatchObject({pair:['1','2'],spokenMs:[10000,10000],pairShare:1,minorShare:.5,overlapMs:10000,coverageMs:10000,eligible:true,reason:'SUSTAINED_OVERLAP'});
@@ -30,10 +31,10 @@ test('third participants and source-unknown intervals cannot qualify a two-perso
  const t=active();t.update('3','active',6000);expect(detectDialogue(t,ids,7500).reason).toBe('THIRD_SPEAKER');
  t.update('1','unknown',8000);t.update('2','unknown',8000);expect(detectDialogue(t,ids,8000).eligible).toBe(false);
 });
-test('split confirmation takes 2.5s and is opt-in rather than changing every two-shot',()=>{
- const t=active(),d=new ShotDirector();expect(d.update(2500,t,context).shot.kind).toBe('TWO_SHOT');expect(d.update(5000,t,context).switchAtMs).toBe(7500);expect(d.update(7499,t,context).shot.kind).toBe('TWO_SHOT');expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');
- const s=active(),off=new ShotDirector();for(const at of [2500,5000,7500,10000])expect(off.update(at,s,{...context,splitEnabled:false}).shot.kind).toBe('TWO_SHOT');
- expect(validateDirection(undefined).splitEnabled).toBe(false);expect(()=>validateDirection({splitEnabled:'yes'})).toThrow('STUDIO_DIRECTION_INVALID');
+test('configured split confirmation takes 2.5s and can be disabled',()=>{
+ const t=active(),d=new ShotDirector(LEGACY_TIMING);expect(d.update(2500,t,context).shot.kind).toBe('TWO_SHOT');expect(d.update(5000,t,context).switchAtMs).toBe(7500);expect(d.update(7499,t,context).shot.kind).toBe('TWO_SHOT');expect(d.update(7500,t,context).shot.kind).toBe('SPLIT');
+ const s=active(),off=new ShotDirector(LEGACY_TIMING);for(const at of [2500,5000,7500,10000])expect(off.update(at,s,{...context,splitEnabled:false}).shot.kind).toBe('TWO_SHOT');
+ expect(validateDirection(undefined).splitEnabled).toBe(true);expect(()=>validateDirection({splitEnabled:'yes'})).toThrow('STUDIO_DIRECTION_INVALID');
 });
 test('split confirms END for 2.5s then waits five seconds, cancels on resumption and applies cooldown',()=>{
  const {t,d}=established();t.update('2','inactive',8000);expect(d.update(8000,t,context).switchAtMs).toBe(10500);
@@ -49,7 +50,7 @@ test('a qualified third speaker returns to wide after 2.5 seconds',()=>{
 test('manual selection is immediate, fixed mode wins and unsafe splits fall back',()=>{
  const {t,d}=established();d.manual({kind:'SINGLE',userIds:['3']},7600);expect(d.current().userIds).toEqual(['3']);expect(d.autoResumeAtMs).toBe(17600);expect(d.update(15000,t,context).shot.kind).toBe('SINGLE');
  d.setMode('HOLD');expect(d.update(50000,t,context).shot.userIds).toEqual(['3']);
- const s=active(),safe=new ShotDirector();safe.update(2500,s,context);expect(safe.update(10000,s,{...context,canSplit:()=>false}).shot.kind).not.toBe('SPLIT');expect(safe.update(10000,s,{...context,canSplit:()=>false}).dialogue?.reason).toBe('SPLIT_NO_SAFE_FRAMING');
+ const s=active(),safe=new ShotDirector(LEGACY_TIMING);safe.update(2500,s,context);expect(safe.update(10000,s,{...context,canSplit:()=>false}).shot.kind).not.toBe('SPLIT');expect(safe.update(10000,s,{...context,canSplit:()=>false}).dialogue?.reason).toBe('SPLIT_NO_SAFE_FRAMING');
 });
 test('split portrait framing uses 8:9, near clipping and the moderator-front constraint',()=>{
  const layout=makeLayout(6),seats=new Map(layout.seats.map((s,i)=>[String(i),s]));const rear=moderatorRearLimit(layout.straightLength);
@@ -65,7 +66,7 @@ test('split portrait framing uses 8:9, near clipping and the moderator-front con
 });
 
 test('crowd-to-split transition also confirms END before its five-second grace',()=>{
- const t=active(),d=new ShotDirector();d.update(2500,t,context);t.update('3','active',5000);d.update(5000,t,context);d.update(6000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('WIDE');
+ const t=active(),d=new ShotDirector(LEGACY_TIMING);d.update(2500,t,context);t.update('3','active',5000);d.update(5000,t,context);d.update(6000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('WIDE');
  t.update('3','inactive',8000);d.update(8000,t,context);d.update(10500,t,context);expect(d.update(15499,t,context).shot.kind).toBe('WIDE');expect(d.update(15500,t,context).shot.kind).toBe('SPLIT');
 });
 

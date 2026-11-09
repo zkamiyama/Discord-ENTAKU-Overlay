@@ -42,6 +42,7 @@ test('Dock and Overlay use stable URLs without access keys', async ({ page }) =>
 });
 
 test('custom image draft calibrates a face, applies an alpha silhouette and resets without a page error', async ({ page, context }) => {
+  test.setTimeout(120000); // Default SSR/AO compile on software WebGL as well as the preview.
   const errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/dock');
@@ -112,6 +113,7 @@ test('narrow Dock accepts a static WebP and pointer selection writes normalized 
 test('a nearby second speaker widens SINGLE into TWO_SHOT via MOVE', async ({ page, context }) => {
   await page.goto('/dock');
   await expect(page.locator('#transport')).toHaveText('接続済み');
+  await page.locator('#camera-settings > summary').click();await page.locator('#camera-split').uncheck();
   const overlay=await context.newPage();
   await overlay.goto(await page.locator('#overlay-url').inputValue());
   const people=page.locator('.person');

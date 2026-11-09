@@ -5,7 +5,7 @@ import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 import {ShaderPass} from 'three/addons/postprocessing/ShaderPass.js';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 import {BokehShader} from 'three/addons/shaders/BokehShader.js';
-import {HueSaturationShader} from 'three/addons/shaders/HueSaturationShader.js';
+import {VibranceShader} from './vibrance-shader.ts';
 import {BrightnessContrastShader} from 'three/addons/shaders/BrightnessContrastShader.js';
 import type {FocusBand,PostSettings} from '../../studio/post-effects.ts';
 const vertex='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
@@ -21,7 +21,7 @@ export class PostRenderer {
  private a=new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,depthBuffer:false});
  private b=this.a.clone();private c=this.a.clone();
  private result=new THREE.WebGLRenderTarget(1,1,{depthBuffer:false});
- private tone=new OutputPass();private hue=new ShaderPass(HueSaturationShader);private contrast=new ShaderPass(BrightnessContrastShader);
+ private tone=new OutputPass();private hue=new ShaderPass(VibranceShader);private contrast=new ShaderPass(BrightnessContrastShader);
  private bokeh:ShaderPass;private bloom?:UnrealBloomPass;
  private depth:FullScreenQuad;private blend:FullScreenQuad;private gamma:FullScreenQuad;private premultiply:FullScreenQuad;
  private w=0;private h=0;
@@ -71,7 +71,7 @@ export class PostRenderer {
     renderer.setRenderTarget(this.b);this.blend.render(renderer);color=this.b;
    }else if(this.bloom){this.bloom.dispose();this.bloom=undefined;}
    (this.gamma.material as THREE.ShaderMaterial).uniforms.color!.value=color.texture;renderer.setRenderTarget(this.c);this.gamma.render(renderer);color=this.c;
-   if(p.saturation!==1){this.hue.uniforms.saturation!.value=1-1/Math.max(.0001,p.saturation);if(p.saturation<1)this.hue.uniforms.saturation!.value=p.saturation-1;this.hue.render(renderer,this.a,color,0,false);color=this.a;}
+   if(p.saturation!==1){this.hue.uniforms.amount!.value=p.saturation;this.hue.render(renderer,this.a,color,0,false);color=this.a;}
    if(p.contrast!==1){this.contrast.uniforms.contrast!.value=p.contrast>=1?1-1/p.contrast:p.contrast-1;this.contrast.render(renderer,this.b,color,0,false);color=this.b;}
    (this.premultiply.material as THREE.ShaderMaterial).uniforms.color!.value=color.texture;renderer.setRenderTarget(this.result);this.premultiply.render(renderer);
    return this.result;

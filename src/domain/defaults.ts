@@ -5,11 +5,8 @@ export const TABLE = Object.freeze({
   minSeats: 4, maxSeats: 32, phase: 0.5, growthDurationMs: 1200,
 });
 export const DIRECTOR = Object.freeze({
-  qualifyMs: 1000, gapToleranceMs: 250, minSpeechRatio: 0.75,
-  startGraceMs: 2500, endConfirmMs: 2500, endGraceMs: 5000, minShotMs: 2500,
-  leadershipWindowMs: 10000, dominanceRatio: 1.6, dominanceMarginMs: 1000,
-  crowdConfirmMs: 700, crowdReleaseMs: 1200,
-  silenceWideMs: 5000, turnWindowMs: 6000,
+  gapToleranceMs: 250, minSpeechRatio: 0.75,
+  dominanceRatio: 1.6, dominanceMarginMs: 1000,
 });
 export const APP = Object.freeze({
   host: '127.0.0.1', port: 31337, protocolVersion: 1,

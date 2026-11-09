@@ -7,9 +7,8 @@ export interface PostSettings {
  dof:boolean;focusMode:'subject'|'behind'|'manual';focusOffset:number;focusDistance:number;focusRange:number;aperture:number;maxBlur:number;
  speechGlowScale:number;
 }
-/** Neutral migration: enabling a new version must not silently grade an existing show. */
-export const DEFAULT_POST:PostSettings={enabled:true,excludeAvatars:true,saturation:1,contrast:1,bloom:false,bloomThreshold:.85,bloomStrength:.15,bloomRadius:.25,dof:false,focusMode:'behind',focusOffset:.35,focusDistance:6,focusRange:.5,aperture:.0015,maxBlur:3,speechGlowScale:4};
-export const NATURAL_POST:PostSettings={...DEFAULT_POST,saturation:1.06,contrast:1.04,bloom:true,dof:true};
+/** User-selected defaults; explicit saved parameters are preserved. */
+export const DEFAULT_POST:PostSettings={enabled:true,excludeAvatars:true,saturation:1.2,contrast:1.1,bloom:false,bloomThreshold:.85,bloomStrength:.15,bloomRadius:.25,dof:false,focusMode:'behind',focusOffset:.35,focusDistance:6,focusRange:.5,aperture:.0015,maxBlur:3,speechGlowScale:4};
 export function validatePost(value:unknown):PostSettings {
  if(value===undefined)return {...DEFAULT_POST};
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('STUDIO_POST_INVALID');

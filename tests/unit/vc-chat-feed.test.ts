@@ -5,7 +5,7 @@ import {DiscordError} from '../../src/discord/errors.ts';
 const selected={id:'200',name:'Test VC',type:2};
 const message=(id='1',content='synthetic',channel_id='200')=>({id,channel_id,author:{id:'42',username:'Synthetic author'},content,timestamp:new Date(1700000000000+Number(id)).toISOString()});
 function setup(fail?:string){
- const feed=new VcChatFeed(),listeners=new Set<(p:Record<string,unknown>)=>void>(),requests:string[]=[];
+ const feed=new VcChatFeed('connecting',1700000000000),listeners=new Set<(p:Record<string,unknown>)=>void>(),requests:string[]=[];
  const rpc={onEvent:(fn:(p:Record<string,unknown>)=>void)=>{listeners.add(fn);return()=>{listeners.delete(fn);};},request:async(_cmd:string,_args:unknown,evt?:string)=>{requests.push(evt!);if(evt===fail)throw new DiscordError('RPC_REJECTED',5001);return {evt};}};
  const send=(evt:string,msg:unknown,channel_id='200')=>{for(const fn of listeners)fn({cmd:'DISPATCH',evt,data:{channel_id,message:msg}});};
  return {feed,rpc,send,listeners,requests};
@@ -66,4 +66,15 @@ test('raw HTML remains inert text; attachment-only posts and Unicode names are r
  f.send('MESSAGE_CREATE',{...message('2',''),attachments:[{url:'https://private.invalid/secret',filename:'private.png'}]});
  expect(f.feed.snapshot().messages[0]?.authorName).toBe('テスト名');expect(f.feed.snapshot().messages[0]?.content).toContain('<img');
  expect(f.feed.snapshot().messages[1]?.attachmentCount).toBe(1);expect(JSON.stringify(f.feed.snapshot())).not.toContain('private.invalid');
+});
+
+test('startup cutoff rejects earlier history and edits, remains fixed across reconnect and VC changes',async()=>{
+ const f=setup(),feed=new VcChatFeed('connecting',1700000000010);
+ await feed.start(f.rpc,selected,{...selected,messages:[message('9','before'),message('10','at boot'),message('11','after')]});
+ expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['10','11']);
+ f.send('MESSAGE_CREATE',message('8','old dispatch'));f.send('MESSAGE_UPDATE',{...message('7','old edit'),edited_timestamp:new Date().toISOString()});
+ expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['10','11']);
+ feed.disconnect();await feed.start(f.rpc,selected,{...selected,messages:[message('9'),message('11')]});expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['11']);
+ await feed.start(f.rpc,{...selected,id:'201'},{...selected,id:'201',messages:[message('9','old','201'),message('12','new VC','201')]});expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['12']);
+ feed.disconnect();
 });

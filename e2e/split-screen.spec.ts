@@ -17,7 +17,7 @@ test('split keeps independent color, alpha, depth and post effects, then frees i
 test('optional dialogue split enters, respects manual priority and persists in the Dock',async({page,context})=>{
  test.setTimeout(90000);const errors:string[]=[];await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();overlay.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('#camera-settings > summary').click();await expect(page.locator('#camera-split')).not.toBeChecked();await page.locator('#camera-split').check();
+ await page.locator('#camera-settings > summary').click();await expect(page.locator('#camera-split')).toBeChecked();
  const people=page.locator('.person');await people.nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();await people.nth(2).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#shot')).toHaveText('SPLIT',{timeout:20000});await expect(overlay.locator('#scene')).toHaveAttribute('data-split-count','2',{timeout:20000});
  await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');await expect(page.locator('#dialogue-state')).toHaveText('左右2分割中');
@@ -28,7 +28,7 @@ test('optional dialogue split enters, respects manual priority and persists in t
  await page.locator('#auto').click();await expect(page.locator('#mode')).toHaveText('HOLD');expect(errors).toEqual([]);
 });
 
-test('third-person backchannels preserve split, sustained entry establishes wide, and a takeover waits for STOP grace',async({page,context})=>{
+test('third-person backchannels preserve split, sustained entry establishes wide, and a takeover waits for STOP grace',async({page,context,request})=>{
  test.setTimeout(90000);const errors:string[]=[];
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
@@ -38,14 +38,20 @@ test('third-person backchannels preserve split, sustained entry establishes wide
  for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#shot')).toHaveText('SPLIT',{timeout:20000});await expect(scene).toHaveAttribute('data-split-count','2');
  const sides=await scene.getAttribute('data-split-users');
- await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();await page.waitForTimeout(650);
- await people.nth(0).getByRole('button',{name:'発話 OFF',exact:true}).click();
+ // Keep the synthetic 650ms backchannel independent of software-WebGL
+ // click scheduling. With the new 1.5s threshold a delayed STOP click can
+ // accidentally create a genuinely qualified third turn instead.
+ const initial=await page.evaluate(()=>new Promise<any>(resolve=>{const w=new WebSocket('ws://'+location.host+'/ws');w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){w.close();resolve(m.state);}};}));
+ const speak=async(active:boolean,revision:number)=>{
+  const response=await request.post('/api/commands',{headers:{Origin:'http://127.0.0.1:31339'},data:{type:'demo-speaking',userId:initial.participants[0].userId,active,expectedRevision:revision,requestId:crypto.randomUUID()}});expect(response.ok(),await response.text()).toBe(true);return (await response.json()).revision as number;
+ };
+ const revision=await speak(true,initial.revision);await new Promise(resolve=>setTimeout(resolve,650));await speak(false,revision);
  // A later independent turn starts only after the new 2.5-second END confirmation.
  await page.waitForTimeout(2600);
  await expect(page.locator('#shot')).toHaveText('SPLIT');expect(await scene.getAttribute('data-split-users')).toBe(sides);
  const thirdStart=Date.now();await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#dialogue-state')).toHaveText('3人目の発話を確認中',{timeout:2500});
- await expect(page.locator('#shot')).toHaveText('WIDE',{timeout:6000});expect(Date.now()-thirdStart).toBeGreaterThan(2300);
+ await expect(page.locator('#shot')).toHaveText('WIDE',{timeout:6000});expect(Date.now()-thirdStart).toBeGreaterThan(1300);
  await expect(scene).toHaveAttribute('data-split-count','1');await expect(page.locator('#dialogue-state')).toHaveText('3人以上の会話・全景');
  await scene.screenshot({path:'.work/rc10-third-speaker-wide.png',omitBackground:true});
  for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 OFF',exact:true}).click();

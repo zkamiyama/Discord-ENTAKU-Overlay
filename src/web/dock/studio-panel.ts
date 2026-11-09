@@ -10,6 +10,7 @@ export class StudioPanel {
  constructor(private client:StudioClient){
   for(const id of ['studio-files','studio-folder'])get<HTMLInputElement>(id).onchange=()=>void this.load(get<HTMLInputElement>(id));
   get('studio-pick').onclick=()=>get<HTMLInputElement>('studio-files').click();
+  get('studio-folder-pick').onclick=()=>get<HTMLInputElement>('studio-folder').click();
   get('studio-reset').onclick=()=>void this.reset();
  }
  update(state:AppSnapshot):void {
@@ -18,7 +19,7 @@ export class StudioPanel {
   get('studio-current').textContent=models.length?'読み込み済みのモデル':state.studio.broadcast?.enabled?'標準セット':'背景なし';
   if(models.length)void this.client.localFetch('/api/studio/bundles/'+models[0]!.bundleId).then(r=>r.json()).then(b=>{if(token===this.generation)get('studio-current').textContent=b.entry+(models.length>1?` ほか${models.length-1}個`:'');}).catch(()=>{});
  }
- private lock(value:boolean){this.busy=value;for(const id of ['studio-files','studio-folder','studio-reset','studio-pick'])(get(id) as HTMLInputElement).disabled=value;}
+ private lock(value:boolean){this.busy=value;for(const id of ['studio-files','studio-folder','studio-reset','studio-pick','studio-folder-pick'])(get(id) as HTMLInputElement).disabled=value;}
  private report(e:unknown){get('studio-feedback').textContent=e instanceof Error?e.message:'STUDIO_IMPORT_FAILED';}
  private async load(input:HTMLInputElement):Promise<void>{
   const files=[...(input.files??[])];if(this.busy||!files.length||!this.client.state)return;

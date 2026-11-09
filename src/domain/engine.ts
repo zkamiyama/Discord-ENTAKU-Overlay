@@ -1,3 +1,4 @@
+import {adjacentSeats} from '../geometry/seat-relations.ts';
 import {seatingSession,validatePreset,type ParameterPreset,type SeatingPreset} from '../presets/schema.ts';
 import {DEFAULT_DIRECTION} from '../studio/direction.ts';
 import { protectStudioCamera } from '../studio/camera-safety.ts';
@@ -50,6 +51,7 @@ export class AppEngine {
 
   constructor(private options: EngineOptions) {
     this.studio=validateStudioScene(options.studio??DEFAULT_STUDIO_SCENE);
+    this.configureDirection();
     if(options.autoCamera===false)this.director.setMode('HOLD');
     for (const session of options.sessions ?? []) this.allocators.set(session.channelId, new SeatAllocator(session));
     for(const profile of options.avatarProfiles??[]){const clean=validateProfile(profile);this.profiles.set(clean.userId,clean);}
@@ -186,12 +188,27 @@ export class AppEngine {
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();this.layoutHoldUntil=this.now+500;this.allocate();
     this.layoutHoldReason='AVATAR_CHANGED';this.forceWide('AVATAR_CHANGED');this.tick(this.now);
   }
+  private configureDirection():void {
+    const d=this.studio.direction??DEFAULT_DIRECTION;this.tracker.configure(d);this.director.configure(d);
+  }
   setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
     const clean=validateStudioScene(scene);this.advance(now);
     const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
-    const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;
-    if(exposureOnly){this.revision++;this.seq++;return;}
+    const previous=this.studio.direction??DEFAULT_DIRECTION,next=clean.direction??DEFAULT_DIRECTION;
+    const framingChanged=['portraitFov','wideHeightRatio','nearClip'].some(key=>previous[key as keyof typeof previous]!==next[key as keyof typeof next]);
+    const directionChanged=JSON.stringify(previous)!==JSON.stringify(next);
+    const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;this.configureDirection();
+    if(exposureOnly){
+      this.revision++;this.seq++;
+      if(framingChanged){
+        // Parameter edits are manual operations: reframe the current shot now,
+        // preserving AUTO/HOLD and its manual lease instead of waiting for speech.
+        this.camera=this.protect(planCamera(this.camera,this.camera.shot,'CAMERA_SETTINGS_CHANGED',this.byUser(),this.allocator.snapshot().capacity,this.layout.straightLength,this.now,this.avatarExtents(),this.layout.offsetZ??0,next));
+      }
+      if(directionChanged)this.tick(this.now);
+      return;
+    }
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);
@@ -203,7 +220,7 @@ export class AppEngine {
     next.updatePresent(this.presentIds(),this.options.utcNow?.()??new Date().toISOString());
     // Validate the entire replacement before touching the active state.
     makeSessionLayout(next.snapshot());this.advance(now);
-    this.studio={...p.studio,revision:input.studio.revision};this.profiles=new Map(p.avatarProfiles.map(a=>[a.userId,a]));
+    this.studio={...p.studio,revision:input.studio.revision};this.configureDirection();this.profiles=new Map(p.avatarProfiles.map(a=>[a.userId,a]));
     this.options.seatingDefaults=p.seating;this.options.autoCamera=p.autoCamera;this.allocator=next;
     if(this.channel)this.allocators.set(this.channel.channelId,next);
     this.layout=makeSessionLayout(next.snapshot());this.allocate();this.layoutMotion=undefined;
@@ -237,14 +254,16 @@ export class AppEngine {
     this.decision = this.director.update(this.now, this.tracker, {
       presentIds: present, sourceReady: this.connection === 'ready', layoutMoving: this.now < this.layoutHoldUntil, layoutReason:this.layoutHoldReason,
       splitEnabled:(this.studio.direction??DEFAULT_DIRECTION).splitEnabled,
+      preferPair:(a,b)=>!!byUser.get(a)&&!!byUser.get(b)&&adjacentSeats(byUser.get(a)!,byUser.get(b)!),
       canSplit:(a,b)=>{
+        if(byUser.get(a)&&byUser.get(b)&&adjacentSeats(byUser.get(a)!,byUser.get(b)!))return false;
         const signature=JSON.stringify([this.layout,[...byUser],[...extents],this.studio.direction,this.studio.camera,this.studio.tableAnchor]);
         if(signature!==this.splitSignature){this.splitCache.clear();this.splitSignature=signature;}
         const key=a+','+b;const cached=this.splitCache.get(key);if(cached!==undefined)return cached;
         const candidate=this.protect(planCamera(this.camera,{kind:'SPLIT',userIds:[a,b]},'SPLIT_FEASIBILITY',byUser,this.allocator.snapshot().capacity,this.layout.straightLength,this.now,extents,this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
         const ok=candidate.shot.kind==='SPLIT';if(this.splitCache.size>=32)this.splitCache.delete(this.splitCache.keys().next().value!);this.splitCache.set(key,ok);return ok;
       },
-      canPair: (a, b) => !!byUser.get(a) && !!byUser.get(b) && pairPose(byUser.get(a)!, byUser.get(b)!,[a,b].flatMap(id=>extents.has(id)?[extents.get(id)!]:[])) !== null,
+      canPair: (a, b) => !!byUser.get(a) && !!byUser.get(b) && pairPose(byUser.get(a)!, byUser.get(b)!,[a,b].flatMap(id=>extents.has(id)?[extents.get(id)!]:[]),(this.studio.direction??DEFAULT_DIRECTION).portraitFov) !== null,
     });
     if (this.decision.changed) {
       this.camera = this.protect(planCamera(this.camera, this.decision.shot, this.decision.reason, byUser, this.allocator.snapshot().capacity, this.layout.straightLength, this.now,this.avatarExtents(),this.layout.offsetZ??0,this.studio.direction??DEFAULT_DIRECTION));
@@ -303,7 +322,7 @@ export class AppEngine {
     if (!Number.isFinite(now)) throw new Error('INVALID_TIME');
     return structuredClone({
       protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
-      speech:this.presentIds().map(userId=>{const s=this.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified,speechMs10s:s.windowMs};}),
+      speech:this.presentIds().map(userId=>{const s=this.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified,speechWindowMs:s.windowMs,speechMs10s:this.tracker.intervals(userId,this.now,10000).reduce((n,i)=>n+i.end-i.start,0)};}),
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.participants.values()],
       session: this.allocator.snapshot(), straightLength: this.layout.straightLength, deskOffsetZ:this.layout.offsetZ??0, seats: this.layout.seats, layoutMotion: this.layoutMotion,

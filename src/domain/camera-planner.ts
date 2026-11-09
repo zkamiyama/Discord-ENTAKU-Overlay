@@ -1,3 +1,4 @@
+import {adjacentSeats} from '../geometry/seat-relations.ts';
 import {DEFAULT_DIRECTION,type DirectionSettings} from '../studio/direction.ts';
 import {plateFramePoints} from '../geometry/desk-props.ts';
 import {QuadraticBezierCurve3,Vector3,MathUtils,PerspectiveCamera} from 'three';
@@ -78,6 +79,14 @@ export function wideFaces(seats:ReadonlyMap<string,SeatTransform>,extents:Readon
 export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly AvatarExtent[] = [],portraitFov=DEFAULT_DIRECTION.portraitFov): CameraPose | null {
   const target=mul(add(a.faceAnchor,b.faceAnchor),0.5), inward=unit(add(a.inward,b.inward));
   const fov=Math.min(35,portraitFov+4),points=[...avatarFramePoints(a,extents[0]??{halfWidth:.28,topY:1.53,bottomY:.97}),...avatarFramePoints(b,extents[1]??extents[0]??{halfWidth:.28,topY:1.53,bottomY:.97})];
+  if(adjacentSeats(a,b)){
+    const aim:Vec3=[target[0],(Math.min(...points.map(p=>p[1]))+Math.max(...points.map(p=>p[1])))/2,target[2]];
+    for(let distance=1.5;distance<100;distance+=.08){
+      const pose:CameraPose={position:add(add(aim,mul(inward,distance)),[0,.18,0]),target:aim,fov};
+      if(fitsCameraFrame(pose,points,.83))return pose;
+    }
+    return null;
+  }
   const opposing=dot(a.inward,b.inward)<-.65&&Math.abs(a.position[2]-b.position[2])<.75;
   if(opposing){
     const width=length(sub(a.faceAnchor,b.faceAnchor))/2+Math.max(.65,...extents.map(e=>e.halfWidth));

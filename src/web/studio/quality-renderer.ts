@@ -148,7 +148,7 @@ export class QualityRenderer {
    }else if(this.ao){this.ao.dispose();this.ao=undefined;this.aoTarget?.dispose();}
    const postActive=hasPostEffects(p),postUsed=postActive||this.hasUnlit;
    let color:THREE.WebGLRenderTarget;
-   if(postUsed){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,postActive?p:DEFAULT_POST,focus,this.msaaSamples,this.hasUnlit);}
+   if(postUsed){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,postActive?p:{...DEFAULT_POST,enabled:false,saturation:1,contrast:1,bloom:false,dof:false},focus,this.msaaSamples,this.hasUnlit);}
    else {this.post?.dispose();this.post=undefined;this.output!.render(renderer,this.mapped!,input,0,false);color=this.mapped!;}
    const compositeDepth=postUsed?this.post!.depthTexture:this.world!.depthTexture!;
    let coverage=postUsed?color.texture:this.world!.texture;

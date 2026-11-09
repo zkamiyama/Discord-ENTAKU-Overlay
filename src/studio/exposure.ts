@@ -7,9 +7,7 @@ export interface ExposureSettings {
 }
 export const MIN_EXPOSURE = 2 ** -20;
 export const MAX_EXPOSURE = 32;
-export const DEFAULT_EXPOSURE: ExposureSettings = {mode:'auto',compensationEV:0,manualExposure:1,lighting:'auto'};
-/** User-provided comparison recipe for the attached Blender export, not a universal glTF conversion. */
-export const BLENDER_REFERENCE_EXPOSURE = 2 ** .8 / 683;
+export const DEFAULT_EXPOSURE: ExposureSettings = {mode:'auto',compensationEV:.5,manualExposure:1,lighting:'auto'};
 export function validateExposure(value: unknown): ExposureSettings {
   if(value===undefined)return {...DEFAULT_EXPOSURE};
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('STUDIO_EXPOSURE_INVALID');

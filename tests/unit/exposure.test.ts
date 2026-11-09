@@ -1,5 +1,6 @@
+const BLENDER_REFERENCE_EXPOSURE=2**.8/683; // Regression fixture, not a product preset.
 import {expect,test} from 'bun:test';
-import {DEFAULT_EXPOSURE,BLENDER_REFERENCE_EXPOSURE,validateExposure,meterExposure,adaptExposure,useFallbackLights,MIN_EXPOSURE} from '../../src/studio/exposure.ts';
+import {DEFAULT_EXPOSURE,validateExposure,meterExposure,adaptExposure,useFallbackLights,MIN_EXPOSURE} from '../../src/studio/exposure.ts';
 function patch(value:number,n=100,alpha=1){return Array.from({length:n},()=>[value,value,value,alpha]).flat();}
 test('auto exposure is the default and legacy scenes need no new settings',()=>{
  expect(validateExposure(undefined)).toEqual(DEFAULT_EXPOSURE);expect(DEFAULT_EXPOSURE.mode).toBe('auto');
@@ -42,7 +43,7 @@ test('unsupported HDR reports a manual fallback and display objects retain depth
  let draws=0;const renderer={shadowMap:{enabled:false,type:THREE.PCFShadowMap},extensions:{has:()=>false},render:()=>{draws++;}} as unknown as InstanceType<typeof THREE.WebGLRenderer>;
  const fallback=new THREE.Group(),exposure=new ExposureRenderer(renderer,fallback);
  const result=exposure.render(new THREE.Scene(),new THREE.PerspectiveCamera(),{...DEFAULT_EXPOSURE,manualExposure:.00255},'test',9,0);
- expect(result.exposureStatus).toBe('HDR_UNAVAILABLE');expect(result.exposure).toBe(.00255);expect(result.fallbackLights).toBe(false);
+ expect(result.exposureStatus).toBe('HDR_UNAVAILABLE');expect(result.exposure).toBeCloseTo(.00255*2**.5,12);expect(result.fallbackLights).toBe(false);
  const mesh=new THREE.Mesh(new THREE.PlaneGeometry(),new THREE.MeshBasicMaterial());protectDisplayObject(mesh);
  expect(mesh.material.toneMapped).toBe(false);expect(mesh.layers.isEnabled(1)).toBe(true);expect(mesh.layers.isEnabled(0)).toBe(false);
  expect(mesh.material.depthTest).toBe(true);exposure.dispose();exposure.render(new THREE.Scene(),new THREE.PerspectiveCamera());expect(draws).toBe(1);

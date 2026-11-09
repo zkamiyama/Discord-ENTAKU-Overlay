@@ -1,7 +1,7 @@
 import {expect,test} from './fixtures.ts';
 import type {APIRequestContext} from '@playwright/test';
 test.use({chatFixture:true});
-const post=(request:APIRequestContext,id:string,content:string)=>request.post('http://127.0.0.1:31340/',{data:{cmd:'DISPATCH',evt:'MESSAGE_CREATE',data:{channel_id:'200',message:{id,author:{id:'42',username:'テスト投稿者'},content,timestamp:new Date(1700000000000+Number(id)).toISOString()}}}});
+const post=(request:APIRequestContext,id:string,content:string)=>request.post('http://127.0.0.1:31340/',{data:{cmd:'DISPATCH',evt:'MESSAGE_CREATE',data:{channel_id:'200',message:{id,author:{id:'42',username:'テスト投稿者'},content,timestamp:new Date().toISOString()}}}});
 test('VC-CHAT displays new posts without flags, links safely, tracks edits/deletes, survives Dock reload and clears on VC move',async({page,request,context})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/dock');await expect(page.locator('#vc-chat-status')).toContainText('受信中');
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
@@ -29,4 +29,10 @@ test('reading older posts does not jump to the bottom; new-post indicator resume
  await page.locator('#vc-chat-latest').click();await expect(page.locator('#vc-chat-latest')).toBeHidden();
  expect(await page.locator('#vc-chat-messages').evaluate(el=>el.scrollHeight-el.scrollTop-el.clientHeight)).toBeLessThan(24);
  await request.post('http://127.0.0.1:31340/',{data:{action:'disconnect'}});await expect(page.locator('.chat-message')).toHaveCount(0);await expect(page.locator('#vc-chat-status')).toContainText('切断');
+});
+
+test('VC-CHAT omits pre-start messages even when a delayed old event arrives',async({page,request})=>{
+ await page.goto('/dock');await expect(page.locator('#vc-chat-status')).toContainText('受信中');
+ await request.post('http://127.0.0.1:31340/',{data:{cmd:'DISPATCH',evt:'MESSAGE_CREATE',data:{channel_id:'200',message:{id:'900',author:{id:'42',username:'テスト投稿者'},content:'起動前の投稿',timestamp:'2020-01-01T00:00:00Z'}}}});
+ await post(request,'901','起動後の投稿');await expect(page.locator('.chat-message')).toHaveCount(1);await expect(page.locator('.chat-body')).toHaveText('起動後の投稿');
 });

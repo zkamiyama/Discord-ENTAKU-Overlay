@@ -41,7 +41,7 @@ export interface AppSnapshot {
   protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
   studio: StudioScene;
-  speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean;speechMs10s?:number}>;
+  speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean;speechWindowMs?:number;speechMs10s?:number}>;
   avatarProfiles: AvatarProfile[];
   participants: Participant[]; session: SeatSession; straightLength: number; deskOffsetZ?: number; seats: SeatTransform[];
   layoutMotion?: { fromSeats: SeatTransform[]; fromStraightLength: number; fromDeskOffsetZ?: number; startMs: number; durationMs: number };

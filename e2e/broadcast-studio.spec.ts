@@ -31,6 +31,8 @@ test('compact Dock supports themes, keyboard menus and one/two moderator layouts
 });
 test('OTS uses a real opposite foreground and the rendered camera moves into a pair',async({page,context})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ // Isolate single-camera MOVE; the default split mode has separate coverage.
+ await page.locator('#camera-settings > summary').click();await page.locator('#camera-split').uncheck();
  const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
  const people=page.locator('.person');await people.nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#composition')).toHaveAttribute('data-composition','SINGLE_OTS',{timeout:8000});
