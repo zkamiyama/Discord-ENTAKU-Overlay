@@ -1,10 +1,12 @@
+import {seatLabel} from '../../geometry/seat-label.ts';
+import {PresetPanel} from './preset-panel.ts';
+import {StudioPanel} from './studio-panel.ts';
 import {DirectionPanel} from './direction-panel.ts';
 import {installNumericControls} from './numeric-controls.ts';
 import {PostPanel} from './post-panel.ts';
 import {QualityPanel} from './quality-panel.ts';
 import {ExposurePanel} from './exposure-panel.ts';
 import {DiagnosticsPanel} from './diagnostics-panel.ts';
-import {StudioEditor} from './studio-editor.ts';
 import {AvatarEditor} from './avatar-editor.ts';
 import {StudioClient} from '../shared/client.ts';
 import {dockPeople,type DockPerson} from './people.ts';
@@ -12,13 +14,13 @@ import {decorate,decorateShell,icon} from './icons.ts';
 import {installTheme} from './theme.ts';
 decorateShell();installTheme();
 const client=new StudioClient(),editor=new AvatarEditor(client);
-new StudioEditor(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client),directionPanel=new DirectionPanel(client);
+const studioPanel=new StudioPanel(client),presetPanel=new PresetPanel(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client),directionPanel=new DirectionPanel(client);
 installNumericControls();
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false,replayShown=false;
-async function command(value:Record<string,unknown>):Promise<void>{
+async function command(value:Record<string,unknown>,expectedRevision?:number):Promise<void>{
  if(busy)return;busy=true;errors.textContent='';
- try{await client.command(value);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}
+ try{await client.command(value,expectedRevision);}catch(e){errors.textContent=e instanceof Error?e.message:'操作に失敗しました';}finally{busy=false;}
 }
 get('auto').onclick=()=>void command({type:'mode',mode:client.state?.mode==='HOLD'?'AUTO':'HOLD'});
 get('wide').onclick=()=>void command({type:'wide'});
@@ -34,19 +36,30 @@ function closeMenu(restore=false){menu.hidden=true;menuTrigger?.setAttribute('ar
 document.addEventListener('pointerdown',e=>{if(!menu.contains(e.target as Node)&&!menuTrigger?.contains(e.target as Node))closeMenu();});
 menu.addEventListener('keydown',e=>{
  const items=[...menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')],current=items.indexOf(document.activeElement as HTMLButtonElement);
- if(e.key==='Escape'){e.preventDefault();closeMenu(true);}else if(e.key==='Tab')closeMenu();
+ if(e.key==='ArrowLeft'&&menu.dataset.submenu==='seats'){e.preventDefault();const row=[...rows.values()].find(r=>r.more===menuTrigger);closeMenu();if(row)openMenu(row);}
+ else if(e.key==='Escape'){e.preventDefault();closeMenu(true);}else if(e.key==='Tab')closeMenu();
  else if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();items[e.key==='Home'?0:e.key==='End'?items.length-1:(current+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();}
 });
-function openMenu(row:Row):void{
- if(menuTrigger===row.more&&!menu.hidden){closeMenu(true);return;}closeMenu();menu.replaceChildren();
- const user=row.user,state=client.state!,hosts=state.session.moderatorIds??[];
- const add=(glyph:string,label:string,fn:()=>void,disabled=false)=>{const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');decorate(b,glyph,label,true);b.disabled=disabled;b.onclick=()=>{closeMenu();fn();};menu.append(b);};
+function openMenu(row:Row,seats=false):void{
+ if(!seats&&menuTrigger===row.more&&!menu.hidden){closeMenu(true);return;}closeMenu();menu.replaceChildren();
+ const user=row.user,state=client.state!,hosts=state.session.moderatorIds??[];menu.dataset.submenu=seats?'seats':'';
+ const add=(glyph:string,label:string,fn:()=>void,disabled=false)=>{const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');decorate(b,glyph,label,true);b.disabled=disabled;b.onclick=()=>{closeMenu();fn();};menu.append(b);return b;};
+ if(seats){
+  add('arrow-counter-clockwise','戻る',()=>{closeMenu();openMenu(row);});
+  for(const seat of state.seats){const other=state.session.reservations.find(r=>r.slotIndex===seat.slotIndex),person=other?dockPeople(state).find(p=>p.userId===other.userId):undefined;
+   const label=seatLabel(seat,state.seats)+(seat.slotIndex===user.slotIndex?'（現在）':person?`（${person.name}と入替）`:'（空席）');
+   add('users',label,()=>void command({type:'seat-move',userId:user.userId,slotIndex:seat.slotIndex},state.revision),seat.slotIndex===user.slotIndex);
+  }
+ }else{
  add('image','画像を調整',()=>void editor.open(user.userId,user.name));
  add('crown','司会に指定',()=>void command({type:'moderators',userIds:[user.userId]}),user.slotIndex===undefined);
  add('users','共同司会に追加',()=>void command({type:'moderators',userIds:[...hosts,user.userId]}),user.slotIndex===undefined||hosts.includes(user.userId)||hosts.length>=2);
  if(hosts.includes(user.userId)&&hosts.length===2)add('users','司会指定を解除',()=>void command({type:'moderators',userIds:hosts.filter(id=>id!==user.userId)}));
  if(state.source==='demo'&&user.participant)add(user.presence==='present'?'sign-out':'sign-in',user.presence==='present'?'退出':'復帰',()=>void command({type:'demo-presence',userId:user.userId,present:user.presence!=='present'}));
  if(user.slotIndex!==undefined&&user.presence!=='present')add('trash','予約を解放',()=>{if(confirm(`${user.name}の席予約を解放しますか？`))void command({type:'release',userId:user.userId,confirm:true});},!user.canRelease);
+ const move=add('users','席移動 ›',()=>openMenu(row,true),user.slotIndex===undefined);move.setAttribute('aria-haspopup','menu');
+ move.onkeydown=e=>{if(e.key==='ArrowRight'){e.preventDefault();openMenu(row,true);}};
+ }
  const rect=row.more.getBoundingClientRect();menu.hidden=false;menu.style.left=Math.max(8,Math.min(rect.right-menu.offsetWidth,innerWidth-menu.offsetWidth-8))+'px';menu.style.top=Math.max(8,Math.min(rect.bottom+4,innerHeight-menu.offsetHeight-8))+'px';
  menuTrigger=row.more;row.more.setAttribute('aria-expanded','true');menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
 }
@@ -66,7 +79,7 @@ const compositionNames:Record<string,string>={SPLIT:'左右2分割',WIDE:'全景
 const visibilityNames:Record<string,string>={OVER_SHOULDER:'肩越し',ELEVATED_TO_AVOID_OCCLUSION:'高さを補正',SHIFTED_TO_AVOID_OCCLUSION:'横位置を補正',FALLBACK_TO_CLEAN_SINGLE:'通常構図',NO_CLEAR_COMPOSITION:'見通しを確認',TARGET_UNAVAILABLE:'対象待ち'};
 client.onState=state=>{
  exposurePanel.update(state);qualityPanel.update(state);postPanel.update(state);directionPanel.update(state);
- get('studio-current').textContent=`シーン ${state.studio.revision} · ${state.studio.objects.length}オブジェクト`;
+ studioPanel.update(state);presetPanel.update(state);
  get('mode').textContent=state.mode;get('shot').textContent=state.camera.shot.kind;get('camera-transition').textContent=state.camera.transition;
  get('composition').textContent=compositionNames[state.camera.composition??state.camera.shot.kind]??state.camera.shot.kind;
  get('composition').dataset.composition=state.camera.composition??state.camera.shot.kind;
@@ -93,7 +106,7 @@ client.onState=state=>{
  for(const [id,r]of rows)if(!ids.has(id)){r.element.remove();rows.delete(id);}
  let index=0;
  for(const user of people){let r=rows.get(user.userId);if(!r){r=row(user);rows.set(user.userId,r);}r.user=user;r.name.textContent=user.name;r.name.title=user.name;
-  const seat=user.slotIndex===undefined?undefined:state.seats[user.slotIndex],label=seat?.zone==='moderator'?'司会':seat?.zone==='front'?'手前':seat?.zone==='left'?`左${(seat.row??0)+1}`:seat?.zone==='right'?`右${(seat.row??0)+1}`:'待機';
+  const seat=user.slotIndex===undefined?undefined:state.seats[user.slotIndex],label=seat?seatLabel(seat,state.seats):'待機';
   if(r.seat.dataset.label!==label){r.seat.replaceChildren();if(seat?.zone==='moderator')r.seat.append(icon('crown'));else r.seat.textContent=label;r.seat.title=label;r.seat.setAttribute('aria-label',label);r.seat.dataset.label=label;}
   const presence=user.presence==='present'?(user.speaking==='active'?'発話中':user.speaking==='unknown'?'発話状態未確定':'無音'):user.presence==='absent'?'退出・予約中':'在席確認待ち';
   const speech=state.speech.find(s=>s.userId===user.userId);r.duration.textContent=user.speaking==='active'?`${((speech?.activeMs??0)/1000).toFixed(1)}s`:user.presence==='present'?'—':'退出';

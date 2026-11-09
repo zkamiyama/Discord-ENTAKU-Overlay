@@ -1,49 +1,34 @@
-import { expect,test } from './fixtures.ts';
-import { zipSync } from 'fflate';
-import { studioFixture } from '../tests/helpers/gltf.ts';
-test('ZIP GLTF with relative buffer and texture loads through GLTFLoader, previews and survives Dock reload',async({page,context})=>{
-  const errors:string[]=[],external:string[]=[];
-  page.on('pageerror',e=>errors.push(e.message));
-  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
-  const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
-  overlay.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith('http://127.0.0.1:31339/'))external.push(r.url());});
-  overlay.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
-  await overlay.goto(await page.locator('#overlay-url').inputValue());
-  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-revision',/\d+/);
-  const originalRevision=await overlay.locator('#scene').getAttribute('data-studio-revision');
-  await page.locator('#studio-open').click();
-  await page.locator('#studio-files').setInputFiles({name:'room.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(studioFixture()))});
-  await page.locator('#studio-import').click();
-  await expect(page.locator('#studio-feedback')).toHaveText('プレビューの内容を確認して「適用」してください。');
-  await expect(page.locator('#studio-object option')).toHaveCount(1);
-  expect(await overlay.locator('#scene').getAttribute('data-studio-revision')).toBe(originalRevision);
-  await page.locator('#studio-y').fill('1');await page.locator('#studio-y').blur();
-  await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
-  await expect(page.locator('#studio-editor')).not.toBeVisible();
-  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-revision',String(Number(originalRevision)+1));
-  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','READY');
-  await overlay.screenshot({path:'.work/preview-custom-studio.png',omitBackground:true});
-  await page.reload();await expect(page.locator('#studio-current')).toContainText('1オブジェクト');
-  await page.locator('#studio-open').click();await expect(page.locator('#studio-y')).toHaveValue('1');
-  await page.locator('#studio-reset').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
-  expect(external).toEqual([]);expect(errors).toEqual([]);
-});
-test('missing external texture is reported without applying a broken program scene',async({page})=>{
-  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
-  await page.locator('#studio-open').click();
-  const files=studioFixture();delete (files as Record<string,Uint8Array>)['textures/cutout.png'];
-  await page.locator('#studio-files').setInputFiles({name:'incomplete.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(files))});
-  await page.locator('#studio-import').click();await expect(page.locator('#studio-feedback')).toHaveText('STUDIO_DEPENDENCY_MISSING');
-  await page.locator('#studio-cancel').click();
-});
-test('an enclosing studio blocker falls back to a transparent safe wide shot',async({page,context})=>{
+import {expect,test} from './fixtures.ts';
+import {zipSync} from 'fflate';
+import {studioFixture} from '../tests/helpers/gltf.ts';
+async function snapshot(page:any){return page.evaluate(()=>new Promise<any>(resolve=>{const w=new WebSocket('ws://'+location.host+'/ws');w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){w.close();resolve(m.state);}};}));}
+test('inline ZIP/GLTF loads relative assets without an editor and survives Dock reload',async({page,context})=>{
+ const errors:string[]=[],external:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
- const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('#studio-open').click();
- await page.getByText('シーンJSON',{exact:true}).click();
- const scene=JSON.parse(await page.locator('#studio-json').inputValue());scene.camera={blockers:[{id:'blocked',min:[-100,-100,-100],max:[100,100,100]}]};
- await page.locator('#studio-json').fill(JSON.stringify(scene));await page.locator('#studio-json-load').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
- await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','CAMERA_SAFE_FALLBACK');
- await expect(page.locator('#shot')).toHaveText('WIDE');
- await page.locator('#studio-open').click();await page.locator('#studio-reset').click();await expect(page.locator('#studio-apply')).toBeEnabled();await page.locator('#studio-apply').click();
+ const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));overlay.on('request',r=>{if(/^https?:/.test(r.url())&&!r.url().startsWith('http://127.0.0.1:31339/'))external.push(r.url());});
+ await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await expect(page.locator('#studio-editor')).toHaveCount(0);await expect(page.locator('#studio-pick')).toBeVisible();
+ await page.locator('#studio-files').setInputFiles({name:'room.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(studioFixture()))});
+ await expect(page.locator('#studio-feedback')).toHaveText('適用しました',{timeout:20000});
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','READY');
+ expect((await snapshot(page)).studio.objects).toHaveLength(1);expect((await snapshot(page)).studio.broadcast.enabled).toBe(false);
+ await overlay.screenshot({path:'.work/rc12-inline-studio.png',omitBackground:true});
+ await page.reload();await expect(page.locator('#studio-current')).toContainText('room.gltf');
+ await page.locator('#studio-reset').click();await expect(page.locator('#studio-current')).toHaveText('標準セット');
+ expect(external).toEqual([]);expect(errors).toEqual([]);
+});
+test('missing texture and invalid GLTF leave the current scene unchanged',async({page})=>{
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const original=(await snapshot(page)).studio;
+ const files=studioFixture();delete (files as Record<string,Uint8Array>)['textures/cutout.png'];
+ await page.locator('#studio-files').setInputFiles({name:'incomplete.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(files))});
+ await expect(page.locator('#studio-feedback')).toHaveText('STUDIO_DEPENDENCY_MISSING');expect((await snapshot(page)).studio).toEqual(original);
+ await page.locator('#studio-files').setInputFiles({name:'bad.gltf',mimeType:'model/gltf+json',buffer:Buffer.from('{')});
+ await expect(page.locator('#studio-feedback')).toHaveText(/STUDIO_/);expect((await snapshot(page)).studio).toEqual(original);
+});
+test('legacy JSON camera blockers still enforce a transparent safe wide without the old editor',async({page,context})=>{
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
+ const s=await snapshot(page);s.studio.camera={blockers:[{id:'blocked',min:[-100,-100,-100],max:[100,100,100]}]};
+ expect(await page.evaluate(async s=>(await fetch('/api/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'studio-set',scene:s.studio,expectedRevision:s.revision,requestId:crypto.randomUUID()})})).status,s)).toBe(200);
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','CAMERA_SAFE_FALLBACK');await expect(page.locator('#shot')).toHaveText('WIDE');
+ await page.locator('#studio-reset').click();await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','READY');
 });
