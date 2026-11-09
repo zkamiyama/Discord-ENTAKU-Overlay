@@ -2,25 +2,25 @@ import {DEFAULT_QUALITY,validateQuality,type QualitySettings} from '../../studio
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
 const input=(id:string)=>document.getElementById(id) as HTMLInputElement;
-const fields:Record<string,keyof QualitySettings>={'quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates'};
+const fields:Record<string,keyof QualitySettings>={'quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates','quality-msaa':'msaa','quality-render-scale':'renderScale','quality-gi-strength':'giStrength','quality-gi-radius':'giRadius'};
 export class QualityPanel {
  private busy=false;
  constructor(private client:StudioClient){
-  for(const id of [...Object.keys(fields),'quality-ao','quality-reflections','quality-fxaa'])input(id).addEventListener('change',()=>void this.apply());
+  for(const id of [...Object.keys(fields),'quality-ao','quality-reflections','quality-fxaa','quality-gi'])input(id).addEventListener('change',()=>void this.apply());
   input('quality-default').onclick=()=>void this.preset({});
-  input('quality-low').onclick=()=>void this.preset({shadows:'off'});
-  input('quality-high').onclick=()=>void this.preset({shadows:'soft',shadowSize:2048,ao:'gtao',reflections:true,fxaa:true});
+  input('quality-low').onclick=()=>void this.preset({shadows:'off',msaa:0});
+  input('quality-high').onclick=()=>void this.preset({shadows:'soft',shadowSize:2048,ao:'gtao',reflections:true,fxaa:false,msaa:4,renderScale:1.5});
  }
  update(state:AppSnapshot):void{
   if(this.busy)return;const q=state.studio.quality??DEFAULT_QUALITY;
   for(const [id,key]of Object.entries(fields))if(document.activeElement!==input(id))input(id).value=String(q[key]);
-  input('quality-ao').checked=q.ao==='gtao';input('quality-reflections').checked=q.reflections;input('quality-fxaa').checked=q.fxaa;
+  input('quality-ao').checked=q.ao==='gtao';input('quality-reflections').checked=q.reflections;input('quality-fxaa').checked=q.fxaa;input('quality-gi').checked=q.gi==='ssgi';
  }
  private preset(value:Partial<QualitySettings>):Promise<void>{return this.save({...DEFAULT_QUALITY,nameplates:this.client.state?.studio.quality?.nameplates??'white',...value});}
  private apply():Promise<void>{
   const q:Record<string,unknown>={...DEFAULT_QUALITY};
   for(const [id,key]of Object.entries(fields))q[key]=typeof DEFAULT_QUALITY[key]==='number'?Number(input(id).value):input(id).value;
-  q.ao=input('quality-ao').checked?'gtao':'off';q.reflections=input('quality-reflections').checked;q.fxaa=input('quality-fxaa').checked;
+  q.ao=input('quality-ao').checked?'gtao':'off';q.reflections=input('quality-reflections').checked;q.fxaa=input('quality-fxaa').checked;q.gi=input('quality-gi').checked?'ssgi':'off';
   return this.save(q);
  }
  private async save(value:unknown):Promise<void>{

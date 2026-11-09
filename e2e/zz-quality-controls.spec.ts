@@ -14,7 +14,14 @@ test('quality switches persist without changing the shot and rear arc is fixed d
  await page.locator('#quality-nameplates').selectOption('blue');await expect.poll(async()=>(await snapshot(page)).studio.quality?.nameplates).toBe('blue');
  await overlay.screenshot({path:'.work/quality-high-nameplate.png',omitBackground:true});
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();await expect(page.locator('#quality-nameplates')).toHaveValue('blue');
- await page.locator('#quality-default').click();await page.locator('#quality-nameplates').selectOption('white');await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','DIRECT');
+ await page.locator('#quality-default').click();await page.locator('#quality-nameplates').selectOption('white');await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
+ await expect(page.locator('#quality-msaa')).toHaveValue('4');
+ await page.locator('#quality-gi').check();await expect.poll(async()=>(await snapshot(page)).studio.quality?.gi).toBe('ssgi');
+ await page.locator('#quality-render-scale').selectOption('1.5');
+ await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-render-scale'))).toBeGreaterThan(1);
+ await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();
+ await expect(page.locator('#quality-gi')).toBeChecked();await expect(page.locator('#quality-render-scale')).toHaveValue('1.5');
+ await page.locator('#quality-default').click();await expect(page.locator('#quality-gi')).not.toBeChecked();
  const initial=await snapshot(page);const host=initial.seats.find((s:any)=>s.zone==='moderator');
  for(let i=0;i<3;i++)await page.locator('#add').click();
  await expect.poll(async()=>(await snapshot(page)).session.capacity).toBeGreaterThan(initial.session.capacity);

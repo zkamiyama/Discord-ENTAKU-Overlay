@@ -78,7 +78,7 @@ test('AO, SSR and FXAA preserve avatar RGB, transparent background and world-dep
  await page.route('**/static/exposure-probe.js',route=>route.fulfill({contentType:'text/javascript',body:probe}));
  await page.goto('/exposure-probe');await page.waitForFunction(()=>!!(window as any).exposureProbe);
  const baseline=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.manual(.001);return {pixels:p.pixels(),memory:p.memory()};});
- for(const q of [{ao:'gtao'},{reflections:true},{fxaa:true},{ao:'gtao',reflections:true,fxaa:true}]){
+ for(const q of [{ao:'gtao'},{reflections:true},{fxaa:true},{ao:'gtao',reflections:true,fxaa:true},{gi:'ssgi'},{gi:'ssgi',ao:'gtao',reflections:true,fxaa:true}]){
   const a=await page.evaluate(q=>{const p=(window as any).exposureProbe;const r=p.quality(q);p.manual(1);return {report:r,pixels:p.pixels()};},q);
   expect(a.report.qualityStatus).toBe('EFFECTS');
   const b=await page.evaluate(()=>{const p=(window as any).exposureProbe;p.manual(.0001);return p.pixels();});

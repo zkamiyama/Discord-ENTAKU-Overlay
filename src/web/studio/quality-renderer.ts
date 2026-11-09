@@ -1,3 +1,4 @@
+import {SSGIPass} from './ssgi-pass.ts';
 import * as THREE from 'three';
 import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
 import {SSRPass} from 'three/addons/postprocessing/SSRPass.js';
@@ -9,13 +10,15 @@ export type QualityStatus='DIRECT'|'EFFECTS'|'EFFECTS_UNAVAILABLE'|'EFFECTS_FAIL
 /** Official passes compute effects. This adapter alone restores scene depth before
  * drawing display-layer avatars, keeping their RGB outside AO, SSR and AgX. */
 export class QualityRenderer {
+ private gi?:SSGIPass;private giTarget?:THREE.WebGLRenderTarget;
  private world?:THREE.WebGLRenderTarget;private work?:THREE.WebGLRenderTarget;private aoTarget?:THREE.WebGLRenderTarget;
+ private reflections?:THREE.WebGLRenderTarget;private reflectionBlend?:FullScreenQuad;
  private mapped?:THREE.WebGLRenderTarget;private antialiased?:THREE.WebGLRenderTarget;
  private ao?:GTAOPass;private ssr?:SSRPass;private output?:OutputPass;private fxaa?:FXAAPass;private screen?:FullScreenQuad;
  private w=0;private h=0;private passScene?:THREE.Scene;private passCamera?:THREE.Camera;
  private shadowKey='';private lights:Array<THREE.DirectionalLight|THREE.SpotLight>=[];private desk?:THREE.Object3D;
- private failed=false;private lastOptions='';
- status:QualityStatus='DIRECT';get shadowLights():number{return this.lights.length;}
+ private sampleCounts?:number[];private failed=false;private lastOptions='';
+ status:QualityStatus='DIRECT';msaaSamples=0;get shadowLights():number{return this.lights.length;}
  constructor(private renderer:THREE.WebGLRenderer,private displayLayer=1){}
  private configureShadows(scene:THREE.Scene,q:QualitySettings,source:string):void{
   const key=[source,q.shadows,q.shadowSize,q.shadowLights].join('|');
@@ -51,7 +54,12 @@ export class QualityRenderer {
   this.releaseEffects();this.passScene=scene;this.passCamera=camera;
   const rt=()=>new THREE.WebGLRenderTarget(1,1,{type:THREE.HalfFloatType,colorSpace:THREE.LinearSRGBColorSpace,depthBuffer:false,generateMipmaps:false});
   this.world=rt();this.world.depthBuffer=true;this.world.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
-  this.work=rt();this.aoTarget=rt();
+  this.work=rt();this.aoTarget=rt();this.reflections=rt();this.giTarget=rt();
+  this.reflectionBlend=new FullScreenQuad(new THREE.ShaderMaterial({
+   uniforms:{base:{value:null},reflection:{value:null},mask:{value:null}},depthTest:false,depthWrite:false,toneMapped:false,blending:THREE.NoBlending,
+   vertexShader:'varying vec2 v;void main(){v=uv;gl_Position=vec4(position.xy,0.,1.);}',
+   fragmentShader:'uniform sampler2D base,reflection,mask;varying vec2 v;void main(){vec4 b=texture2D(base,v),r=texture2D(reflection,v);gl_FragColor=b;float receiver=texture2D(mask,v).r;if(receiver>0.&&r.a>0.)gl_FragColor.rgb+=r.rgb*clamp(r.a,0.,1.)*receiver;}'
+  }));
   this.mapped=new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,generateMipmaps:false});this.antialiased=this.mapped.clone();
   this.output=new OutputPass();this.output.material.depthTest=false;this.output.material.depthWrite=false;
   this.fxaa=new FXAAPass();
@@ -68,7 +76,7 @@ export class QualityRenderer {
   const renderer=this.renderer;
   this.configureShadows(scene,q,source);
   const options=JSON.stringify(q);if(options!==this.lastOptions){this.failed=false;this.lastOptions=options;}
-  if(!hasScreenEffects(q)){this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
+  if(!hasScreenEffects(q)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
   if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderer.render(scene,camera);return;}
   if(this.failed){this.status='EFFECTS_FAILED';renderer.render(scene,camera);return;}
   const mask=camera.layers.mask,target=renderer.getRenderTarget(),auto=renderer.autoClear,background=scene.background;
@@ -77,14 +85,37 @@ export class QualityRenderer {
   const viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),test=renderer.getScissorTest();
   try{
    this.allocate(scene,camera);
+   if(!this.sampleCounts){
+    // r187 WebGLRenderer is WebGL2-only. Query the actual color/depth formats,
+    // not just MAX_SAMPLES: 8x is often unavailable for RGBA16F attachments.
+    const gl=renderer.getContext() as WebGL2RenderingContext;
+    const color=Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER,gl.RGBA16F,gl.SAMPLES) as Int32Array);
+    const depth=Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,gl.SAMPLES) as Int32Array);
+    this.sampleCounts=color.filter(n=>depth.includes(n)).sort((a,b)=>b-a);
+   }
+   const samples=this.sampleCounts.find(n=>n<=q.msaa&&n<=renderer.capabilities.maxSamples)??0;
+   if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
    const size=renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
-   if(w!==this.w||h!==this.h){this.w=w;this.h=h;for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased])rt!.setSize(w,h);}
+   if(w!==this.w||h!==this.h){this.w=w;this.h=h;for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased,this.reflections,this.giTarget])rt!.setSize(w,h);}
    camera.layers.disable(this.displayLayer);renderer.setScissorTest(false);renderer.autoClear=true;
    renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
    renderer.setRenderTarget(this.world!);renderer.clear();renderer.render(scene,camera);
    let input=this.world!;
+   if(q.gi==='ssgi'){
+    this.gi??=new SSGIPass();this.gi.render(renderer,scene,camera,input,this.world!.depthTexture!,this.giTarget!,q);input=this.giTarget!;
+   }else if(this.gi){this.gi.dispose();this.gi=undefined;this.giTarget?.dispose();}
    if(q.reflections){
-    this.ssr??=new SSRPass({renderer,scene,camera,width:w,height:h,selects:[],groundReflector:null});
+    if(!this.ssr){
+     this.ssr=new SSRPass({renderer,scene,camera,width:w,height:h,selects:[],groundReflector:null});
+     // r187 defaults to 16-bit depth, which visibly quantizes closely spaced
+     // GLB surfaces. Set precision before allocating the GPU texture.
+     this.ssr.beautyRenderTarget.depthTexture!.type=THREE.UnsignedIntType;
+     this.ssr.output=SSRPass.OUTPUT.SSR;
+     this.ssr.ssrMaterial.fragmentShader=this.ssr.ssrMaterial.fragmentShader.replace('void main(){','void main(){gl_FragColor=vec4(0.);');
+     for(const rt of [this.ssr.ssrRenderTarget,this.ssr.blurRenderTarget,this.ssr.blurRenderTarget2]){
+      rt.texture.type=THREE.HalfFloatType;rt.texture.minFilter=rt.texture.magFilter=THREE.LinearFilter;
+     }
+    }
     if(this.ssr.resolutionScale!==q.effectsScale)this.ssr.resolutionScale=q.effectsScale;if(this.ssr.width!==w||this.ssr.height!==h)this.ssr.setSize(w,h);
     this.ssr.ssrMaterial.uniforms.cameraProjectionMatrix!.value.copy(camera.projectionMatrix);this.ssr.ssrMaterial.uniforms.cameraInverseProjectionMatrix!.value.copy(camera.projectionMatrixInverse);this.ssr.opacity=q.reflectionOpacity;this.ssr.maxDistance=8;this.ssr.thickness=.035;this.ssr.bouncing=false;
     // Avoid making rough plaster and every wall a mirror. Render scene-colored reflections only on selected smooth surfaces.
@@ -92,17 +123,23 @@ export class QualityRenderer {
      const materials=Array.isArray(o.material)?o.material:[o.material];
      if(o.userData.entakuReflective||materials.some(m=>m instanceof THREE.MeshStandardMaterial&&(m.metalness>.2||m.roughness<.45)))selected.push(o);
     }});this.ssr.selects=selected;
-    this.ssr.render(renderer,this.work!,input,0,false);input=this.work!;
-   }else if(this.ssr){this.ssr.dispose();this.ssr=undefined;}
+    this.ssr.ssrMaterial.uniforms.cameraNear!.value=camera.near;this.ssr.ssrMaterial.uniforms.cameraFar!.value=camera.far;
+    this.ssr.render(renderer,this.reflections!,input,0,false);
+    // Never replace the MSAA beauty with SSRPass's separate, non-MSAA beauty.
+    // Reapply its receiver mask after the reflection blur to stop wall bleeding.
+    const u=(this.reflectionBlend!.material as THREE.ShaderMaterial).uniforms;
+    u.base!.value=input.texture;u.reflection!.value=this.reflections!.texture;u.mask!.value=this.ssr.metalnessRenderTarget.texture;
+    renderer.setRenderTarget(this.work!);renderer.clear();this.reflectionBlend!.render(renderer);input=this.work!;
+   }else if(this.ssr){this.ssr.ssrMaterial.dispose();this.ssr.dispose();this.ssr=undefined;this.reflections?.dispose();this.work?.dispose();}
    if(q.ao==='gtao'){
     this.ao??=new GTAOPass(scene,camera,w,h,{depthTexture:this.world!.depthTexture!});
     const aw=Math.max(1,Math.round(w*q.effectsScale)),ah=Math.max(1,Math.round(h*q.effectsScale));if(this.ao.width!==aw||this.ao.height!==ah)this.ao.setSize(aw,ah);
     this.ao.blendIntensity=q.aoStrength;this.ao.updateGtaoMaterial({radius:q.aoRadius,distanceExponent:1,thickness:1,scale:1,samples:8});
     this.ao.render(renderer,this.aoTarget!,input,0,false);input=this.aoTarget!;
-   }else if(this.ao){this.ao.dispose();this.ao=undefined;}
+   }else if(this.ao){this.ao.dispose();this.ao=undefined;this.aoTarget?.dispose();}
    this.output!.render(renderer,this.mapped!,input,0,false);
    let color=this.mapped!;
-   if(q.fxaa){this.fxaa!.setSize(w,h);this.fxaa!.render(renderer,this.antialiased!,color,0,false);color=this.antialiased!;}
+   if(q.fxaa){this.fxaa!.setSize(w,h);this.fxaa!.render(renderer,this.antialiased!,color,0,false);color=this.antialiased!;}else this.antialiased?.dispose();
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
    uniforms.color!.value=color.texture;uniforms.depth!.value=this.world!.depthTexture;uniforms.coverage!.value=this.world!.texture;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
@@ -117,10 +154,12 @@ export class QualityRenderer {
   }
  }
  private releaseEffects():void{
-  this.ao?.dispose();this.ssr?.dispose();this.output?.dispose();this.fxaa?.dispose();
+  this.gi?.dispose();this.gi=undefined;
+  this.ao?.dispose();this.ssr?.ssrMaterial.dispose();this.ssr?.dispose();this.output?.dispose();this.fxaa?.dispose();
   if(this.screen){this.screen.material.dispose();this.screen.dispose();}
-  for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased])rt?.dispose();
-  this.world=this.work=this.aoTarget=this.mapped=this.antialiased=undefined;
+  for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased,this.reflections,this.giTarget])rt?.dispose();
+  this.world=this.work=this.aoTarget=this.mapped=this.antialiased=this.reflections=this.giTarget=undefined;
+  if(this.reflectionBlend){this.reflectionBlend.material.dispose();this.reflectionBlend.dispose();this.reflectionBlend=undefined;}
   this.ao=undefined;this.ssr=undefined;this.output=undefined;this.fxaa=undefined;this.screen=undefined;this.w=this.h=0;
  }
  dispose():void{this.releaseEffects();}

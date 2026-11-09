@@ -20,7 +20,7 @@ export function createFallbackLights():THREE.Group {
   const rim=new THREE.DirectionalLight(0xffd5a1,1.2);rim.position.set(-3,3,-4);group.add(rim);return group;
 }
 export type ExposureStatus='AUTO'|'MANUAL'|'EMPTY_METER'|'HDR_UNAVAILABLE'|'METER_FAILED';
-export interface ExposureReport {exposure:number;exposureStatus:ExposureStatus;authoredLights:number;fallbackLights:boolean;qualityStatus?:QualityStatus;shadowLights?:number}
+export interface ExposureReport {exposure:number;exposureStatus:ExposureStatus;authoredLights:number;fallbackLights:boolean;qualityStatus?:QualityStatus;shadowLights?:number;msaaSamples?:number}
 /** Low-resolution HDR meter uses Three.js render targets/readback. QualityRenderer
  * uses either direct rendering or depth-preserving effects followed by the display layer. */
 export class ExposureRenderer {
@@ -89,7 +89,7 @@ export class ExposureRenderer {
     const exposure=clampExposure(this.current*2**settings.compensationEV);
     this.renderer.toneMappingExposure=exposure;
     this.quality.render(scene,camera,quality,source+'|'+this.fallback.visible);
-    this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights};return this.report;
+    this.report={exposure,exposureStatus:this.status,authoredLights,fallbackLights:this.fallback.visible,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights,msaaSamples:this.quality.msaaSamples};return this.report;
   }
   dispose():void{this.quality.dispose();this.disposed=true;this.generation++;if(!this.pending)this.target.dispose();}
 }

@@ -1,3 +1,4 @@
+import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
 import {disposeObject} from '../studio/dispose.ts';
 import {DEFAULT_QUALITY} from '../../studio/quality.ts';
 import {ExposureRenderer,createFallbackLights,protectDisplayObject} from '../studio/exposure-renderer.ts';
@@ -46,7 +47,7 @@ function placeholder(user:Participant):THREE.CanvasTexture {
 class Avatar {
   root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
   outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
-  user:Participant; opacity=0; glow=0; yaw=0; disposed=false; textureVersion=0; avatarUrl?:string;
+  user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
   custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
   constructor(user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
@@ -94,10 +95,9 @@ class Avatar {
     this.opacity+=(target-this.opacity)*(1-Math.exp(-dt/.2));this.root.visible=this.plate.visible=this.opacity>.005;
     this.root.position.fromArray(seat.faceAnchor);
     if(this.profile){this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX;this.root.position.z-=Math.sin(seat.baseYawRad)*this.profile.offsetX;this.root.position.y+=this.profile.offsetY;}
-    const dx=camera.position.x-this.root.position.x,dz=camera.position.z-this.root.position.z;
-    let delta=Math.atan2(dx,dz)-seat.baseYawRad;delta=Math.atan2(Math.sin(delta),Math.cos(delta));
-    const front=Math.cos(delta),aim=front>0?THREE.MathUtils.clamp(delta,-Math.PI/6,Math.PI/6)*THREE.MathUtils.smoothstep(front,0,.25):0;
-    this.yaw+=(aim-this.yaw)*(1-Math.exp(-dt/.15));this.root.rotation.y=seat.baseYawRad+this.yaw;
+    // Follow the current shot immediately. Camera MOVE may interpolate its pose,
+    // but avatars must not keep swivelling after a CUT.
+    this.root.rotation.y=avatarFacingYaw(seat.baseYawRad,camera.position.x-this.root.position.x,camera.position.z-this.root.position.z);
     this.body.material.uniforms.opacity!.value=this.opacity;
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
@@ -119,10 +119,13 @@ client.onState=next=>{state=next;void studioVisual.update(next.studio);for(const
 };
 let previous=performance.now(),lastLength=-1,reportAt=0,frameMs=16.7;
 let contextLost=false;canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;});canvas.addEventListener('webglcontextrestored',()=>{location.reload();});
-function resize(){const w=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),h=w*9/16;renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(w,h);}
+let lastPixelRatio=0;
+function resize(){const w=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),h=w*9/16;const requested=Math.min(devicePixelRatio,1.5)*(state?.studio.quality?.renderScale??1);lastPixelRatio=Math.min(requested,4096/w,2304/h);renderer.setPixelRatio(lastPixelRatio);renderer.setSize(w,h);}
 window.addEventListener('resize',resize);resize();
 function frame(time:number):void{
   requestAnimationFrame(frame);renderer.info.reset();frameMs=frameMs*.9+Math.min(1000,time-previous)*.1;const dt=Math.min((time-previous)/1000,.05);previous=time;
+  const requested=Math.min(Math.min(devicePixelRatio,1.5)*(state?.studio.quality?.renderScale??1),4096/Math.max(1,Math.min(innerWidth,innerHeight*16/9)),2304/Math.max(1,Math.min(innerHeight,innerWidth*9/16)));
+  if(Math.abs(requested-lastPixelRatio)>.0001)resize();
   const serverNow=client.now();let length=state?.straightLength??0;
   let offsetZ=state?.deskOffsetZ??0;let progress=1;const motion=state?.layoutMotion;
   if(motion){progress=THREE.MathUtils.clamp((serverNow-motion.startMs)/motion.durationMs,0,1);progress=THREE.MathUtils.smootherstep(progress,0,1);length=THREE.MathUtils.lerp(motion.fromStraightLength,length,progress);offsetZ=THREE.MathUtils.lerp(motion.fromDeskOffsetZ??0,offsetZ,progress);}
@@ -147,7 +150,7 @@ function frame(time:number):void{
   }
   if(!contextLost){
     const report=exposureRenderer.render(scene,camera,state?.studio.exposure??DEFAULT_EXPOSURE,String(studioVisual.renderGeneration),studioVisual.root.visible?studioVisual.authoredLights:0,time,state?.studio.quality??DEFAULT_QUALITY);
-    canvas.dataset.exposure=String(report.exposure);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
+    canvas.dataset.exposure=String(report.exposure);canvas.dataset.msaaSamples=String(report.msaaSamples??0);canvas.dataset.renderScale=String(lastPixelRatio);canvas.dataset.qualityStatus=report.qualityStatus;canvas.dataset.shadowLights=String(report.shadowLights);canvas.dataset.exposureStatus=report.exposureStatus;
     canvas.dataset.authoredLights=String(report.authoredLights);canvas.dataset.fallbackLights=String(report.fallbackLights);
   }
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,exposureRenderer.report);}
