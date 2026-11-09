@@ -35,3 +35,16 @@ test('post tab presets, exclusion and focus settings persist without changing th
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#quality-panel > summary').click();await page.locator('#post-tab').click();await expect(page.locator('#post-focus-distance')).toHaveValue('7');await expect(page.locator('#post-exclude')).not.toBeChecked();
  await page.screenshot({path:'.work/rc7-post-tab.png',fullPage:true});await page.locator('#post-reset').click();await expect(page.locator('#post-speech-glow')).toHaveValue('4');
 });
+
+test('glossy tabletop SSR cannot introduce black pixels from invalid reflection samples',async({page,context})=>{
+ test.setTimeout(90000);
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1800);
+ const snapshot=()=>page.evaluate(()=>new Promise<any>(resolve=>{const w=new WebSocket('ws://'+location.host+'/ws');w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){w.close();resolve(m.state);}};}));
+ const exposure=Number(await overlay.locator('#scene').getAttribute('data-exposure'));
+ const apply=async(reflections:boolean)=>{const s=await snapshot();await page.evaluate(async({s,exposure,reflections})=>{const r=await fetch('/api/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'studio-set',requestId:crypto.randomUUID(),expectedRevision:s.revision,scene:{...s.studio,quality:{shadows:'off',msaa:4,reflections},exposure:{mode:'manual',compensationEV:0,manualExposure:exposure,lighting:'auto'}}})});if(!r.ok)throw new Error(await r.text());},{s,exposure,reflections});await page.waitForTimeout(500);};
+ await apply(false);const before=(await overlay.locator('#scene').screenshot()).toString('base64');
+ await apply(true);const after=(await overlay.locator('#scene').screenshot({path:'.work/rc7-glossy-table.png'})).toString('base64');
+ const black=await page.evaluate(async({before,after})=>{const pixels=async(base64:string)=>{const b=await createImageBitmap(new Blob([Uint8Array.from(atob(base64),x=>x.charCodeAt(0))],{type:'image/png'}));const c=document.createElement('canvas');c.width=b.width;c.height=b.height;const x=c.getContext('2d')!;x.drawImage(b,0,0);b.close();return x.getImageData(0,0,c.width,c.height).data;};const a=await pixels(before),b=await pixels(after);let count=0;for(let i=0;i<a.length;i+=4)if(a[i]!+a[i+1]!+a[i+2]!>90&&b[i]!+b[i+1]!+b[i+2]!<9)count++;return count;},{before,after});
+ expect(black).toBe(0);
+});

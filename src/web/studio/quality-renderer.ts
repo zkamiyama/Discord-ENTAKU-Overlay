@@ -61,7 +61,7 @@ export class QualityRenderer {
   this.reflectionBlend=new FullScreenQuad(new THREE.ShaderMaterial({
    uniforms:{base:{value:null},reflection:{value:null},mask:{value:null}},depthTest:false,depthWrite:false,toneMapped:false,blending:THREE.NoBlending,
    vertexShader:'varying vec2 v;void main(){v=uv;gl_Position=vec4(position.xy,0.,1.);}',
-   fragmentShader:'uniform sampler2D base,reflection,mask;varying vec2 v;void main(){vec4 b=texture2D(base,v),r=texture2D(reflection,v);gl_FragColor=b;float receiver=texture2D(mask,v).r;if(receiver>0.&&r.a>0.)gl_FragColor.rgb+=r.rgb*clamp(r.a,0.,1.)*receiver;}'
+   fragmentShader:'uniform sampler2D base,reflection,mask;varying vec2 v;void main(){vec4 b=texture2D(base,v),r=texture2D(reflection,v);gl_FragColor=b;float receiver=texture2D(mask,v).r;if(any(isnan(r))||any(isinf(r)))return;if(receiver>0.&&r.a>0.)gl_FragColor.rgb+=max(r.rgb,vec3(0.))*clamp(r.a,0.,1.)*receiver;}'
   }));
   this.mapped=new THREE.WebGLRenderTarget(1,1,{depthBuffer:false,generateMipmaps:false});this.antialiased=this.mapped.clone();
   this.output=new OutputPass();this.output.material.depthTest=false;this.output.material.depthWrite=false;
