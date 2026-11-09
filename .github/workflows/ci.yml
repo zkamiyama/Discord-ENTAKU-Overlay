@@ -46,6 +46,14 @@ jobs:
         with:
           node-version: 22
       - run: bun install --frozen-lockfile
+      - name: Build portable renderer regression harness
+        run: bun build tests/helpers/studio-material-probe.ts --target=browser --outfile=.work/studio-material-probe.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: entaku-material-regression-harness
+          path: .work/studio-material-probe.js
+          retention-days: 7
+          if-no-files-found: error
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
 

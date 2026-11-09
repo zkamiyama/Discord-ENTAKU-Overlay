@@ -1,3 +1,4 @@
+import {prepareStudioMaterials} from './studio-materials.ts';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -41,6 +42,7 @@ export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLR
     let meshes=0,triangles=0;
     model.traverse(o=>{if(o instanceof THREE.Mesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.getAttribute('position')?.count??0)/3*(o instanceof THREE.InstancedMesh?o.count:1);}});
     if(meshes>5000||triangles>5_000_000)throw new Error('STUDIO_GEOMETRY_LIMIT');
+    prepareStudioMaterials(model);
     model.updateMatrixWorld(true);
     const box=new THREE.Box3().setFromObject(model);
     if(!box.isEmpty()&&![...box.min.toArray(),...box.max.toArray()].every(Number.isFinite))throw new Error('STUDIO_GEOMETRY_INVALID');

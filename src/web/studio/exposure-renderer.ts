@@ -1,3 +1,4 @@
+import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import {DEFAULT_POST,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {QualityRenderer,type QualityStatus} from './quality-renderer.ts';
 import {DEFAULT_QUALITY,type QualitySettings} from '../../studio/quality.ts';
@@ -50,7 +51,7 @@ export class ExposureRenderer {
     const background=scene.background,viewport=renderer.getViewport(new THREE.Vector4()),scissor=renderer.getScissor(new THREE.Vector4()),scissorTest=renderer.getScissorTest();
     const token=this.generation;
     try{
-      camera.layers.disable(DISPLAY_LAYER);scene.background=null;renderer.autoClear=true;
+      camera.layers.disable(DISPLAY_LAYER);camera.layers.disable(STUDIO_UNLIT_LAYER);scene.background=null;renderer.autoClear=true;
       renderer.setClearColor(0,0);renderer.setRenderTarget(this.target);renderer.setScissorTest(false);
       // Render targets bypass tone mapping. The HalfFloat texture is linear HDR, not a clipped screenshot.
       renderer.render(scene,camera);
@@ -79,7 +80,7 @@ export class ExposureRenderer {
     if(key!==this.source){this.source=key;this.generation++;this.initialized=false;this.nextMeter=0;}
     this.fallback.visible=useFallbackLights(settings,authoredLights);
     this.renderer.toneMapping=THREE.AgXToneMapping;this.renderer.outputColorSpace=THREE.SRGBColorSpace;
-    camera.layers.enable(DISPLAY_LAYER);
+    camera.layers.enable(DISPLAY_LAYER);camera.layers.enable(STUDIO_UNLIT_LAYER);
     if(settings.mode==='auto'&&this.available&&!this.pending&&now>=this.nextMeter){
       this.sample(scene,camera,!this.initialized);this.nextMeter=now+250;
     }

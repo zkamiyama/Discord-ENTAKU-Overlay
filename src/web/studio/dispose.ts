@@ -6,6 +6,7 @@ export function disposeObject(root:THREE.Object3D):void {
   root.traverse(object=>{
     if(object instanceof THREE.Mesh||object instanceof THREE.Line||object instanceof THREE.Points){
       geometries.add(object.geometry);
+      if(object instanceof THREE.Mesh){if(object.customDepthMaterial)materials.add(object.customDepthMaterial);if(object.customDistanceMaterial)materials.add(object.customDistanceMaterial);}
       for(const material of Array.isArray(object.material)?object.material:[object.material])materials.add(material);
     }
     if(object instanceof THREE.SkinnedMesh)skeletons.add(object.skeleton);

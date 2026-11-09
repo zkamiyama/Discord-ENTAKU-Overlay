@@ -1,3 +1,4 @@
+import {STUDIO_UNLIT_LAYER,installStudioAlphaShadows} from './studio-materials.ts';
 import {DisplayComposite} from './display-composite.ts';
 import {PostRenderer} from './post-renderer.ts';
 import {DEFAULT_POST,hasPostEffects,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
@@ -20,6 +21,7 @@ export class QualityRenderer {
  private mapped?:THREE.WebGLRenderTarget;private antialiased?:THREE.WebGLRenderTarget;
  private ao?:GTAOPass;private ssr?:SSRPass;private output?:OutputPass;private fxaa?:FXAAPass;private screen?:FullScreenQuad;
  private w=0;private h=0;private passScene?:THREE.Scene;private passCamera?:THREE.Camera;
+ private hasUnlit=false;
  private shadowKey='';private lights:Array<THREE.DirectionalLight|THREE.SpotLight>=[];private desk?:THREE.Object3D;
  private sampleCounts?:number[];private failed=false;private lastOptions='';
  status:QualityStatus='DIRECT';msaaSamples=0;get shadowLights():number{return this.lights.length;}
@@ -28,17 +30,19 @@ export class QualityRenderer {
   const key=[source,q.shadows,q.shadowSize,q.shadowLights].join('|');
   this.renderer.shadowMap.enabled=q.shadows==='soft';this.renderer.shadowMap.type=THREE.PCFShadowMap;
   if(this.shadowKey!==key){
-   this.shadowKey=key;this.lights=[];this.desk=undefined;
+   this.shadowKey=key;this.lights=[];this.desk=undefined;this.hasUnlit=false;
    const candidates:Array<THREE.DirectionalLight|THREE.SpotLight>=[];
    scene.traverse(o=>{
     if(o.userData.entakuDesk)this.desk=o;
-    if(o instanceof THREE.Mesh&&!o.layers.isEnabled(this.displayLayer)){o.castShadow=true;o.receiveShadow=true;}
+    if(o instanceof THREE.Mesh&&!o.layers.isEnabled(this.displayLayer)){o.castShadow=true;o.receiveShadow=!o.userData.entakuStudioUnlit;installStudioAlphaShadows(o);if(o.userData.entakuStudioUnlit)this.hasUnlit=true;}
     if(o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight)o.castShadow=false;
    });
    scene.traverseVisible(o=>{if((o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight)&&o.intensity>0)candidates.push(o);});
    if(q.shadows==='soft')this.lights=candidates.sort((a,b)=>Number(b instanceof THREE.DirectionalLight)-Number(a instanceof THREE.DirectionalLight)||b.intensity-a.intensity).slice(0,q.shadowLights);
    for(const l of this.lights){
     l.castShadow=true;
+    // Unlit studio artwork may cast cutout shadows; display avatars may not.
+    l.shadow.camera.layers.set(0);l.shadow.camera.layers.enable(STUDIO_UNLIT_LAYER);
     if(l.shadow.mapSize.x!==q.shadowSize){l.shadow.map?.dispose();l.shadow.map=null;l.shadow.mapSize.set(q.shadowSize,q.shadowSize);}
     l.shadow.bias=-.00005;l.shadow.normalBias=.012;l.shadow.radius=2.5;
     l.shadow.camera.near=.1;l.shadow.camera.far=Math.max(60,l.shadow.camera.far);l.shadow.camera.updateProjectionMatrix();l.shadow.needsUpdate=true;
@@ -78,6 +82,7 @@ export class QualityRenderer {
  }
  render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false):void{
   const renderer=this.renderer;
+  camera.layers.enable(STUDIO_UNLIT_LAYER);
   this.configureShadows(scene,q,source);
   const options=JSON.stringify([q,p]);if(options!==this.lastOptions){this.failed=false;this.lastOptions=options;}
   if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.status='DIRECT';renderer.render(scene,camera);return;}
@@ -101,7 +106,7 @@ export class QualityRenderer {
    if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
    const size=target?new THREE.Vector2(target.width,target.height):renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
    if(w!==this.w||h!==this.h){this.w=w;this.h=h;for(const rt of [this.world,this.work,this.aoTarget,this.mapped,this.antialiased,this.reflections,this.giTarget])rt!.setSize(w,h);}
-   camera.layers.disable(this.displayLayer);renderer.setScissorTest(false);renderer.autoClear=true;
+   camera.layers.disable(this.displayLayer);camera.layers.disable(STUDIO_UNLIT_LAYER);renderer.setScissorTest(false);renderer.autoClear=true;
    renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
    renderer.setRenderTarget(this.world!);renderer.clear();renderer.render(scene,camera);
    let input=this.world!;
@@ -141,18 +146,19 @@ export class QualityRenderer {
     this.ao.blendIntensity=q.aoStrength;this.ao.updateGtaoMaterial({radius:q.aoRadius,distanceExponent:1,thickness:1,scale:1,samples:8});
     this.ao.render(renderer,this.aoTarget!,input,0,false);input=this.aoTarget!;
    }else if(this.ao){this.ao.dispose();this.ao=undefined;this.aoTarget?.dispose();}
-   const postActive=hasPostEffects(p);
+   const postActive=hasPostEffects(p),postUsed=postActive||this.hasUnlit;
    let color:THREE.WebGLRenderTarget;
-   if(postActive){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,p,focus,this.msaaSamples);}
+   if(postUsed){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,postActive?p:DEFAULT_POST,focus,this.msaaSamples,this.hasUnlit);}
    else {this.post?.dispose();this.post=undefined;this.output!.render(renderer,this.mapped!,input,0,false);color=this.mapped!;}
-   let coverage=postActive?color.texture:this.world!.texture;
+   const compositeDepth=postUsed?this.post!.depthTexture:this.world!.depthTexture!;
+   let coverage=postUsed?color.texture:this.world!.texture;
    if(q.fxaa){this.fxaa!.setSize(w,h);this.fxaa!.render(renderer,this.antialiased!,color,0,false);color=this.antialiased!;}else this.antialiased?.dispose();
    if(target&&(!postActive||p.excludeAvatars)){
     this.displayComposite??=new DisplayComposite(this.displayLayer);
-    color=this.displayComposite.render(renderer,scene,camera,color,this.world!.depthTexture!,this.msaaSamples);coverage=color.texture;
+    color=this.displayComposite.render(renderer,scene,camera,color,compositeDepth,this.msaaSamples);coverage=color.texture;
    }
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
-   uniforms.color!.value=color.texture;uniforms.depth!.value=this.world!.depthTexture;uniforms.coverage!.value=coverage;
+   uniforms.color!.value=color.texture;uniforms.depth!.value=compositeDepth;uniforms.coverage!.value=coverage;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
    if(!target&&(!postActive||p.excludeAvatars)){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
    this.status='EFFECTS';

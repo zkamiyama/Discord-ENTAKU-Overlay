@@ -1,3 +1,4 @@
+import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import * as THREE from 'three';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -24,6 +25,7 @@ export class PostRenderer {
  private bokeh:ShaderPass;private bloom?:UnrealBloomPass;
  private depth:FullScreenQuad;private blend:FullScreenQuad;private gamma:FullScreenQuad;private premultiply:FullScreenQuad;
  private w=0;private h=0;
+ get depthTexture():THREE.DepthTexture{return this.linear.depthTexture!;}
  constructor(private displayLayer:number){
   this.linear.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
   this.tone.material.depthTest=this.tone.material.depthWrite=false;
@@ -41,8 +43,8 @@ export class PostRenderer {
   this.gamma=screen({color:{value:null}},'varying vec2 vUv;uniform sampler2D color;void main(){vec4 c=texture2D(color,vUv);c.rgb=c.a>0.000001?max(c.rgb/c.a,vec3(0.)):vec3(0.);gl_FragColor=sRGBTransferOETF(c);}');
   this.premultiply=screen({color:{value:null}},'varying vec2 vUv;uniform sampler2D color;void main(){vec4 c=texture2D(color,vUv);gl_FragColor=vec4(clamp(c.rgb,0.,1.)*c.a,c.a);}');
  }
- render(renderer:THREE.WebGLRenderer,scene:THREE.Scene,camera:THREE.PerspectiveCamera,input:THREE.WebGLRenderTarget,worldDepth:THREE.DepthTexture,p:PostSettings,focus:FocusBand,samples:number):THREE.WebGLRenderTarget {
-  const displaySamples=p.excludeAvatars?0:samples;
+ render(renderer:THREE.WebGLRenderer,scene:THREE.Scene,camera:THREE.PerspectiveCamera,input:THREE.WebGLRenderTarget,worldDepth:THREE.DepthTexture,p:PostSettings,focus:FocusBand,samples:number,unlitStudio=false):THREE.WebGLRenderTarget {
+  const displaySamples=p.excludeAvatars&&!unlitStudio?0:samples;
   if(this.linear.samples!==displaySamples){this.linear.dispose();this.linear.samples=displaySamples;}
   if(this.w!==input.width||this.h!==input.height){this.w=input.width;this.h=input.height;for(const rt of [this.linear,this.a,this.b,this.c,this.result])rt.setSize(this.w,this.h);this.bloom?.setSize(this.w,this.h);}
   const outputSpace=renderer.outputColorSpace,mask=camera.layers.mask,background=scene.background,auto=renderer.autoClear;
@@ -52,11 +54,11 @@ export class PostRenderer {
    this.tone.render(renderer,this.linear,input,0,false);
    (this.depth.material as THREE.ShaderMaterial).uniforms.depth!.value=worldDepth;
    renderer.setRenderTarget(this.linear);renderer.autoClear=false;this.depth.render(renderer);
-   if(!p.excludeAvatars){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
+   if(unlitStudio||!p.excludeAvatars){camera.layers.mask=0;if(unlitStudio)camera.layers.enable(STUDIO_UNLIT_LAYER);if(!p.excludeAvatars)camera.layers.enable(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
    renderer.outputColorSpace=outputSpace;camera.layers.mask=mask;scene.background=background;renderer.autoClear=true;
    let color=this.linear;
    if(p.dof&&p.maxBlur>0&&p.aperture>0){
-    const u=this.bokeh.uniforms;u.tDepth!.value=p.excludeAvatars?worldDepth:this.linear.depthTexture;u.focus!.value=focus.distance;u.sharpRange!.value=focus.range;
+    const u=this.bokeh.uniforms;u.tDepth!.value=p.excludeAvatars&&!unlitStudio?worldDepth:this.linear.depthTexture;u.focus!.value=focus.distance;u.sharpRange!.value=focus.range;
     u.aspect!.value=camera.aspect;u.aperture!.value=p.aperture;u.maxblur!.value=p.maxBlur*2.5/Math.max(1,this.w/renderer.getPixelRatio());u.nearClip!.value=camera.near;u.farClip!.value=camera.far;
     this.bokeh.render(renderer,this.a,color,0,false);color=this.a;
    }
