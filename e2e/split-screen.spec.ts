@@ -39,7 +39,9 @@ test('third-person backchannels preserve split, sustained entry establishes wide
  await expect(page.locator('#shot')).toHaveText('SPLIT',{timeout:20000});await expect(scene).toHaveAttribute('data-split-count','2');
  const sides=await scene.getAttribute('data-split-users');
  await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();await page.waitForTimeout(650);
- await people.nth(0).getByRole('button',{name:'発話 OFF',exact:true}).click();await page.waitForTimeout(450);
+ await people.nth(0).getByRole('button',{name:'発話 OFF',exact:true}).click();
+ // A later independent turn starts only after the new 2.5-second END confirmation.
+ await page.waitForTimeout(2600);
  await expect(page.locator('#shot')).toHaveText('SPLIT');expect(await scene.getAttribute('data-split-users')).toBe(sides);
  const thirdStart=Date.now();await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#dialogue-state')).toHaveText('3人目の発話を確認中',{timeout:2500});
@@ -47,9 +49,10 @@ test('third-person backchannels preserve split, sustained entry establishes wide
  await expect(scene).toHaveAttribute('data-split-count','1');await expect(page.locator('#dialogue-state')).toHaveText('3人以上の会話・全景');
  await scene.screenshot({path:'.work/rc10-third-speaker-wide.png',omitBackground:true});
  for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 OFF',exact:true}).click();
- const stopped=Date.now();await expect(page.locator('#dialogue-state')).toHaveText('会話の収束を確認中');
+ const stopped=Date.now();await expect(page.locator('#dialogue-state')).toHaveText('言い淀み・再発話を確認中');
+ await expect(page.locator('#dialogue-state')).toHaveText('会話の収束を確認中',{timeout:5000});
  await page.waitForTimeout(1800);await expect(page.locator('#shot')).toHaveText('WIDE');
- await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});expect(Date.now()-stopped).toBeGreaterThan(4500);
+ await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});expect(Date.now()-stopped).toBeGreaterThan(7100);
  await expect(people.nth(0).getByRole('button',{name:'この人を撮る',exact:true})).toHaveAttribute('aria-pressed','true');
  expect(errors).toEqual([]);
 });

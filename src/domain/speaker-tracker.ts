@@ -6,11 +6,14 @@ interface Episode { userId: string; start: number; activeMs: number; order: numb
 interface Track {
   state: SpeakingState; startedAt: number; stoppedAt: number;
   episodeStart: number; accumulated: number; order: number; segments: Segment[];
+  turnStart: number; turnSpeechMs: number; turnQualified: boolean;
 }
 export interface SpeechStats {
   userId: string; state: SpeakingState; activeMs: number; ratio: number;
   qualified: boolean; recentMs: number; windowMs: number; stoppedForMs: number; episodeStart: number;
 }
+/** Presentation-only hangover. Raw stats/intervals and the speaking glow stay unchanged. */
+export interface ConversationStats extends SpeechStats {rawState:SpeakingState;endPendingUntilMs?:number}
 export class SpeakerTracker {
   private tracks = new Map<string, Track>();
   private history: Episode[] = [];
@@ -25,11 +28,12 @@ export class SpeakerTracker {
     if (state === 'unknown') { this.tracks.delete(userId); this.history = this.history.filter(e => e.userId !== userId); return; }
     let t = this.tracks.get(userId);
     if (!t) {
-      t = { state: 'unknown', startedAt: now, stoppedAt: -Infinity, episodeStart: now, accumulated: 0, order: this.order++, segments: [] };
+      t = { state: 'unknown', startedAt: now, stoppedAt: -Infinity, episodeStart: now, accumulated: 0, order: this.order++, segments: [], turnStart: now, turnSpeechMs: 0, turnQualified: false };
       this.tracks.set(userId, t);
     }
     if (t.state === state) return;
     if (state === 'active') {
+      if(now-t.stoppedAt>=DIRECTOR.endConfirmMs){t.turnStart=now;t.turnSpeechMs=0;t.turnQualified=false;}
       if (now - t.stoppedAt > DIRECTOR.gapToleranceMs) {
         if (t.accumulated >= 250) this.history.push({ userId, start: t.episodeStart, activeMs: t.accumulated, order: t.order });
         t.episodeStart = now; t.accumulated = 0; t.order = this.order++;
@@ -37,6 +41,9 @@ export class SpeakerTracker {
       t.startedAt = now;
     } else {
       if (t.state === 'active') {
+        const speech=t.accumulated+now-t.startedAt,duration=now-t.episodeStart;
+        t.turnQualified ||= speech>=DIRECTOR.qualifyMs&&duration>0&&speech/duration>=DIRECTOR.minSpeechRatio;
+        t.turnSpeechMs+=now-t.startedAt;
         t.accumulated += now - t.startedAt;
         t.segments.push({ start: t.startedAt, end: now });
       }
@@ -59,6 +66,19 @@ export class SpeakerTracker {
       +(t.state==='active'?now-Math.max(windowStart,t.startedAt):0);
     return { userId, state: t.state, activeMs, ratio, windowMs, qualified: t.state === 'active' && activeMs >= DIRECTOR.qualifyMs && ratio >= DIRECTOR.minSpeechRatio,
       recentMs, stoppedForMs: t.state === 'active' ? 0 : now - t.stoppedAt, episodeStart: t.episodeStart };
+  }
+  /** Keep a qualified turn across hesitations, without inventing active audio.
+   * stoppedForMs here starts at confirmed END, not the raw Discord STOP. */
+  conversationStats(userId:string,now:number):ConversationStats {
+    const raw=this.stats(userId,now),t=this.tracks.get(userId);
+    if(!t)return {...raw,rawState:raw.state};
+    const hasSpeech=t.turnSpeechMs>0||raw.state==='active';
+    const pending=hasSpeech&&raw.state==='inactive'&&raw.stoppedForMs<DIRECTOR.endConfirmMs;
+    const activeMs=t.turnSpeechMs+(raw.state==='active'?now-t.startedAt:0);
+    return {...raw,rawState:raw.state,state:pending?'active':raw.state,activeMs,episodeStart:t.turnStart,
+      qualified:(raw.state==='active'||pending)&&(t.turnQualified||raw.qualified),
+      stoppedForMs:raw.state==='inactive'&&hasSpeech?Math.max(0,raw.stoppedForMs-DIRECTOR.endConfirmMs):raw.stoppedForMs,
+      ...(pending?{endPendingUntilMs:t.stoppedAt+DIRECTOR.endConfirmMs}:{})};
   }
   episodes(now: number, windowMs: number): Episode[] {
     this.check(now); this.prune(now);

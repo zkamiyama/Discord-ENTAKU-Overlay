@@ -1,13 +1,14 @@
 import {expect,test} from './fixtures.ts';
 async function state(page:any):Promise<any>{return page.evaluate(()=>new Promise(resolve=>{const w=new WebSocket('ws://'+location.host+'/ws');w.onmessage=e=>{const m=JSON.parse(e.data);if(m.type==='snapshot'){w.close();resolve(m.state);}};}));}
-test('a two-person composition waits five seconds before narrowing to one speaker',async({page})=>{
+test('a two-person composition confirms END for 2.5s before its five-second narrowing grace',async({page})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const people=page.locator('.person');await people.nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();await people.nth(2).getByRole('button',{name:'発話 ON',exact:true}).click();
  await expect(page.locator('#shot')).toHaveText('TWO_SHOT',{timeout:12000});
  await people.nth(2).getByRole('button',{name:'発話 OFF',exact:true}).click();
- await expect(page.locator('#auto-countdown')).toContainText('切替まで');const start=Date.now();
- await page.waitForTimeout(2200);await expect(page.locator('#shot')).toHaveText('TWO_SHOT');
- await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:8000});expect(Date.now()-start).toBeGreaterThan(4600);
+ const start=Date.now();await expect(page.locator('#auto-countdown')).toContainText('終了確認');
+ await page.waitForTimeout(1800);await expect(page.locator('#shot')).toHaveText('TWO_SHOT');
+ await expect(page.locator('#auto-countdown')).toContainText('切替まで',{timeout:4000});
+ await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:8000});expect(Date.now()-start).toBeGreaterThan(7100);
 });
 test('default manual countdown survives Dock reload and returns to AUTO after ten seconds',async({page})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
@@ -35,4 +36,18 @@ test('dense Dock has a range for every number and separate quality, post and stu
   await page.screenshot({path:`.work/rc8-dock-${width}.png`,fullPage:true});
  }
  await overlay.screenshot({path:'.work/rc8-low-wide.png'});expect(errors).toEqual([]);
+});
+
+test('a hesitation cancels end confirmation without extinguishing the camera turn',async({page})=>{
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ const people=page.locator('.person');for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(page.locator('#shot')).toHaveText('TWO_SHOT',{timeout:12000});
+ await people.nth(2).getByRole('button',{name:'発話 OFF',exact:true}).click();
+ await expect(people.nth(2)).toHaveAttribute('data-speaking','inactive');
+ await expect(page.locator('#auto-countdown')).toContainText('終了確認');
+ await page.waitForTimeout(1700);await expect(page.locator('#shot')).toHaveText('TWO_SHOT');
+ await people.nth(2).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(people.nth(2)).toHaveAttribute('data-speaking','active');
+ await expect(page.locator('#auto-countdown')).toHaveText('自動撮影中');
+ await page.waitForTimeout(1400);await expect(page.locator('#shot')).toHaveText('TWO_SHOT');
 });

@@ -35,15 +35,16 @@ test('split confirmation takes 2.5s and is opt-in rather than changing every two
  const s=active(),off=new ShotDirector();for(const at of [2500,5000,7500,10000])expect(off.update(at,s,{...context,splitEnabled:false}).shot.kind).toBe('TWO_SHOT');
  expect(validateDirection(undefined).splitEnabled).toBe(false);expect(()=>validateDirection({splitEnabled:'yes'})).toThrow('STUDIO_DIRECTION_INVALID');
 });
-test('split waits exactly five seconds from STOP, cancels on resumption, then applies cooldown',()=>{
- const {t,d}=established();t.update('2','inactive',8000);expect(d.update(8000,t,context).switchAtMs).toBe(13000);expect(d.update(12999,t,context).shot.kind).toBe('SPLIT');
- t.update('2','active',12999);expect(d.update(12999,t,context).shot.kind).toBe('SPLIT');
- t.update('2','inactive',14000);d.update(14000,t,context);expect(d.update(18999,t,context).shot.kind).toBe('SPLIT');expect(d.update(19000,t,context).shot).toEqual({kind:'SINGLE',userIds:['1']});
- t.update('2','active',19001);for(const at of [21501,25000,28999])expect(d.update(at,t,context).shot.kind).not.toBe('SPLIT');
+test('split confirms END for 2.5s then waits five seconds, cancels on resumption and applies cooldown',()=>{
+ const {t,d}=established();t.update('2','inactive',8000);expect(d.update(8000,t,context).switchAtMs).toBe(10500);
+ expect(d.update(10500,t,context).switchAtMs).toBe(15500);expect(d.update(15499,t,context).shot.kind).toBe('SPLIT');
+ t.update('2','active',15499);expect(d.update(15499,t,context).shot.kind).toBe('SPLIT');
+ t.update('2','inactive',17000);d.update(17000,t,context);expect(d.update(24499,t,context).shot.kind).toBe('SPLIT');expect(d.update(24500,t,context).shot).toEqual({kind:'SINGLE',userIds:['1']});
+ t.update('2','active',24501);for(const at of [27001,30000,34499])expect(d.update(at,t,context).shot.kind).not.toBe('SPLIT');
 });
 test('a qualified third speaker returns to wide after 2.5 seconds',()=>{
  const {t,d}=established();t.update('3','active',8000);d.update(9000,t,context);expect(d.update(10499,t,context).shot.kind).toBe('SPLIT');expect(d.update(10500,t,context).shot.kind).toBe('WIDE');
- t.update('3','inactive',11000);expect(d.update(15999,t,context).shot.kind).toBe('WIDE');expect(d.update(16000,t,context).shot.kind).toBe('TWO_SHOT');
+ t.update('3','inactive',11000);expect(d.update(18499,t,context).shot.kind).toBe('WIDE');expect(d.update(18500,t,context).shot.kind).toBe('TWO_SHOT');
 });
 test('manual selection is immediate, fixed mode wins and unsafe splits fall back',()=>{
  const {t,d}=established();d.manual({kind:'SINGLE',userIds:['3']},7600);expect(d.current().userIds).toEqual(['3']);expect(d.autoResumeAtMs).toBe(17600);expect(d.update(15000,t,context).shot.kind).toBe('SINGLE');
@@ -63,9 +64,9 @@ test('split portrait framing uses 8:9, near clipping and the moderator-front con
  expect(protectStudioCamera(plan,scene,wide).shot.kind).toBe('WIDE');expect(protectStudioCamera(plan,scene,wide).panels).toBeUndefined();
 });
 
-test('crowd-to-split transition also respects five seconds from the third speaker STOP',()=>{
+test('crowd-to-split transition also confirms END before its five-second grace',()=>{
  const t=active(),d=new ShotDirector();d.update(2500,t,context);t.update('3','active',5000);d.update(5000,t,context);d.update(6000,t,context);expect(d.update(7500,t,context).shot.kind).toBe('WIDE');
- t.update('3','inactive',8000);d.update(8000,t,context);d.update(10500,t,context);expect(d.update(12999,t,context).shot.kind).toBe('WIDE');expect(d.update(13000,t,context).shot.kind).toBe('SPLIT');
+ t.update('3','inactive',8000);d.update(8000,t,context);d.update(10500,t,context);expect(d.update(15499,t,context).shot.kind).toBe('WIDE');expect(d.update(15500,t,context).shot.kind).toBe('SPLIT');
 });
 
 
@@ -87,23 +88,23 @@ test('a fourth START cannot postpone an already established third speaker',()=>{
 test('a third speaker taking the floor gets a single only after the former pair STOP grace',()=>{
  const {t,d}=established();t.update('1','inactive',8000);t.update('2','inactive',8000);t.update('3','active',8000);
  d.update(9000,t,context);expect(d.update(10500,t,context).shot.kind).toBe('WIDE');
- expect(d.update(12999,t,context).reason).toBe('THIRD_SPEAKER_END_GRACE');
- expect(d.update(13000,t,context).shot).toEqual({kind:'SINGLE',userIds:['3']});
+ expect(d.update(15499,t,context).reason).toBe('THIRD_SPEAKER_END_GRACE');
+ expect(d.update(15500,t,context).shot).toEqual({kind:'SINGLE',userIds:['3']});
 });
 test('a three-person wide waits for STOP, cancels on renewed speech and does not immediately re-split',()=>{
  const {t,d}=established();t.update('3','active',8000);d.update(9000,t,context);d.update(10500,t,context);
  t.update('3','inactive',11000);expect(d.update(15999,t,context).shot.kind).toBe('WIDE');
  t.update('3','active',15999);expect(d.update(15999,t,context).reason).toBe('THREE_PERSON_DISCUSSION');
- t.update('3','inactive',18000);expect(d.update(22999,t,context).shot.kind).toBe('WIDE');
- expect(d.update(23000,t,context).shot).toEqual({kind:'TWO_SHOT',userIds:['1','2']});
- for(const at of [25000,30000,32999])expect(d.update(at,t,context).shot.kind).toBe('TWO_SHOT');
- d.update(33000,t,context);expect(d.update(35500,t,context).shot.kind).toBe('SPLIT');
+ t.update('3','inactive',18000);expect(d.update(25499,t,context).shot.kind).toBe('WIDE');
+ expect(d.update(25500,t,context).shot).toEqual({kind:'TWO_SHOT',userIds:['1','2']});
+ for(const at of [27500,32500,35499])expect(d.update(at,t,context).shot.kind).toBe('TWO_SHOT');
+ d.update(35500,t,context);expect(d.update(38000,t,context).shot.kind).toBe('SPLIT');
 });
 test('a departing member waits five seconds before a new pair is selected',()=>{
  const {t,d}=established();t.update('3','active',8000);d.update(9000,t,context);d.update(10500,t,context);
- t.update('2','inactive',11000);expect(d.update(15999,t,context).shot.kind).toBe('WIDE');
- expect(d.update(16000,t,context).shot).toEqual({kind:'TWO_SHOT',userIds:['1','3']});
- expect(d.update(18000,t,context).shot.kind).toBe('TWO_SHOT');
+ t.update('2','inactive',11000);expect(d.update(18499,t,context).shot.kind).toBe('WIDE');
+ expect(d.update(18500,t,context).shot).toEqual({kind:'TWO_SHOT',userIds:['1','3']});
+ expect(d.update(20000,t,context).shot.kind).toBe('TWO_SHOT');
 });
 test('active three-person conversation cannot be collapsed by ten-second dominance scores',()=>{
  const {t,d}=established();t.update('3','active',8000);d.update(9000,t,context);d.update(10500,t,context);

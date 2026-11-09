@@ -16,7 +16,7 @@ export class DirectionPanel {
    get('auto').textContent=state.mode==='HOLD'?'自動 OFF':'自動 ON';
    const remaining=state.autoResumeAtMs==null?null:Math.max(0,(state.autoResumeAtMs-client.now())/1000);
    output.dataset.mode=state.mode;
-   output.textContent=!client.connected?'接続待ち':remaining!==null?`自動復帰 ${remaining.toFixed(1)}秒`:state.mode==='HOLD'?'手動固定':state.mode==='MANUAL'?'撮影開始待ち':state.decision.switchAtMs?`切替まで ${Math.max(0,(state.decision.switchAtMs-client.now())/1000).toFixed(1)}秒`:'自動撮影中';
+   output.textContent=!client.connected?'接続待ち':remaining!==null?`自動復帰 ${remaining.toFixed(1)}秒`:state.mode==='HOLD'?'手動固定':state.mode==='MANUAL'?'撮影開始待ち':state.decision.switchAtMs?`${state.decision.reason.endsWith('END_CONFIRM')?'終了確認':'切替まで'} ${Math.max(0,(state.decision.switchAtMs-client.now())/1000).toFixed(1)}秒`:'自動撮影中';
   };setInterval(countdown,100);
  }
  update(state:AppSnapshot):void {
