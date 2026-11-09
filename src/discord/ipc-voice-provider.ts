@@ -1,3 +1,4 @@
+import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {createVcChatProbe,type VcChatProbe,type VcChatProbeOptions,type VcChatProbeSummary} from './vc-chat-probe.ts';
 import type { ProviderEvent, ConnectionStatus } from '../contracts/domain.ts';
 import type { AuthProvider } from './auth-provider.ts';
@@ -16,7 +17,7 @@ export class IpcVoiceProvider {
   private generation=0;
   private wake: (()=>void)|null=null;
   private chat:VcChatProbe|undefined;
-  constructor(private auth:AuthProvider,private emit:Emit,private now=()=>performance.now(),private paths?:string[],probeOptions?:VcChatProbeOptions) {this.chat=createVcChatProbe(probeOptions);}
+  constructor(private auth:AuthProvider,private emit:Emit,private now=()=>performance.now(),private paths?:string[],probeOptions?:VcChatProbeOptions,readonly vcChat=new VcChatFeed()) {this.chat=createVcChatProbe(probeOptions);}
   chatProbeSummary():VcChatProbeSummary|undefined{return this.chat?.summary();}
   start():void {
     if(this.running)return;
@@ -28,7 +29,7 @@ export class IpcVoiceProvider {
   private async run():Promise<void> {
     let failures=0,interactive=true;
     while(this.running) {
-      this.generation++;this.status('discovering');
+      this.generation++;this.vcChat.disconnect('connecting');this.status('discovering');
       try {
         const found=await discover(this.auth.clientId,{},this.paths);
         this.client=found.client;
@@ -46,7 +47,7 @@ export class IpcVoiceProvider {
         if(code.startsWith('AUTH_')||code==='COMPAT_CONSENT_REQUIRED') {this.status('auth-required',code);break;}
         this.status('degraded',code);
         failures++;
-      } finally {this.chat?.dispose();this.client?.close();this.client=null;}
+      } finally {this.chat?.dispose();this.vcChat.disconnect();this.client?.close();this.client=null;}
       if(this.running) {
         const delay=Math.min(15000,Math.max(2000,1000*2**Math.min(failures,4)*(0.8+Math.random()*0.4)));
         await new Promise<void>(resolve=>{const timer=setTimeout(()=>{this.wake=null;resolve();},delay);this.wake=()=>{clearTimeout(timer);this.wake=null;resolve();};});
@@ -61,7 +62,7 @@ export class IpcVoiceProvider {
     };
     const refresh=async():Promise<void>=>{
       if(refreshing||!channelId||!this.running)return;refreshing=true;
-      try {const snapshot=normalizeSnapshot(await client.request('GET_CHANNEL',{channel_id:channelId}));if(snapshot.channel?.channelId!==channelId)throw new DiscordError('SNAPSHOT_INCONSISTENT');send({type:'snapshot',...snapshot});}
+      try {const raw=await client.request('GET_CHANNEL',{channel_id:channelId});this.vcChat.mergeHistory(raw);const snapshot=normalizeSnapshot(raw);if(snapshot.channel?.channelId!==channelId)throw new DiscordError('SNAPSHOT_INCONSISTENT');send({type:'snapshot',...snapshot});}
       catch(error){client.close(error instanceof DiscordError?error:new DiscordError('SNAPSHOT_INCONSISTENT'));}
       finally{refreshing=false;}
     };
@@ -69,7 +70,7 @@ export class IpcVoiceProvider {
       const data=object(packet.data??{}),event=packet.evt;
       if(event==='VOICE_CHANNEL_SELECT') {
         const selected=data.channel_id===null?null:id(data.channel_id);
-        if(selected!==channelId)client.close(new DiscordError('SOURCE_CHANGED'));
+        if(selected!==channelId){this.vcChat.disconnect('connecting');client.close(new DiscordError('SOURCE_CHANGED'));}
         return;
       }
       if(!channelId)return;
@@ -89,10 +90,11 @@ export class IpcVoiceProvider {
       if(snapshot.channel?.kind==='guild-voice') {
         for(const event of CHANNEL_EVENTS)await client.request('SUBSCRIBE',{channel_id:channelId},event);
         this.status('syncing');const raw=await client.request('GET_CHANNEL',{channel_id:channelId});
-        this.chat?.start(client,selected,raw);snapshot=normalizeSnapshot(raw);
+        const subscription=this.vcChat.start(client,selected,raw);
+        this.chat?.start(client,selected,raw,subscription);snapshot=normalizeSnapshot(raw);
         if(snapshot.channel?.channelId!==channelId)throw new DiscordError('SOURCE_CHANGED');
       }
-      if(snapshot.channel?.kind!=='guild-voice')this.chat?.start(client,selected);
+      if(snapshot.channel?.kind!=='guild-voice'){this.vcChat.start(client,selected);this.chat?.start(client,selected);}
       send({type:'snapshot',...snapshot});
       syncing=false;for(const packet of queue)handle(packet);queue=[];
       if(client.isClosed)throw await client.whenClosed;

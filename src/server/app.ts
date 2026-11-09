@@ -1,3 +1,4 @@
+import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {PresetStore} from '../presets/store.ts';
 import {capturePreset,validatePreset,type Theme} from '../presets/schema.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
@@ -16,11 +17,12 @@ import type { DirectorMode, ProviderEvent } from '../contracts/domain.ts';
 import { demoParticipant } from '../replay/demo.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { messages: number; windowStart: number }
+interface SocketData { chat?:boolean; messages: number; windowStart: number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
   retry?: () => void;
+  vcChat?: VcChatFeed;
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
   presets?: PresetStore;
@@ -35,6 +37,7 @@ export function startServer(options: ServerOptions) {
   const { engine } = options;
   const now = options.now ?? (() => performance.now());
   const clients = new Set<ServerWebSocket<SocketData>>();
+  const vcChat=options.vcChat??new VcChatFeed('unavailable');
   const journal=new DiagnosticJournal(),recording=new ProviderRecording();
   const reports=new Map<ServerWebSocket<SocketData>,RenderReport>();
   const offEvents=engine.observeEvents((event,ms)=>{journal.event(event,ms);recording.append(event,ms);});
@@ -57,6 +60,7 @@ export function startServer(options: ServerOptions) {
     if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
     socket.send(JSON.stringify(message));
   };
+  const offChat=vcChat.observe(state=>{for(const socket of clients)if(socket.data.chat)send(socket,{type:'vc-chat',state});});
   const snapshot = (): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...engine.snapshot(now()),clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
   const broadcast = (): void => {
     journal.state(engine.snapshot(now()));
@@ -76,6 +80,7 @@ export function startServer(options: ServerOptions) {
         return server.upgrade(request, { data: { messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
       if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: 1 });
+      if(request.method==='GET'&&url.pathname==='/api/vc-chat')return json(vcChat.snapshot());
       if(request.method==='GET'&&url.pathname==='/api/diagnostics'){
         return json(diagnostic());
       }
@@ -251,6 +256,7 @@ export function startServer(options: ServerOptions) {
           if (typeof message !== 'string') throw new Error();
           const p = JSON.parse(message) as Record<string,unknown>;
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
+          else if(p.type==='vc-chat-subscribe'){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
           else if(p.type==='render-status'){
             const allowed=['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST'];
             if(!allowed.includes(String(p.status))||![p.frameMs,p.drawCalls,p.triangles].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<1e9))throw new Error();
@@ -273,6 +279,6 @@ export function startServer(options: ServerOptions) {
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
-    async stop() { offEvents(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
+    async stop() { offEvents(); offChat(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
   };
 }

@@ -1,3 +1,4 @@
+import {VcChatFeed} from './chat/vc-chat-feed.ts';
 import {PresetStore} from './presets/store.ts';
 import { StudioStore } from './studio/store.ts';
 import { VERSION } from './version.ts';
@@ -45,6 +46,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   const studio=await studioStore.initialize();
   const presets=new PresetStore(options.safeMode||options.mode==='replay'?null:dataDir);
   const preferences=await presets.preferences();await presets.list();
+  const vcChat=new VcChatFeed(options.mode==='ipc'?'connecting':'unavailable');
   const start=performance.now();
   const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,avatarProfiles,studio,seatingDefaults:preferences?.seating,autoCamera:preferences?.autoCamera,
     ...(options.mode==='replay'?{utcNow:()=>new Date(0).toISOString(),sessionId:()=> 'replay-session'}:{})});
@@ -67,7 +69,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     if(!provider||retrying||stopping)return;retrying=true;
     void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
-  const app=startServer({engine,assets,avatarStore,studioStore,presets,port:options.port,now,onChange:persist,
+  const app=startServer({engine,assets,avatarStore,studioStore,presets,vcChat,port:options.port,now,onChange:persist,
     ...(player?{tick:()=>{
       const time=performance.now(),elapsed=time-replayTick;replayTick=time;
       if(!replayPaused&&!replaySeeking)player.advanceTo(Math.min(player.replay.durationMs,player.elapsedMs+elapsed*replayRate));
@@ -81,7 +83,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   if(options.mode==='ipc'){
     console.log('Compatibility authentication explicitly enabled. Discord may show a StreamKit consent dialog.');
     const auth=new StreamKitCompatAuth(options.consent);
-    provider=new IpcVoiceProvider(auth,event=>{engine.apply(event,now());app.broadcast();persist();},now);
+    provider=new IpcVoiceProvider(auth,event=>{engine.apply(event,now());app.broadcast();persist();},now,undefined,undefined,vcChat);
     provider.start();
   }
   console.log(`ENTAKU development server (${options.mode})\nOverlay: ${app.urls.overlay}\nDock:    ${app.urls.dock}`);

@@ -62,7 +62,7 @@ export class VcChatProbe {
   this.line(`${stage} failed code=${safe.error} rpc_code=${safe.rpcCode??'unavailable'}`);
  }
  /** Register before SUBSCRIBE, including when a peer dispatches before its ACK. */
- start(client:ProbeRpc,selection:unknown,channelSnapshot?:unknown):void{
+ start(client:ProbeRpc,selection:unknown,channelSnapshot?:unknown,subscription?:Promise<unknown>):void{
   this.dispose();const selected=record(selection);
   this.state.subscription='not-attempted';this.state.historyMessages='not-inspected';this.state.historyCount=null;
   this.state.error=null;this.state.rpcCode=null;this.state.lastFailureStage=null;
@@ -75,7 +75,7 @@ export class VcChatProbe {
   this.off=client.onEvent(packet=>{try{this.message(packet);}catch{this.state.malformedEvents++;this.line('MESSAGE_CREATE malformed; ignored');}});
   void (async()=>{
    try{
-    const response=await client.request('SUBSCRIBE',{channel_id:channel},'MESSAGE_CREATE');
+    const response=await (subscription??client.request('SUBSCRIBE',{channel_id:channel},'MESSAGE_CREATE'));
     if(connection!==this.connection)return;
     if(record(response)?.evt!=='MESSAGE_CREATE')throw new DiscordError('PROBE_SUBSCRIBE_ACK_INVALID');
     this.state.subscription='success';this.state.verifiedTestEvents+=this.pendingVerified;this.pendingVerified=0;this.line('SUBSCRIBE MESSAGE_CREATE success; awaiting a new post (not a test PASS)');

@@ -57,3 +57,21 @@ test('rejected chat subscription does not stop voice; moving VC and reconnecting
   const allowed=new Set(['SUBSCRIBE','GET_SELECTED_VOICE_CHANNEL','GET_CHANNEL']);expect(peer.requests.every(r=>allowed.has(String(r.cmd)))).toBe(true);
  }finally{await p.stop();await peer.close();}
 });
+
+test('default production chat delivers IPC posts independently of camera events without probe or additional scopes',async()=>{
+ const previous=process.env.ENTAKU_PROBE_VC_CHAT;delete process.env.ENTAKU_PROBE_VC_CHAT;
+ const peer=await mock(false),events:ProviderEvent[]=[];
+ const p=new IpcVoiceProvider({clientId:'123',authenticate:async()=>{},clear(){}},e=>events.push(e),undefined,[peer.path]);
+ try{
+  p.start();await until(()=>p.vcChat.snapshot().status==='live'&&p.vcChat.snapshot().deletions===true);
+  expect(p.chatProbeSummary()).toBeUndefined();expect(p.vcChat.snapshot().messages[0]?.content).toBe('TEST_MESSAGE');
+  expect(peer.requests.filter(r=>r.evt==='MESSAGE_CREATE')).toHaveLength(1);
+  peer.dispatch('MESSAGE_UPDATE',{channel_id:'200',message:{id:'100',content:'EDITED',edited_timestamp:new Date().toISOString()}});
+  await until(()=>p.vcChat.snapshot().messages[0]?.content==='EDITED');
+  peer.dispatch('MESSAGE_DELETE',{channel_id:'200',message:{id:'100'}});await until(()=>p.vcChat.snapshot().messages.length===0);
+  peer.dispatch('SPEAKING_START',{channel_id:'200',user_id:'101'});await until(()=>events.some(e=>e.type==='speaking'));
+  expect(JSON.stringify(events)).not.toMatch(/TEST_MESSAGE|EDITED/);
+  peer.move();await until(()=>p.vcChat.snapshot().channelId==='201'&&p.vcChat.snapshot().status==='live');
+  expect(p.vcChat.snapshot().messages.every(m=>m.channelId==='201')).toBe(true);
+ }finally{await p.stop();await peer.close();if(previous===undefined)delete process.env.ENTAKU_PROBE_VC_CHAT;else process.env.ENTAKU_PROBE_VC_CHAT=previous;}
+});

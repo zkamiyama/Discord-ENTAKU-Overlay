@@ -34,7 +34,7 @@ test('provider buffers initial events, subscribes channel scope and closes witho
         const request = decodeObject(frame.payload);
         let data: unknown = {};
         if (request.cmd === 'GET_SELECTED_VOICE_CHANNEL' || request.cmd === 'GET_CHANNEL') data = channel;
-        if (request.cmd === 'SUBSCRIBE') subscriptions.push(request);
+        if (request.cmd === 'SUBSCRIBE') {subscriptions.push(request);data={evt:request.evt};}
         if (request.cmd === 'GET_CHANNEL' && channelReads++ === 0) {
           socket.write(encodeJson(Op.FRAME, { cmd: 'DISPATCH', evt: 'SPEAKING_START', data: { user_id: '100' } }));
         }
@@ -49,14 +49,15 @@ test('provider buffers initial events, subscribes channel scope and closes witho
   try {
     provider.start();
     await eventually(() => events.find(e => e.type === 'connection' && e.status === 'ready'));
-    await eventually(() => channelReads >= 2 ? true : undefined);
+    await eventually(() => channelReads >= 2 && provider.vcChat.snapshot().deletions===true ? true : undefined);
     const snapshotIndex = events.findIndex(e => e.type === 'snapshot');
     const speakingIndex = events.findIndex(e => e.type === 'speaking');
     expect(snapshotIndex).toBeGreaterThan(-1);
     expect(speakingIndex).toBeGreaterThan(snapshotIndex);
     expect(events[speakingIndex]).toMatchObject({ type: 'speaking', userId: '100', state: 'active', sourceGeneration: 1 });
     expect(subscriptions.filter(s => s.evt !== 'VOICE_CHANNEL_SELECT').every(s => (s.args as Record<string, unknown>).channel_id === '200')).toBe(true);
-    expect(subscriptions).toHaveLength(6);
+    expect(subscriptions).toHaveLength(9);
+    expect(subscriptions.filter(s=>String(s.evt).startsWith('MESSAGE_')).map(s=>s.evt)).toEqual(['MESSAGE_CREATE','MESSAGE_UPDATE','MESSAGE_DELETE']);
     expect(authCalls).toBe(1);
   } finally {
     await provider.stop();
