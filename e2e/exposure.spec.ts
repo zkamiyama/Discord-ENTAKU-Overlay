@@ -26,11 +26,17 @@ test('AgX exposure changes the world but not icons, real custom avatar pixels, l
 });
 test('Dock defaults to EV +0.5 and manual exposure controls preserve the current shot',async({page,context})=>{
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
- const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
+ const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});await overlay.goto(await page.locator('#overlay-url').inputValue());
  await page.locator('#exposure-panel > summary').click();await expect(page.locator('#exposure-auto')).toBeChecked();
  await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','AUTO');
- await page.locator('#auto').click();await page.locator('.person').first().getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1700);
- const before=await overlay.locator('#scene').getAttribute('data-camera-position');
+ await page.locator('#auto').click();await page.locator('.person').first().getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');
+ // Dock state may arrive before the software renderer presents the new shot.
+ // Compare two rendered SINGLE poses, not a stale WIDE pose against a SINGLE.
+ const rendered=overlay.locator('#scene');
+ await expect(rendered).toHaveAttribute('data-composition',/^(SINGLE|MODERATOR)_/);
+ await expect(rendered).toHaveAttribute('data-quality-status','EFFECTS');
+ await expect(rendered).toHaveAttribute('data-camera-position',/.+/);
+ const before=await rendered.getAttribute('data-camera-position');expect(before).not.toBeNull();
  await expect(page.locator('#exposure-ev')).toHaveValue('0.5');
  await page.locator('#exposure-auto').uncheck();await expect(page.locator('#exposure-manual')).toBeEnabled();
  await page.locator('#exposure-ev').fill('0');await page.locator('#exposure-ev').press('Tab');await expect(page.locator('#exposure-manual')).toBeEnabled();
