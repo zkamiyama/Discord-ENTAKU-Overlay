@@ -2,8 +2,7 @@ import {fitImage,imagePoint} from './image-selection.ts';
 import {loadAvatarImage} from './avatar-image.ts';
 import {syncNumericControls} from './numeric-controls.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
-import { PreviewStage } from '../studio/preview.ts';
-import { CustomAvatarVisual } from '../overlay/custom-avatar.ts';
+import {AvatarPreview} from './avatar-preview.ts';
 import { avatarBounds, validateProfile, type AvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import { StudioClient } from '../shared/client.ts';
@@ -26,18 +25,15 @@ export class AvatarEditor {
   private backBitmap:ImageBitmap|null=null;
   private backImage:StoredImage|null=null;
   private backFit={x:0,y:0,w:1,h:1};
-  private preview:PreviewStage|null=null;
-  private previewVisual:CustomAvatarVisual|null=null;
-  private previewTimer?:ReturnType<typeof setTimeout>;
-  private previewGeneration=0;
-  private previewPending=false;
+  private preview:AvatarPreview|null=null;
+  private get previewPending():boolean{return this.preview?.pending??false;}
   private image:StoredImage|null=null;
   private userId=''; private revision=0; private generation=0; private busy=false;
   private drag: {x:number;y:number;pointer:number}|null=null;
   private fit={x:0,y:0,w:1,h:1};
   private fields=['face-x','face-y','face-w','face-h','avatar-scale','avatar-offset-x','avatar-offset-y','back-face-x','back-face-y','back-face-w','back-face-h','frame-x','frame-y','frame-w','frame-h','avatar-frame-enable'];
   constructor(private client:StudioClient){
-    this.dialog.addEventListener('close',()=>{this.generation++;this.previewGeneration++;clearTimeout(this.previewTimer);this.bitmap?.close();this.backBitmap?.close();this.bitmap=this.backBitmap=null;this.image=this.backImage=null;this.previewVisual?.dispose();this.previewVisual=null;this.preview?.dispose();this.preview=null;this.previewPending=false;});
+    this.dialog.addEventListener('close',()=>{this.generation++;this.preview?.dispose();this.preview=null;this.bitmap?.close();this.backBitmap?.close();this.bitmap=this.backBitmap=null;this.image=this.backImage=null;});
     this.dialog.addEventListener('cancel',event=>{if(this.busy)event.preventDefault();});
     $('avatar-cancel').onclick=()=>{if(!this.busy)this.dialog.close();};
     $<HTMLFormElement>('avatar-form').onsubmit=e=>{e.preventDefault();void this.apply();};
@@ -78,9 +74,10 @@ export class AvatarEditor {
     $<HTMLInputElement>('avatar-frame-enable').checked=!!profile?.framingRect;
     $<HTMLSelectElement>('avatar-selection-target').value='face';$<HTMLInputElement>('avatar-back-file').value='';
     this.feedback('');this.dialog.showModal();
-    this.preview=new PreviewStage($<HTMLCanvasElement>('avatar-3d-preview'));
-    this.preview.controls.target.set(0,1.25,3.4);this.preview.camera.position.set(0,1.7,1.5);this.preview.controls.update();
-    this.preview.onFrame=()=>this.previewVisual?.update(1,.85+.15*Math.sin(performance.now()*.006),0,this.client.state?.studio.post?.speechGlowScale??4);this.draw();
+    this.preview=new AvatarPreview($<HTMLCanvasElement>('avatar-3d-preview'),error=>{
+      if(error){this.report(error);$<HTMLButtonElement>('avatar-apply').disabled=true;}
+      else $<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending||!this.validDraft();
+    },()=>this.client.state?.studio.post?.speechGlowScale??4);this.draw();
     if(profile){
       const version=++this.generation;this.setBusy(true);
       try{
@@ -131,18 +128,9 @@ export class AvatarEditor {
     }catch(e){this.report(e);}finally{this.setBusy(false);this.draw();}
   }
   private updatePreview():void{
-    clearTimeout(this.previewTimer);const generation=++this.previewGeneration;
-    if(!this.bitmap||!this.preview||!this.validDraft()){this.previewPending=false;return;}
-    this.previewPending=true;$<HTMLButtonElement>('avatar-apply').disabled=true;
-    this.previewTimer=setTimeout(()=>{
-      const bitmap=this.bitmap,preview=this.preview;if(!bitmap||!preview)return;
-      const profile=validateProfile(this.draft());
-      void CustomAvatarVisual.create(bitmap,profile,this.backBitmap??undefined).then(visual=>{
-        if(generation!==this.previewGeneration){visual.dispose();return;}
-        this.previewVisual?.dispose();this.previewVisual=visual;visual.root.position.set(-profile.offsetX,1.25+profile.offsetY,3.4);visual.root.rotation.y=Math.PI;
-        preview.scene.add(visual.root);this.previewPending=false;$<HTMLButtonElement>('avatar-apply').disabled=this.busy||!this.validDraft();
-      }).catch(e=>{if(generation===this.previewGeneration){this.previewPending=false;this.report(e);$<HTMLButtonElement>('avatar-apply').disabled=true;}});
-    },150);
+    if(!this.bitmap||!this.preview||!this.validDraft()){this.preview?.cancel();return;}
+    this.preview.update(this.bitmap,validateProfile(this.draft()),this.backBitmap??undefined);
+    $<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending;
   }
   private drawBack():void{
     const canvas=$<HTMLCanvasElement>('avatar-back-preview');canvas.hidden=!this.backBitmap;
