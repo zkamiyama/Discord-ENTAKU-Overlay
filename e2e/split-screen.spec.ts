@@ -1,0 +1,55 @@
+import {test,expect} from './fixtures.ts';
+import {execFileSync} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+let probe='';
+test.beforeAll(()=>{execFileSync('bun',['build','tests/helpers/split-probe.ts','--target=browser','--outfile=.work/split-probe.js']);probe=readFileSync('.work/split-probe.js','utf8');});
+test('split keeps independent color, alpha, depth and post effects, then frees its targets',async({page})=>{
+ const errors:string[]=[];page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/split-probe',r=>r.fulfill({contentType:'text/html',body:'<body style="margin:0"><canvas></canvas><script type="module" src="/static/split-probe.js"></script>'}));
+ await page.route('**/static/split-probe.js',r=>r.fulfill({contentType:'text/javascript',body:probe}));await page.goto('/split-probe');await page.waitForFunction(()=>!!(window as any).splitProbe);
+ const result=await page.evaluate(()=>{const p=(window as any).splitProbe;return {report:p.render(),pixels:p.pixels(),memory:p.memory()};});console.log('split pixels',result);
+ expect(result.report.qualityStatus).toBe('EFFECTS');for(const [pixel,expected]of [[result.pixels.left,[255,34,85]],[result.pixels.right,[40,120,221]]] as const)for(let i=0;i<3;i++)expect(Math.abs(pixel[i]-expected[i]!)).toBeLessThanOrEqual(2);
+ expect(result.pixels.transparent[3]).toBe(0);expect(Math.abs(result.pixels.occlusion[0]-result.pixels.occlusion[1])).toBeLessThan(3);
+ await page.locator('canvas').screenshot({path:'.work/rc10-split-colors.png',omitBackground:true});
+ const graded=await page.evaluate(()=>{const p=(window as any).splitProbe;p.include(true);return p.pixels();});expect(Math.abs(graded.left[0]-graded.left[1])).toBeLessThan(3);expect(Math.abs(graded.right[0]-graded.right[1])).toBeLessThan(3);
+ const ended=await page.evaluate(()=>(window as any).splitProbe.single());expect(ended.center[0]).toBeGreaterThan(ended.center[1]+100);expect(ended.memory).toBeLessThan(result.memory);expect(errors).toEqual([]);
+});
+test('optional dialogue split enters, respects manual priority and persists in the Dock',async({page,context})=>{
+ test.setTimeout(90000);const errors:string[]=[];await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ const overlay=await context.newPage();overlay.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await page.locator('#camera-settings > summary').click();await expect(page.locator('#camera-split')).not.toBeChecked();await page.locator('#camera-split').check();
+ const people=page.locator('.person');await people.nth(1).getByRole('button',{name:'発話 ON',exact:true}).click();await people.nth(2).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(page.locator('#shot')).toHaveText('SPLIT',{timeout:20000});await expect(overlay.locator('#scene')).toHaveAttribute('data-split-count','2',{timeout:20000});
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');await expect(page.locator('#dialogue-state')).toHaveText('左右2分割中');
+ const sides=await overlay.locator('#scene').getAttribute('data-split-users');expect(sides?.split(',')).toHaveLength(2);
+ await overlay.locator('#scene').screenshot({path:'.work/rc10-dialogue-split.png',omitBackground:true});
+ await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');await page.locator('#camera-settings > summary').click();await expect(page.locator('#camera-split')).toBeChecked();
+ await people.nth(0).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#mode')).toHaveText('MANUAL');await expect(overlay.locator('#scene')).toHaveAttribute('data-split-count','1');await expect(page.locator('#auto-countdown')).toContainText('自動復帰');
+ await page.locator('#auto').click();await expect(page.locator('#mode')).toHaveText('HOLD');expect(errors).toEqual([]);
+});
+
+test('third-person backchannels preserve split, sustained entry establishes wide, and a takeover waits for STOP grace',async({page,context})=>{
+ test.setTimeout(90000);const errors:string[]=[];
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
+ overlay.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
+ await overlay.goto(await page.locator('#overlay-url').inputValue());const scene=overlay.locator('#scene'),people=page.locator('.person');
+ await page.locator('#camera-settings > summary').click();await page.locator('#camera-split').check();
+ for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(page.locator('#shot')).toHaveText('SPLIT',{timeout:20000});await expect(scene).toHaveAttribute('data-split-count','2');
+ const sides=await scene.getAttribute('data-split-users');
+ await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();await page.waitForTimeout(650);
+ await people.nth(0).getByRole('button',{name:'発話 OFF',exact:true}).click();await page.waitForTimeout(450);
+ await expect(page.locator('#shot')).toHaveText('SPLIT');expect(await scene.getAttribute('data-split-users')).toBe(sides);
+ const thirdStart=Date.now();await people.nth(0).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(page.locator('#dialogue-state')).toHaveText('3人目の発話を確認中',{timeout:2500});
+ await expect(page.locator('#shot')).toHaveText('WIDE',{timeout:6000});expect(Date.now()-thirdStart).toBeGreaterThan(2300);
+ await expect(scene).toHaveAttribute('data-split-count','1');await expect(page.locator('#dialogue-state')).toHaveText('3人以上の会話・全景');
+ await scene.screenshot({path:'.work/rc10-third-speaker-wide.png',omitBackground:true});
+ for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 OFF',exact:true}).click();
+ const stopped=Date.now();await expect(page.locator('#dialogue-state')).toHaveText('会話の収束を確認中');
+ await page.waitForTimeout(1800);await expect(page.locator('#shot')).toHaveText('WIDE');
+ await expect(page.locator('#shot')).toHaveText('SINGLE',{timeout:7000});expect(Date.now()-stopped).toBeGreaterThan(4500);
+ await expect(people.nth(0).getByRole('button',{name:'この人を撮る',exact:true})).toHaveAttribute('aria-pressed','true');
+ expect(errors).toEqual([]);
+});
