@@ -26,8 +26,14 @@ test('nameplate short glyphs retain their shape and tabletop is one glossy wood 
  expect(result.short.scaleX).toBeLessThanOrEqual(1.1);expect(result.short.gap).toBeGreaterThan(0);expect(result.long.glyphs).toHaveLength(84);expect(result.long.scaleX).toBeLessThan(1);expect(result.desk).toMatchObject({tops:1,reflective:true});expect(result.desk.roughness).toBeLessThan(.25);expect(result.desk.coat).toBeGreaterThan(.8);expect(errors).toEqual([]);
 });
 test('post tab presets, exclusion and focus settings persist without changing the camera',async({page,context})=>{
- await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.goto(await page.locator('#overlay-url').inputValue());
- await page.locator('#auto').click();await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');await page.waitForTimeout(1600);const before=await overlay.locator('#scene').getAttribute('data-camera-position');
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await page.locator('#auto').click();await page.locator('.person').nth(1).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(page.locator('#shot')).toHaveText('SINGLE');
+ // The Dock's server shot can arrive before the Overlay's first frame.
+ const rendered=overlay.locator('#scene');
+ await expect(rendered).toHaveAttribute('data-composition',/^(SINGLE|MODERATOR)_/);
+ await expect(rendered).toHaveAttribute('data-quality-status','EFFECTS');
+ await expect(rendered).toHaveAttribute('data-camera-position',/.+/);
+ const before=await rendered.getAttribute('data-camera-position');expect(before).not.toBeNull();
  await page.locator('#post-panel > summary').click();await expect(page.locator('#post-exclude')).toBeChecked();
  await page.locator('#post-bloom').check();await expect(page.locator('#post-bloom')).toBeEnabled();await page.locator('#post-dof').check();await expect(page.locator('#post-bloom')).toBeChecked();await expect(page.locator('#post-dof')).toBeChecked();await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
  await page.locator('#post-focus-mode').selectOption('manual');await page.locator('#post-focus-distance').fill('7');await page.locator('#post-focus-distance').press('Tab');await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-focus-distance'))).toBe(7);
