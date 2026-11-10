@@ -12,7 +12,7 @@ export interface StudioTransform {
   scale: Vec3;
 }
 export type StudioObject =
-  | { id: string; kind: 'model'; bundleId: string; transform: StudioTransform }
+  | { id: string; kind: 'model'; bundleId: string; transform: StudioTransform; speakerUserId?:string }
   | { id: string; kind: 'box'; size: Vec3; color: string; transform: StudioTransform }
   | { id: string; kind: 'plane'; size: readonly [number, number]; color: string; transform: StudioTransform }
   | { id: string; kind: 'point-light'; position: Vec3; color: string; intensity: number };
@@ -88,13 +88,15 @@ export function validateStudioScene(value: unknown): StudioScene {
   const objects: StudioObject[] = [];
   const ids=new Set<string>();
   for (const raw of scene.objects) {
-    const o = object(raw,['id','kind','transform','bundleId','size','color','position','intensity']);
+    const o = object(raw,['id','kind','transform','bundleId','size','color','position','intensity','speakerUserId']);
     const objectId=id(o.id);
     if (ids.has(objectId)) throw new Error('STUDIO_SCENE_INVALID');
     ids.add(objectId);
     if (o.kind === 'model') {
-      object(raw,['id','kind','transform','bundleId']);
-      objects.push({ id:objectId, kind:'model',bundleId:bundleId(o.bundleId),transform:transform(o.transform) });
+      object(raw,['id','kind','transform','bundleId','speakerUserId']);
+      const userId=o.speakerUserId;
+      if(userId!==undefined&&(typeof userId!=='string'||!/^\d{1,20}$/.test(userId)))throw new Error('STUDIO_MODEL_SPEAKER_INVALID');
+      objects.push({ id:objectId, kind:'model',bundleId:bundleId(o.bundleId),transform:transform(o.transform),...(userId===undefined?{}:{speakerUserId:userId}) });
     } else if (o.kind === 'box') {
       object(raw,['id','kind','size','color','transform']);
       objects.push({ id:objectId,kind:'box',size:vec3(o.size,0.01,60),color:color(o.color),transform:transform(o.transform) });

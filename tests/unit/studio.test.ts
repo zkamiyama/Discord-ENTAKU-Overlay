@@ -49,3 +49,14 @@ test('GLTF inspector resolves relative resources and rejects unsolicited HTTPS',
  expect(()=>inspectGltfEntry(bytes(JSON.stringify({...input,images:[{uri:'https://example.com/img.png'}]})),'main.gltf')).toThrow('STUDIO_PATH_REJECTED');
  expect(()=>inspectGltfEntry(glb({asset:{version:'1.0'}}),'main.glb')).toThrow('STUDIO_GLTF_VERSION_UNSUPPORTED');
 });
+
+test('studio GLB may bind to a participant; invalid identifiers and non-model binding are rejected',()=>{
+ const valid=scene(),base={id:'actor',kind:'model' as const,bundleId:'a'.repeat(64),transform:{position:[0,0,0] as [number,number,number],yawDeg:0,scale:[1,1,1] as [number,number,number]}};
+ valid.objects=[{...base,speakerUserId:'12345678901234567890'}];
+ expect(validateStudioScene(valid).objects[0]).toMatchObject({speakerUserId:'12345678901234567890'});
+ for(const speakerUserId of ['',123,'abc','123-456','1'.repeat(21),'0x123',null]){
+  expect(()=>validateStudioScene({...valid,objects:[{...base,speakerUserId}]})).toThrow('STUDIO_MODEL_SPEAKER_INVALID');
+ }
+ const nonModel=scene();nonModel.objects=[{id:'floor',kind:'plane',size:[1,1],color:'#ffffff',transform:base.transform,speakerUserId:'123'} as any];
+ expect(()=>validateStudioScene(nonModel)).toThrow('STUDIO_SCENE_INVALID');
+});

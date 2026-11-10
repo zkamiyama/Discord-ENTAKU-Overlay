@@ -41,3 +41,24 @@ test('active scene stays visible while loading and old resources release once on
   resolve(b.group);await next;expect(a.disposed()).toBe(1);expect(visual.renderGeneration).toBe(2);expect(visual.error).toBe('');
   await visual.update(scene('next'));expect(visual.renderGeneration).toBe(2);visual.dispose();visual.dispose();expect(b.disposed()).toBe(1);
 });
+
+test('studio GLB speaker binding follows voice and presence, and releases glow shells on replacement',async()=>{
+ const a=asset(),b=asset();const firstMesh=a.group.children[0] as THREE.Mesh;
+ const material=firstMesh.material as THREE.MeshBasicMaterial;
+ let called=0;
+ const visual=new StudioVisual(client,renderer,async()=>++called===1?a.group:b.group);
+ const bound=scene('actor');bound.objects=[{...bound.objects[0]!,speakerUserId:'100'} as any];
+ await visual.update(bound);expect(visual.meshSpeechCount).toBe(1);
+ expect(visual.setLength(1)).toBe('READY');expect(visual.hasMeshSpeaker('100')).toBe(true);
+ expect(visual.hasMeshSpeaker('101')).toBe(false);
+ expect(firstMesh.children.filter(c=>c.userData.entakuMeshSpeechOutline)).toHaveLength(2);
+ const states=new Map([['100',{visible:true,opacity:.45,intensity:1}]]);
+ visual.setMeshSpeech(states,4);expect(visual.activeMeshSpeakers).toBe(1);
+ expect(material.opacity).toBeCloseTo(.45);expect(material.transparent).toBe(true);
+ visual.setMeshSpeech(new Map(),4);expect(visual.activeMeshSpeakers).toBe(0);
+ expect(a.group.visible).toBe(false);
+ const plain=scene('next');await visual.update(plain);
+ expect(visual.meshSpeechCount).toBe(0);expect(a.disposed()).toBe(1);
+ expect(visual.activeMeshSpeakers).toBe(0);
+ visual.dispose();expect(b.disposed()).toBe(1);
+});

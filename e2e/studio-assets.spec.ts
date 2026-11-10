@@ -32,3 +32,34 @@ test('legacy JSON camera blockers still enforce a transparent safe wide without 
  await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','CAMERA_SAFE_FALLBACK');await expect(page.locator('#shot')).toHaveText('WIDE');
  await page.locator('#studio-reset').click();await expect(overlay.locator('#scene')).toHaveAttribute('data-studio-status','READY');
 });
+
+test('studio GLB linked to a participant replaces the flat body and follows speaking, restart and unlink',async({page,context})=>{
+ test.setTimeout(150000);const errors:string[]=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
+ const user=(await snapshot(page)).participants.find((p:any)=>p.presence==='present')!.userId;
+ await page.locator('#studio-files').setInputFiles({name:'person.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync(studioFixture()))});
+ await expect(page.locator('#studio-feedback')).toHaveText('適用しました',{timeout:30000});
+ await expect(page.locator('#studio-mesh-speaker-controls')).toBeVisible();
+ await page.locator('#studio-mesh-speaker-controls summary').click();
+ expect(await page.locator('#studio-speaker-model').inputValue()).toBe('studio');
+ await page.locator('#studio-speaker-user').selectOption(user);
+ await page.locator('#studio-speaker-apply').click();
+ await expect.poll(async()=>(await snapshot(page)).studio.objects[0].speakerUserId).toBe(user);
+ const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));
+ await overlay.goto(await page.locator('#overlay-url').inputValue());
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-mesh-speaker-count','1',{timeout:30000});
+ const send=async(active:boolean)=>{
+  const state=await snapshot(page);
+  const response=await page.evaluate(async({user,active,revision})=>fetch('/api/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'demo-speaking',userId:user,active,expectedRevision:revision,requestId:crypto.randomUUID()})}).then(r=>({status:r.status,body:r.text()})),{user,active,revision:state.revision});
+  expect(response.status).toBe(200);
+ };
+ await send(true);await expect(overlay.locator('#scene')).toHaveAttribute('data-mesh-speaking','1',{timeout:15000});
+ await send(false);await expect(overlay.locator('#scene')).toHaveAttribute('data-mesh-speaking','0',{timeout:15000});
+ await page.reload();await expect(page.locator('#studio-speaker-user')).toHaveValue(user);
+ await page.locator('#studio-mesh-speaker-controls summary').click();
+ await page.locator('#studio-speaker-user').selectOption('');await page.locator('#studio-speaker-apply').click();
+ await expect.poll(async()=>(await snapshot(page)).studio.objects[0].speakerUserId).toBeUndefined();
+ await expect(overlay.locator('#scene')).toHaveAttribute('data-mesh-speaker-count','0',{timeout:15000});
+ expect(errors).toEqual([]);
+});

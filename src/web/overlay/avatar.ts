@@ -35,6 +35,7 @@ export class Avatar {
   root=new THREE.Group(); plate=new THREE.Group(); body:THREE.Mesh<THREE.CircleGeometry,THREE.ShaderMaterial>;
   outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
   private baseYaw=0;
+  private externalMeshActive=false;
   user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
   custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
   get shadowRoots():THREE.Object3D[]{return this.gaussian?.geometryRoot?[this.plate,this.gaussian.geometryRoot]:[this.plate];}
@@ -112,6 +113,20 @@ export class Avatar {
     this.outline.material.uniforms.strength!.value=intensity;const glowScale=this.context.state()?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,this.context.state()?.studio.tableAnchor.position[1]??0,glowScale);
     this.gaussian?.update(this.opacity,intensity,glowScale);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
+  }
+  /** A linked GLB studio model takes over this participant's visible body.
+   * Keep the nameplate, speech fade and stale logic intact. */
+  setMeshBodyActive(active:boolean):void{
+    if(active){
+      this.body.visible=this.outline.visible=false;
+      if(this.custom)this.custom.root.visible=false;
+      if(this.gaussian)this.gaussian.root.visible=false;
+    }else if(this.externalMeshActive){
+      this.body.visible=this.outline.visible=!this.custom&&this.gaussian?.status.phase!=='ready';
+      if(this.custom)this.custom.root.visible=true;
+      if(this.gaussian)this.gaussian.root.visible=true;
+    }
+    this.externalMeshActive=active;
   }
   faceCamera(position:THREE.Vector3):void{this.root.rotation.y=this.profile&&isGaussianProfile(this.profile)?this.baseYaw:avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
   dispose():void {
