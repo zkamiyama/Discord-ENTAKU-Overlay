@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {renderGaussianSurfaces,GAUSSIAN_SURFACE_LAYER} from '../gaussian/surface.ts';
 import type {SSRPass} from 'three/addons/postprocessing/SSRPass.js';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 import {GAUSSIAN_COLOR_LAYER,GAUSSIAN_PROXY_LAYER,GaussianProxyDepthPass,renderSceneWithGaussians} from './gaussian-layers.ts';
@@ -26,8 +27,9 @@ export class GaussianReflectionInputs {
    camera.layers.set(GAUSSIAN_COLOR_LAYER);scene.background=null;scene.overrideMaterial=null;
    renderSceneWithGaussians(renderer,scene,camera);
    this.proxyDepth.render(renderer,scene,camera);
-   camera.layers.mask=mask;camera.layers.disable(1);camera.layers.disable(GAUSSIAN_COLOR_LAYER);camera.layers.enable(GAUSSIAN_PROXY_LAYER);
-   renderPreparedReflection(pass,renderer,output);
+   renderGaussianSurfaces(renderer,scene,camera,'depth');
+   camera.layers.mask=mask;camera.layers.disable(GAUSSIAN_SURFACE_LAYER);camera.layers.disable(1);camera.layers.disable(GAUSSIAN_COLOR_LAYER);camera.layers.enable(GAUSSIAN_PROXY_LAYER);
+   renderPreparedReflection(pass,renderer,output,()=>renderGaussianSurfaces(renderer,scene,camera,'normal'));
   }finally{scene.overrideMaterial=override;restore();}
  }
  dispose():void {this.proxyDepth.dispose();this.copy.material.dispose();this.copy.dispose();}

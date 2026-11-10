@@ -19,11 +19,11 @@ async function command(page:Page,value:Record<string,unknown>){
   return {status:r.status,body:await r.text()};
  },{value,revision:state.revision});expect(response.status,response.body).toBe(200);
 }
-async function importAsset(page:Page,index:number):Promise<StoredGaussianAsset>{
+async function importAsset(page:Page,index:number,proxy=true):Promise<StoredGaussianAsset>{
  return page.evaluate(async bytes=>{
   const form=new FormData();form.set('archive',new File([new Uint8Array(bytes)],'resource-fixture.entaku.zip',{type:'application/zip'}));
   const r=await fetch('/api/gaussian-assets/import',{method:'POST',body:form});if(!r.ok)throw new Error(await r.text());return r.json();
- },Array.from(gaussianFixture(index).archive));
+ },Array.from(gaussianFixture(index,{proxy}).archive));
 }
 const profile=(asset:StoredGaussianAsset,userId:string)=>({kind:'gaussian',userId,assetId:asset.assetId,manifest:asset.manifest,scale:1,offsetX:0,offsetY:0,offsetZ:0,yawRad:0});
 const diagnostics=(page:Page)=>page.evaluate(()=>(window as any).entakuGaussianDiagnostics());
@@ -40,7 +40,7 @@ async function ready(page:Page,instances:number,splatCount?:number){
  await page.evaluate(async()=>{for(let i=0;i<6;i++)await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));});
 }
 
-test('repeated shared assets and editor lifetimes release workers, textures and framebuffers',async({page,context})=>{
+for(const withProxy of [true,false])test(`repeated ${withProxy?'proxy':'native'} shared assets and editor lifetimes release workers, textures and framebuffers`,async({page,context})=>{
  test.setTimeout(240000);
  await context.addInitScript(()=>{
   // Count browser resource lifecycle through public APIs only. A context loss
@@ -75,15 +75,15 @@ test('repeated shared assets and editor lifetimes release workers, textures and 
  const watch=(p:Page,label:string)=>{p.on('pageerror',e=>errors.push(label+': '+e.message));p.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(label+': '+m.text());});};
  watch(page,'dock');await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const state=await snapshot(page);
- await command(page,{type:'studio-set',scene:{...state.studio,quality:{...state.studio.quality,shadows:'off',ao:'off',reflections:false,gi:'off',msaa:0,fxaa:false},post:{...state.studio.post,enabled:false},exposure:{...DEFAULT_EXPOSURE,...state.studio.exposure,mode:'manual',manualExposure:1}}});
- const a=await importAsset(page,0),b=await importAsset(page,1);
+ await command(page,{type:'studio-set',scene:{...state.studio,quality:{...state.studio.quality,shadows:withProxy?'off':'soft',shadowLights:1,ao:'off',reflections:!withProxy,gi:'off',msaa:0,fxaa:false},post:{...state.studio.post,enabled:false},exposure:{...DEFAULT_EXPOSURE,...state.studio.exposure,mode:'manual',manualExposure:1}}});
+ const a=await importAsset(page,0,withProxy),b=await importAsset(page,1,withProxy);
  const overlay=await context.newPage();watch(overlay,'overlay');await overlay.setViewportSize({width:640,height:360});await overlay.goto('/overlay');
  await expect(overlay.locator('#scene')).toHaveAttribute('data-gaussian-instances','0');
  let sourceRequests=0;overlay.on('request',r=>{if(r.url().includes(`/api/gaussian-assets/${a.assetId}/file?`))sourceRequests++;});
  const initial={dock:await resources(page),overlay:await resources(overlay)},cycles:any[]=[];
  for(let cycle=0;cycle<3;cycle++){
   await command(page,{type:'avatar-set',profile:profile(a,'101')});await command(page,{type:'avatar-set',profile:profile(a,'102')});await ready(overlay,2,a.splatCount);
-  const shared=await diagnostics(overlay),requestsBefore=sourceRequests;expect(shared.assets[0].references).toBe(2);
+  const shared=await diagnostics(overlay),requestsBefore=sourceRequests;expect(shared.assets[0].references).toBe(2);if(!withProxy)expect(shared.nativeSurfaces.instances).toBe(2);
   // Exercise the production director and render path, including its two panel
   // targets. This pair is nonadjacent in the demo layout, so dialogue uses SPLIT.
   for(const userId of ['101','102'])await command(page,{type:'demo-speaking',userId,active:true});
@@ -127,7 +127,7 @@ test('repeated shared assets and editor lifetimes release workers, textures and 
   expect(editorClosed.workers.live).toBeLessThan(editorOpen.workers.live);
   await command(page,{type:'avatar-reset',userId:'102'});await ready(overlay,0);
   const cleared=await diagnostics(overlay),overlayResources=await resources(overlay);
-  expect(cleared.instances).toBe(0);expect(cleared.assets).toEqual([]);expect(cleared.views).toEqual([]);
+  expect(cleared.instances).toBe(0);expect(cleared.assets).toEqual([]);expect(cleared.views).toEqual([]);expect(cleared.nativeSurfaces.instances).toBe(0);
   cycles.push({cycle,shared,splitDiagnostics,splitResources,singleDiagnostics,singleResources,survivor,swapped,editorOpen,editorClosed,cleared,overlayResources});
   if(cycle>0){
    const warm=cycles[0];

@@ -21,8 +21,8 @@ async function command(page:Page,value:Record<string,unknown>):Promise<void>{
     return {status:r.status,body:await r.text()};
   },{value,revision:state.revision});expect(result.status,result.body).toBe(200);
 }
-async function importFixture(page:Page,index:number):Promise<StoredGaussianAsset>{
-  const bytes=Array.from(gaussianFixture(index).archive);
+async function importFixture(page:Page,index:number,proxy=true):Promise<StoredGaussianAsset>{
+  const bytes=Array.from(gaussianFixture(index,{proxy}).archive);
   return page.evaluate(async bytes=>{
     const form=new FormData();form.set('archive',new File([new Uint8Array(bytes)],'character.entaku.zip',{type:'application/zip'}));
     const r=await fetch('/api/gaussian-assets/import',{method:'POST',body:form});if(!r.ok)throw new Error(await r.text());return r.json();
@@ -122,29 +122,29 @@ async function identify(page:Page,name:string,geometry:ReturnType<typeof expecte
 }
 test.beforeAll(()=>mkdirSync('.work/gaussian',{recursive:true}));
 
-test('eight distinct packages render offline, share unchanged speech data and mix with existing 2D',async({page,context})=>{
+for(const withProxy of [true,false])test(`eight distinct ${withProxy?'proxy':'native'} packages render offline, share unchanged speech data and mix with existing 2D`,async({page,context})=>{
   test.setTimeout(240000);await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
   await command(page,{type:'demo-add'});await command(page,{type:'demo-add'});
   let state=await snapshot(page);const ids=state.participants.filter(p=>p.presence==='present').slice(0,8).map(p=>p.userId),assets:StoredGaussianAsset[]=[];
   const scene={...state.studio,quality:{...state.studio.quality,shadows:'off',ao:'off',reflections:false,msaa:0,fxaa:false,gi:'off'},post:{...state.studio.post,enabled:false}};
   await command(page,{type:'studio-set',scene});
-  for(let i=0;i<8;i++){const asset=await importFixture(page,i);assets.push(asset);await command(page,{type:'avatar-set',profile:profile(asset,ids[i]!)});}
+  for(let i=0;i<8;i++){const asset=await importFixture(page,i,withProxy);assets.push(asset);await command(page,{type:'avatar-set',profile:profile(asset,ids[i]!)});}
   expect(new Set(assets.map(a=>a.assetId)).size).toBe(8);expect(new Set(assets.map(a=>a.splatCount)).size).toBe(8);
   await command(page,{type:'wide'});await command(page,{type:'mode',mode:'HOLD'});
   const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});
   const errors:string[]=[],external:string[]=[];overlay.on('pageerror',e=>errors.push(e.message));
   await overlay.route('**/*',route=>{const url=new URL(route.request().url());if(url.host!=='127.0.0.1:31339'){external.push(url.href);return route.abort();}return route.continue();});
   await overlay.goto('/overlay');await ready(overlay,8);
-  state=await snapshot(page);const colors=await identify(overlay,'eight-characters',expectedPixels(state,ids));
+  state=await snapshot(page);const colors=await identify(overlay,`eight-characters-${withProxy?'proxy':'native'}`,expectedPixels(state,ids));
   expect(colors.desk.tested).toBeGreaterThan(50);expect(Object.keys(colors.desk.byUser).length).toBeGreaterThanOrEqual(2);
   expect(colors.desk.opaqueWorld).toBeGreaterThan(colors.desk.tested*.9);expect(colors.desk.gaussianLeaks).toBeLessThan(colors.desk.tested*.05);
   // One participant changes to an already loaded green character, then back.
   // This ties the colored component to that participant, not studio decoration.
   await command(page,{type:'avatar-set',profile:profile(assets[1]!,ids[0]!)});await ready(overlay,8);
-  const swapped=await identify(overlay,'eight-one-replaced',expectedPixels(await snapshot(page),ids,ids.map((_,i)=>i===0?1:i)));
+  const swapped=await identify(overlay,`eight-one-replaced-${withProxy?'proxy':'native'}`,expectedPixels(await snapshot(page),ids,ids.map((_,i)=>i===0?1:i)));
   expect(swapped.faces[0]!.colorCounts[0]).toBeLessThan(Math.max(6,colors.faces[0]!.colorCounts[0]!*.1));
   await command(page,{type:'avatar-set',profile:profile(assets[0]!,ids[0]!)});await ready(overlay,8);
-  const restored=await identify(overlay,'eight-restored',expectedPixels(await snapshot(page),ids));
+  const restored=await identify(overlay,`eight-restored-${withProxy?'proxy':'native'}`,expectedPixels(await snapshot(page),ids));
   expect(restored.faces[0]!.largest).toBeGreaterThan(colors.faces[0]!.largest*.8);
   const before=await overlay.evaluate(()=>(window as any).entakuGaussianDiagnostics());
   await command(page,{type:'demo-speaking',userId:ids[0],active:true});await command(page,{type:'demo-speaking',userId:ids[0],active:false});
@@ -155,9 +155,15 @@ test('eight distinct packages render offline, share unchanged speech data and mi
   await command(page,{type:'seat-move',userId:ids[0],slotIndex:state.session.reservations.find(r=>r.userId===ids[1])!.slotIndex});
   const image=await page.request.post('/api/assets',{headers:{Origin:'http://127.0.0.1:31339','Content-Type':'image/png'},data:png()});expect(image.ok()).toBe(true);const imageAsset=await image.json();
   await command(page,{type:'avatar-set',profile:{userId:ids[0],assetId:imageAsset.assetId,image:{width:imageAsset.width,height:imageAsset.height,mime:imageAsset.mime},faceRect:[.25,.1,.5,.25],scale:1,offsetX:0,offsetY:0}});
-  await ready(overlay,7);const mixed=await identify(overlay,'mixed-2d-3dgs',expectedPixels(await snapshot(page),ids,ids.map((_,i)=>i===0?8:i)));
+  await ready(overlay,7);const mixed=await identify(overlay,`mixed-2d-3dgs-${withProxy?'proxy':'native'}`,expectedPixels(await snapshot(page),ids,ids.map((_,i)=>i===0?8:i)));
+  if(!withProxy){
+    expect(after.nativeSurfaces.instances).toBe(8);expect(after.nativeSurfaces.uniqueSources).toBe(8);
+    const current=await snapshot(page);await command(page,{type:'studio-set',scene:{...current.studio,quality:{...current.studio.quality,shadows:'soft',shadowLights:1,reflections:true}}});
+    await expect.poll(async()=>{const d=await overlay.evaluate(()=>(window as any).entakuGaussianDiagnostics());return d.nativeSurfaces.draws.normal>0&&d.nativeSurfaces.draws.shadow>0;},{timeout:30000}).toBe(true);
+    await overlay.locator('#scene').screenshot({path:'.work/gaussian/eight-native-effects.png',omitBackground:true});
+  }
   expect(external).toEqual([]);expect(errors).toEqual([]);
-  writeFileSync('.work/gaussian/eight-results.json',JSON.stringify({assets:assets.map(a=>({assetId:a.assetId,splats:a.splatCount,bytes:a.byteLength})),before,after,colors,swapped,restored,mixed},null,2));
+  writeFileSync(`.work/gaussian/eight-${withProxy?'proxy':'native'}-results.json`,JSON.stringify({assets:assets.map(a=>({assetId:a.assetId,splats:a.splatCount,bytes:a.byteLength})),before,after,colors,swapped,restored,mixed},null,2));
 });
 
 test('Gaussian editor calibrates without image rectangles and exports portable placement',async({page})=>{
