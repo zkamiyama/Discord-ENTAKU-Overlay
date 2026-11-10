@@ -6,22 +6,24 @@ import type {AvatarExtent} from './camera-planner.ts';
 const v=(p:Vec3)=>new Vector3().fromArray(p);
 const tuple=(p:Vector3)=>p.toArray() as [number,number,number];
 export const DEFAULT_EXTENT:AvatarExtent={halfWidth:.28,topY:1.53,bottomY:.97};
-/** Conservative envelope includes the rendered front/back image and its +/-30deg yaw.
+/** Conservative envelope includes the rendered front/back image and its +/-30deg
+ * yaw, or the actual transformed Gaussian body volume when depth is supplied.
  * Three.js Ray/Box3 handle intersection; transparent pixels are not read in the domain.
  */
 export function avatarOccluder(seat:SeatTransform,extent:AvatarExtent):Box3 {
  const width=extent.bodyHalfWidth??extent.halfWidth;
  const top=extent.bodyTopY??extent.topY,bottom=Math.max(.76,extent.bodyBottomY??extent.bottomY);
- const box=new Box3(new Vector3(-width,bottom-seat.faceAnchor[1],-width*.5-.035),new Vector3(width,Math.max(bottom+.02,top)-seat.faceAnchor[1],width*.5+.035));
+ const box=new Box3(new Vector3(-width,bottom-seat.faceAnchor[1],(extent.bodyBack??-width*.5)-.035),new Vector3(width,Math.max(bottom+.02,top)-seat.faceAnchor[1],(extent.bodyFront??width*.5)+.035));
  return box.applyMatrix4(new Matrix4().makeRotationY(seat.baseYawRad).setPosition(...seat.faceAnchor));
 }
 function targets(seat:SeatTransform,extent:AvatarExtent):Vector3[]{
  const right=new Vector3(Math.cos(seat.baseYawRad),0,-Math.sin(seat.baseYawRad));
  const points:Vector3[]=[];
  const fw=extent.faceHalfWidth??.17,fh=extent.faceHalfHeight??.17;
- for(const x of [-fw,0,fw])for(const y of [-fh,0,fh])points.push(v(seat.faceAnchor).addScaledVector(right,x).add(new Vector3(0,y,0)));
+ const faceDepth=extent.faceBack===undefined&&extent.faceFront===undefined?[0]:[extent.faceBack??0,extent.faceFront??0];
+ for(const x of [-fw,0,fw])for(const y of [-fh,0,fh])for(const depth of faceDepth)points.push(v(seat.faceAnchor).addScaledVector(right,x).add(new Vector3(0,y,0)).addScaledVector(v(seat.inward),depth));
  // Preserve the configured framing rectangle, not just the face center.
- for(const x of [-extent.halfWidth,extent.halfWidth])for(const y of [Math.max(.80,extent.bottomY),extent.topY])for(const depth of [-extent.halfWidth*.5,extent.halfWidth*.5]){
+ for(const x of [-extent.halfWidth,extent.halfWidth])for(const y of [Math.max(.80,extent.bottomY),extent.topY])for(const depth of [extent.back??-extent.halfWidth*.5,extent.front??extent.halfWidth*.5]){
   const p=v(seat.faceAnchor).addScaledVector(right,x).addScaledVector(v(seat.inward),depth);p.y=y;points.push(p);
  }
  // The nameplate is as important as the face and sits nearer the camera.

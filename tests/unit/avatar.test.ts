@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import { inspectImage } from '../../src/assets/image.ts';
-import { validateProfile, avatarBounds, imagePointToLocal, type AvatarProfile } from '../../src/assets/avatar-profile.ts';
+import { validateProfile, avatarBounds, imagePointToLocal, type ImageAvatarProfile } from '../../src/assets/avatar-profile.ts';
 import { createDistanceField } from '../../src/assets/alpha-distance.ts';
 import { png } from '../helpers/png.ts';
-const profile: AvatarProfile = { userId: '1', assetId: 'a'.repeat(64), image: { width: 64, height: 128, mime: 'image/png' }, faceRect: [.25, .1, .5, .25], scale: 1, offsetX: 0, offsetY: 0 };
+const profile: ImageAvatarProfile = { userId: '1', assetId: 'a'.repeat(64), image: { width: 64, height: 128, mime: 'image/png' }, faceRect: [.25, .1, .5, .25], scale: 1, offsetX: 0, offsetY: 0 };
 test('image checks use content, bound dimensions, reject animation, trailing bytes and bad CRC', () => {
   expect(inspectImage(png())).toEqual({ width: 64, height: 128, mime: 'image/png' });
   expect(() => inspectImage(png(4097, 1))).toThrow('IMAGE_DIMENSIONS_REJECTED');

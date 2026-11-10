@@ -1,4 +1,5 @@
 import {saveRenderState} from './render-state.ts';
+import {renderSceneWithGaussians} from './gaussian-layers.ts';
 import * as THREE from 'three';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 /** Render-target materials output working-linear colors, not canvas sRGB. Decode
@@ -23,7 +24,7 @@ export class DisplayComposite {
   try{
    const u=(this.decode.material as THREE.ShaderMaterial).uniforms;u.color!.value=color.texture;u.depth!.value=depth;
    renderer.setRenderTarget(this.linear);renderer.autoClear=false;renderer.clear();this.decode.render(renderer);
-   camera.layers.set(this.layer);scene.background=null;renderer.render(scene,camera);
+   camera.layers.set(this.layer);scene.background=null;renderSceneWithGaussians(renderer,scene,camera);
    (this.encode.material as THREE.ShaderMaterial).uniforms.color!.value=this.linear.texture;
    renderer.setRenderTarget(this.result);renderer.clear();this.encode.render(renderer);return this.result;
   }finally{restore();}

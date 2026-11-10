@@ -1,3 +1,4 @@
+import {GAUSSIAN_LIMITS} from '../assets/gaussian-profile.ts';
 import {headers,json} from './http.ts';
 import {statusRoutes} from './routes/status.ts';
 import {assetRoutes} from './routes/assets.ts';
@@ -69,7 +70,7 @@ export function startServer(options: ServerOptions) {
   const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,diagnostic,broadcast,serial};
   const routes=[statusRoutes(context),assetRoutes(context),commandRoute(context)];
   const server = Bun.serve<SocketData>({
-    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: MAX_STUDIO_UNPACKED_BYTES + 1024*1024,
+    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes) + 1024*1024,
     async fetch(request, server) {
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
       const url = new URL(request.url);

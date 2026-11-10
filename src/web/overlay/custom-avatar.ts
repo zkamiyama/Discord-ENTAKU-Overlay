@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { protectDisplayObject } from '../studio/exposure-renderer.ts';
-import { avatarBounds,backProfile,type AvatarProfile } from '../../assets/avatar-profile.ts';
+import { avatarBounds,backProfile,type ImageAvatarProfile } from '../../assets/avatar-profile.ts';
 import { alphaField } from './alpha-field-client.ts';
 const vertexShader=`varying vec2 vUv;varying float vWorldY;
 void main(){vUv=uv;vWorldY=(modelMatrix*vec4(position,1.)).y;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 export class CustomAvatarVisual {
   readonly root=new THREE.Group();
   private cards:Array<{geometry:THREE.PlaneGeometry;image:THREE.CanvasTexture;distance:THREE.DataTexture;body:THREE.ShaderMaterial;glow:THREE.ShaderMaterial}>=[];
-  private constructor(readonly profile:AvatarProfile){}
-  static async create(bitmap:ImageBitmap,profile:AvatarProfile,back?:ImageBitmap):Promise<CustomAvatarVisual>{
+  private constructor(readonly profile:ImageAvatarProfile){}
+  static async create(bitmap:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap):Promise<CustomAvatarVisual>{
     const visual=new CustomAvatarVisual(profile);
     try{
       await visual.card(bitmap,profile,profile.back?'front':'double');
@@ -17,7 +17,7 @@ export class CustomAvatarVisual {
       return visual;
     }catch(e){visual.dispose();throw e;}
   }
-  private async card(bitmap:ImageBitmap,profile:AvatarProfile,side:'front'|'back'|'double'):Promise<void>{
+  private async card(bitmap:ImageBitmap,profile:ImageAvatarProfile,side:'front'|'back'|'double'):Promise<void>{
     if(bitmap.width!==profile.image.width||bitmap.height!==profile.image.height)throw new Error('IMAGE_DIMENSIONS_MISMATCH');
     const ratio=Math.min(1,1024/Math.max(bitmap.width,bitmap.height));
     const width=Math.max(1,Math.round(bitmap.width*ratio)),height=Math.max(1,Math.round(bitmap.height*ratio)),pad=96;

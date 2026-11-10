@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "kind": "entaku-gaussian-avatar",
+  "name": "合成キャラクター 1",
+  "splat": "avatar.ply",
+  "proxy": "proxy.glb",
+  "coordinates": {
+    "units": "m",
+    "up": "+Y",
+    "forward": "+Z"
+  },
+  "normalization": {
+    "scale": 1,
+    "rotation": [0, 0, 0],
+    "translation": [0, 0, 0]
+  },
+  "faceAnchor": [0, 1.35, 0],
+  "faceBounds": {
+    "min": [-0.3, 1.05, -0.29],
+    "max": [0.3, 1.65, 0.29]
+  },
+  "bodyBounds": {
+    "min": [-0.38, -0.06, -0.29],
+    "max": [0.38, 1.65, 0.29]
+  },
+  "framingBounds": {
+    "min": [-0.38, -0.06, -0.29],
+    "max": [0.38, 1.65, 0.29]
+  }
+}

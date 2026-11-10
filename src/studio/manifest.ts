@@ -1,3 +1,4 @@
+import {validateGaussianSettings,type GaussianSettings} from '../assets/gaussian-profile.ts';
 import {validateDirection,type DirectionSettings} from './direction.ts';
 import {validatePost,type PostSettings} from './post-effects.ts';
 import {validateQuality,type QualitySettings} from './quality.ts';
@@ -30,6 +31,7 @@ export interface StudioScene {
   quality?: QualitySettings;
   post?: PostSettings;
   direction?: DirectionSettings;
+  gaussian?: GaussianSettings;
   broadcast?:{enabled:boolean;title:string;subtitle:string};
 }
 export const DEFAULT_STUDIO_SCENE: StudioScene = {
@@ -75,7 +77,7 @@ function transform(v: unknown): StudioTransform {
   return { position: vec3(x.position,-100,100), yawDeg: finite(x.yawDeg,-360,360), scale: vec3(x.scale,0.01,20) };
 }
 export function validateStudioScene(value: unknown): StudioScene {
-  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast','exposure','quality','post','direction']);
+  const scene = object(value,['schemaVersion','revision','tableAnchor','tableEnvelope','objects','camera','broadcast','exposure','quality','post','direction','gaussian']);
   if (scene.schemaVersion !== 1) throw new Error('STUDIO_SCHEMA_UNSUPPORTED');
   const rev=finite(scene.revision,0,Number.MAX_SAFE_INTEGER);
   if (!Number.isSafeInteger(rev)) throw new Error('STUDIO_SCENE_INVALID');
@@ -110,6 +112,7 @@ export function validateStudioScene(value: unknown): StudioScene {
     tableAnchor:{ position:vec3(anchor.position,-100,100), yawDeg:finite(anchor.yawDeg,-360,360) },
     tableEnvelope:{maxStraightLength:finite(envelope.maxStraightLength,0,100),overflow:envelope.overflow},
     objects,
+    ...(scene.gaussian===undefined?{}:{gaussian:validateGaussianSettings(scene.gaussian)}),
     ...(scene.direction===undefined?{}:{direction:validateDirection(scene.direction)}),
     ...(scene.camera===undefined?{}:{camera:validateStudioCamera(scene.camera)}),
     ...(scene.broadcast===undefined?{}:{broadcast:validateBroadcast(scene.broadcast)}),

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { zipSync, strToU8 } from 'fflate';
 import { VERSION, BUN_VERSION } from '../src/version.ts';
 import { buildExecutable } from './build-executable.ts';
+import {gaussianFixturePackages} from './generate-gaussian-fixtures.ts';
 
 const git = (...args:string[]) => {
   const result=Bun.spawnSync(['git',...args]);
@@ -31,12 +32,14 @@ for(const [target,source] of Object.entries({
   'licenses/Bun-LICENSE.md':'licenses/Bun-LICENSE.md',
   'licenses/Apache-2.0.txt':'licenses/Apache-2.0.txt',
   'licenses/three-LICENSE.txt':'node_modules/three/LICENSE',
+  'licenses/Spark-LICENSE.txt':'node_modules/@sparkjsdev/spark/LICENSE',
   'licenses/Phosphor-LICENSE.txt':'node_modules/@phosphor-icons/core/LICENSE',
   'licenses/fflate-LICENSE.txt':'node_modules/fflate/LICENSE',
   'licenses/meshoptimizer-LICENSE.md':'node_modules/meshoptimizer/LICENSE.md',
   'licenses/Draco-README.md':'node_modules/three/examples/jsm/libs/draco/README.md',
   'licenses/Basis-README.md':'node_modules/three/examples/jsm/libs/basis/README.md',
 }))add(target,await readFile(source));
+for(const [name,bytes] of Object.entries(gaussianFixturePackages()))add('examples/gaussian/'+name,bytes);
 const tracked=git('ls-files','-z').split('\0').filter(Boolean);
 for(const path of tracked){
   if(/^(data|dist|node_modules|\.work|\.generated)\//.test(path)||/^\.env/.test(path))throw new Error('PRIVATE_OR_GENERATED_FILE_TRACKED');

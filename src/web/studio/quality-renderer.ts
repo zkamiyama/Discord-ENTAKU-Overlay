@@ -8,6 +8,8 @@ import {DisplayComposite} from './display-composite.ts';
 import {PostRenderer} from './post-renderer.ts';
 import {DEFAULT_POST,hasPostEffects,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {SSGIPass} from './ssgi-pass.ts';
+import {GAUSSIAN_COLOR_LAYER,GAUSSIAN_PROXY_LAYER,hasGaussianColor,renderSceneWithGaussians} from './gaussian-layers.ts';
+import {GaussianReflectionInputs} from './gaussian-reflections.ts';
 import * as THREE from 'three';
 import {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
 import type {SSRPass} from 'three/addons/postprocessing/SSRPass.js';
@@ -21,6 +23,7 @@ export type QualityStatus='DIRECT'|'EFFECTS'|'EFFECTS_UNAVAILABLE'|'EFFECTS_FAIL
 export class QualityRenderer {
  private post?:PostRenderer;private displayComposite?:DisplayComposite;
  private gi?:SSGIPass;
+ private gaussianReflections?:GaussianReflectionInputs;
  private targets=new EffectTargets();
  private get world(){return this.targets.get('world');}
  private get work(){return this.targets.get('work');}
@@ -58,13 +61,13 @@ export class QualityRenderer {
  }
  render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false):void{
   const renderer=this.renderer;
-  camera.layers.enable(STUDIO_UNLIT_LAYER);
+  camera.layers.enable(STUDIO_UNLIT_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);
   this.index.update(renderer,scene,q,source,this.displayLayer);
-  if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.recovery.reset();this.status='DIRECT';renderer.render(scene,camera);return;}
-  if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderer.render(scene,camera);return;}
+  if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.recovery.reset();this.status='DIRECT';renderSceneWithGaussians(renderer,scene,camera);return;}
+  if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderSceneWithGaussians(renderer,scene,camera);return;}
   const mask=camera.layers.mask,target=renderer.getRenderTarget(),auto=renderer.autoClear,background=scene.background;
   const size=target?new THREE.Vector2(target.width,target.height):renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
-  if(!this.recovery.canAttempt(JSON.stringify([source,camera.uuid,w,h,q,p]))){this.status='EFFECTS_FAILED';renderer.render(scene,camera);return;}
+  if(!this.recovery.canAttempt(JSON.stringify([source,camera.uuid,w,h,q,p]))){this.status='EFFECTS_FAILED';renderSceneWithGaussians(renderer,scene,camera);return;}
   const restore=saveRenderState(renderer,scene,camera);
   const clear=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha();
   try{
@@ -80,7 +83,7 @@ export class QualityRenderer {
    const samples=effectiveSamples(q.msaa,this.sampleCounts,renderer.capabilities.maxSamples);
    if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
    if(w!==this.w||h!==this.h){this.w=w;this.h=h;this.targets.setSize(w,h);}
-   camera.layers.disable(this.displayLayer);camera.layers.disable(STUDIO_UNLIT_LAYER);renderer.setScissorTest(false);renderer.autoClear=true;
+   camera.layers.disable(this.displayLayer);camera.layers.disable(GAUSSIAN_COLOR_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);camera.layers.disable(STUDIO_UNLIT_LAYER);renderer.setScissorTest(false);renderer.autoClear=true;
    renderer.shadowMap.autoUpdate=false;
    renderer.setRenderTarget(this.world!);renderer.clear();renderer.render(scene,camera);
    let input=this.world!;
@@ -96,13 +99,19 @@ export class QualityRenderer {
     // Avoid making rough plaster and every wall a mirror. Render scene-colored reflections only on selected smooth surfaces.
     this.ssr.selects=this.index.reflective;
     this.ssr.ssrMaterial.uniforms.cameraNear!.value=camera.near;this.ssr.ssrMaterial.uniforms.cameraFar!.value=camera.far;
-    this.ssr.render(renderer,this.reflections!,input,0,false);
+    if(hasGaussianColor(scene)){
+     this.gaussianReflections??=new GaussianReflectionInputs();
+     this.gaussianReflections.render(this.ssr,renderer,scene,camera,input,this.world!.depthTexture!,this.reflections!);
+    }else{
+     this.gaussianReflections?.dispose();this.gaussianReflections=undefined;
+     this.ssr.render(renderer,this.reflections!,input,0,false);
+    }
     // Never replace the MSAA beauty with SSRPass's separate, non-MSAA beauty.
     // Reapply its receiver mask after the reflection blur to stop wall bleeding.
     const u=(this.reflectionBlend!.material as THREE.ShaderMaterial).uniforms;
     u.base!.value=input.texture;u.reflection!.value=this.reflections!.texture;u.mask!.value=this.ssr.metalnessRenderTarget.texture;
     renderer.setRenderTarget(this.work!);renderer.clear();this.reflectionBlend!.render(renderer);input=this.work!;
-   }else if(this.ssr){disposeReflectionPass(this.ssr);this.ssr=undefined;this.targets.release('reflections');this.targets.release('work');}
+   }else if(this.ssr){disposeReflectionPass(this.ssr);this.ssr=undefined;this.gaussianReflections?.dispose();this.gaussianReflections=undefined;this.targets.release('reflections');this.targets.release('work');}
    if(q.ao==='gtao'){
     this.ao??=new GTAOPass(scene,camera,w,h,{depthTexture:this.world!.depthTexture!});
     const aw=Math.max(1,Math.round(w*q.effectsScale)),ah=Math.max(1,Math.round(h*q.effectsScale));if(this.ao.width!==aw||this.ao.height!==ah)this.ao.setSize(aw,ah);
@@ -123,11 +132,11 @@ export class QualityRenderer {
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
    uniforms.color!.value=color.texture;uniforms.depth!.value=compositeDepth;uniforms.coverage!.value=coverage;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
-   if(!target&&(!postActive||p.excludeAvatars)){camera.layers.set(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
+   if(!target&&(!postActive||p.excludeAvatars)){camera.layers.set(this.displayLayer);scene.background=null;renderSceneWithGaussians(renderer,scene,camera);}
    this.recovery.succeeded();this.status='EFFECTS';
   }catch(error){
    console.warn('QUALITY_EFFECTS_FAILED',error instanceof Error?error.name:'Unknown');this.recovery.failed();this.releaseEffects();this.status='EFFECTS_FAILED';
-   camera.layers.mask=mask;scene.background=background;renderer.autoClear=auto;renderer.setRenderTarget(target);renderer.setClearColor(clear,alpha);renderer.render(scene,camera);
+   camera.layers.mask=mask;scene.background=background;renderer.autoClear=auto;renderer.setRenderTarget(target);renderer.setClearColor(clear,alpha);renderSceneWithGaussians(renderer,scene,camera);
   }finally{
    restore();
   }
@@ -136,6 +145,7 @@ export class QualityRenderer {
   this.displayComposite?.dispose();this.displayComposite=undefined;
   this.post?.dispose();this.post=undefined;
   this.gi?.dispose();this.gi=undefined;
+  this.gaussianReflections?.dispose();this.gaussianReflections=undefined;
   this.ao?.dispose();if(this.ssr)disposeReflectionPass(this.ssr);this.output?.dispose();this.fxaa?.dispose();
   if(this.screen){this.screen.material.dispose();this.screen.dispose();}
   this.targets.dispose();

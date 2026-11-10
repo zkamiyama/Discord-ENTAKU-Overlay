@@ -2,6 +2,8 @@ import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StoredImage } from '../../assets/store.ts';
+import type {StoredGaussianAsset} from '../../assets/gaussian-store.ts';
+import type {GaussianAvatarManifest} from '../../assets/gaussian-profile.ts';
 import type { AppSnapshot } from '../../contracts/domain.ts';
 export class StudioClient {
   state: AppSnapshot | null = null;
@@ -104,6 +106,24 @@ export class StudioClient {
   async importImage(file: Blob): Promise<StoredImage> {
     const response=await fetch('/api/assets',{method:'POST',headers:{'Content-Type':file.type},body:file});
     const value=await response.json();if(!response.ok)throw new Error(value.error??'ASSET_IMPORT_FAILED');return value as StoredImage;
+  }
+  async gaussianAssets():Promise<StoredGaussianAsset[]> {
+    return (await this.localFetch('/api/gaussian-assets')).json();
+  }
+  async gaussianAsset(assetId:string):Promise<StoredGaussianAsset> {
+    return (await this.localFetch(`/api/gaussian-assets/${encodeURIComponent(assetId)}`)).json();
+  }
+  async importGaussian(file:File,proxy?:File,preview?:File):Promise<StoredGaussianAsset> {
+    const form=new FormData();
+    form.set(/\.zip$/i.test(file.name)?'archive':'splat',file,file.name);
+    if(proxy)form.set('proxy',proxy,proxy.name);
+    if(preview)form.set('preview',preview,preview.name);
+    return (await this.localFetch('/api/gaussian-assets/import',{method:'POST',body:form})).json();
+  }
+  async exportGaussian(assetId:string,manifest:GaussianAvatarManifest):Promise<Blob> {
+    return (await this.localFetch(`/api/gaussian-assets/${encodeURIComponent(assetId)}/export`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({manifest}),
+    })).blob();
   }
   async customImage(assetId:string):Promise<ImageBitmap>{
     const response=await fetch(`/api/assets/${encodeURIComponent(assetId)}`);

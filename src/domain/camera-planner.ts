@@ -18,8 +18,10 @@ const front = (seat: SeatTransform, camera: Vec3): boolean => {
   const direction = sub(camera,seat.faceAnchor);
   return dot(unit([direction[0],0,direction[2]]),seat.inward) >= Math.cos(radians(70));
 };
-export interface AvatarExtent { halfWidth:number;topY:number;bottomY:number;bodyHalfWidth?:number;bodyTopY?:number;bodyBottomY?:number;faceHalfWidth?:number;faceHalfHeight?:number }
-export interface WideSubject {center:Vec3;width:number;height:number;points?:readonly Vec3[]}
+/** Optional back/front values are signed seat-local Z offsets from the face
+ * anchor. They preserve GS volumes; omitted values retain the image envelope. */
+export interface AvatarExtent { halfWidth:number;topY:number;bottomY:number;back?:number;front?:number;bodyHalfWidth?:number;bodyTopY?:number;bodyBottomY?:number;bodyBack?:number;bodyFront?:number;faceHalfWidth?:number;faceHalfHeight?:number;faceBack?:number;faceFront?:number }
+export interface WideSubject {center:Vec3;width:number;height:number;points?:readonly Vec3[];facePoints?:readonly Vec3[]}
 /** All camera positions remain on the audience side of the moderator's rear arc. */
 export function moderatorRearLimit(straightLength:number,offsetZ=0):number {
   return offsetZ-straightLength/2-(TABLE.innerRadius+TABLE.ringWidth);
@@ -60,7 +62,8 @@ export function widePose(straightLength:number,extents:Iterable<AvatarExtent>=[]
     camera.position.fromArray(candidate.position);camera.lookAt(...target);camera.updateMatrixWorld(true);
     const rects=faces.map(f=>{
       const projected:Vector3[]=[];
-      for(const x of [-f.width,f.width])for(const y of [-f.height,f.height])for(const z of [-f.width*.5,f.width*.5])projected.push(new Vector3(f.center[0]+x,f.center[1]+y,f.center[2]+z).project(camera));
+      if(f.facePoints)for(const point of f.facePoints)projected.push(new Vector3().fromArray(point).project(camera));
+      else for(const x of [-f.width,f.width])for(const y of [-f.height,f.height])for(const z of [-f.width*.5,f.width*.5])projected.push(new Vector3(f.center[0]+x,f.center[1]+y,f.center[2]+z).project(camera));
       return {left:Math.min(...projected.map(p=>p.x)),right:Math.max(...projected.map(p=>p.x)),bottom:Math.min(...projected.map(p=>p.y)),top:Math.max(...projected.map(p=>p.y))};
     });
     let overlap=0;
@@ -74,7 +77,18 @@ export function widePose(straightLength:number,extents:Iterable<AvatarExtent>=[]
   return best!;
 }
 export function wideFaces(seats:ReadonlyMap<string,SeatTransform>,extents:ReadonlyMap<string,AvatarExtent>):WideSubject[]{
- return [...seats].map(([id,seat])=>{const e=extents.get(id);return {center:seat.faceAnchor,width:e?.faceHalfWidth??.28,height:e?.faceHalfHeight??.28,points:avatarFramePoints(seat,e??{halfWidth:.28,topY:1.53,bottomY:.97})};});
+ return [...seats].map(([id,seat])=>{
+  const e=extents.get(id),width=e?.faceHalfWidth??.28,height=e?.faceHalfHeight??.28;
+  let facePoints:Vec3[]|undefined;
+  if(e?.faceBack!==undefined&&e.faceFront!==undefined){
+   facePoints=[];const right:Vec3=[seat.inward[2],0,-seat.inward[0]];
+   for(const x of [-width,width])for(const y of [-height,height])for(const z of [e.faceBack,e.faceFront])facePoints.push(add(add(add(seat.faceAnchor,mul(right,x)),mul(seat.inward,z)),[0,y,0]));
+  }
+  // Cropping the body at tabletop height must never crop a lowered GS face.
+  const points=avatarFramePoints(seat,e??{halfWidth:.28,topY:1.53,bottomY:.97});
+  if(facePoints)points.push(...facePoints);
+  return {center:seat.faceAnchor,width,height,points,...(facePoints?{facePoints}:{})};
+ });
 }
 export function pairPose(a: SeatTransform,b: SeatTransform, extents: readonly AvatarExtent[] = [],portraitFov=DEFAULT_DIRECTION.portraitFov): CameraPose | null {
   const target=mul(add(a.faceAnchor,b.faceAnchor),0.5), inward=unit(add(a.inward,b.inward));
@@ -111,7 +125,7 @@ export function fitsCameraFrame(pose:CameraPose,points:readonly Vec3[],margin=.8
 }
 export function avatarFramePoints(seat:SeatTransform,extent:AvatarExtent):Vec3[]{
   const right:Vec3=[seat.inward[2],0,-seat.inward[0]],points:Vec3[]=[];
-  for(const x of [-extent.halfWidth,extent.halfWidth])for(const y of [Math.max(TABLE.topY+.05,extent.bottomY),extent.topY])for(const z of [-extent.halfWidth*.5,extent.halfWidth*.5]){
+  for(const x of [-extent.halfWidth,extent.halfWidth])for(const y of [Math.max(TABLE.topY+.05,extent.bottomY),extent.topY])for(const z of [extent.back??-extent.halfWidth*.5,extent.front??extent.halfWidth*.5]){
     const p=add(add(seat.faceAnchor,mul(right,x)),mul(seat.inward,z));points.push([p[0],y,p[2]]);
   }
   points.push(...plateFramePoints(seat));

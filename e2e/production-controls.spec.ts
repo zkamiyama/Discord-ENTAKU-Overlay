@@ -9,7 +9,7 @@ test('front and independent back images preview, persist and restore without exp
  const overlay=await context.newPage();await overlay.setViewportSize({width:640,height:360});
  overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto(await page.locator('#overlay-url').inputValue());
  await expect(overlay.locator('#scene')).toHaveAttribute('data-quality-status','EFFECTS');
- await personAction(page,page.locator('.person').first(),'画像を調整');
+ await personAction(page,page.locator('.person').first(),'アバターを調整');
  await page.locator('#avatar-file').setInputFiles({name:'front.png',mimeType:'image/png',buffer:png()});
  await expect(page.locator('#avatar-apply')).toBeEnabled();
  await page.locator('#avatar-editor details').first().locator('summary').click();
@@ -17,7 +17,7 @@ test('front and independent back images preview, persist and restore without exp
  await expect(page.locator('#avatar-back-preview')).toBeVisible();await expect(page.locator('#avatar-apply')).toBeEnabled();
  await page.locator('#avatar-scale').fill('3');await expect(page.locator('#avatar-apply')).toBeEnabled();await page.locator('#avatar-apply').click();
  await page.reload();await expect(page.locator('#transport')).toHaveText('接続済み');
- await personAction(page,page.locator('.person').first(),'画像を調整');
+ await personAction(page,page.locator('.person').first(),'アバターを調整');
  await expect(page.locator('#avatar-apply')).toBeEnabled();await expect(page.locator('#avatar-scale')).toHaveValue('3');
  if(!await page.locator('#avatar-back-preview').isVisible())await page.locator('#avatar-editor details').first().locator('summary').click();await expect(page.locator('#avatar-back-preview')).toBeVisible();
  await page.screenshot({path:'.work/preview-avatar-front-back.png',fullPage:true});

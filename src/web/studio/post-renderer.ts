@@ -1,6 +1,7 @@
 import {saveRenderState} from './render-state.ts';
 import {createFocusMaterial,bloomTexture} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
+import {GaussianProxyDepthPass,renderSceneWithGaussians} from './gaussian-layers.ts';
 import * as THREE from 'three';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -24,6 +25,7 @@ export class PostRenderer {
  private result=new THREE.WebGLRenderTarget(1,1,{depthBuffer:false});
  private tone=new OutputPass();private hue=new ShaderPass(VibranceShader);private contrast=new ShaderPass(BrightnessContrastShader);
  private bokeh:ShaderPass;private bloom?:UnrealBloomPass;
+ private proxyDepth?:GaussianProxyDepthPass;
  private depth:FullScreenQuad;private blend:FullScreenQuad;private gamma:FullScreenQuad;private premultiply:FullScreenQuad;
  private w=0;private h=0;
  get depthTexture():THREE.DepthTexture{return this.linear.depthTexture!;}
@@ -50,7 +52,8 @@ export class PostRenderer {
    this.tone.render(renderer,this.linear,input,0,false);
    (this.depth.material as THREE.ShaderMaterial).uniforms.depth!.value=worldDepth;
    renderer.setRenderTarget(this.linear);renderer.autoClear=false;this.depth.render(renderer);
-   if(unlitStudio||!p.excludeAvatars){camera.layers.mask=0;if(unlitStudio)camera.layers.enable(STUDIO_UNLIT_LAYER);if(!p.excludeAvatars)camera.layers.enable(this.displayLayer);scene.background=null;renderer.render(scene,camera);}
+   if(unlitStudio||!p.excludeAvatars){camera.layers.mask=0;if(unlitStudio)camera.layers.enable(STUDIO_UNLIT_LAYER);if(!p.excludeAvatars)camera.layers.enable(this.displayLayer);scene.background=null;renderSceneWithGaussians(renderer,scene,camera);}
+   if(!p.excludeAvatars&&p.dof){this.proxyDepth??=new GaussianProxyDepthPass();this.proxyDepth.render(renderer,scene,camera);}
    renderer.outputColorSpace=outputSpace;camera.layers.mask=mask;scene.background=background;renderer.autoClear=true;
    let color=this.linear;
    if(p.dof&&p.maxBlur>0&&p.aperture>0){
@@ -76,6 +79,7 @@ export class PostRenderer {
  dispose():void{
   for(const rt of [this.linear,this.a,this.b,this.c,this.result])rt.dispose();
   for(const pass of [this.tone,this.hue,this.contrast,this.bokeh])pass.dispose();this.bloom?.dispose();
+  this.proxyDepth?.dispose();this.proxyDepth=undefined;
   for(const quad of [this.depth,this.blend,this.gamma,this.premultiply]){quad.material.dispose();quad.dispose();}
  }
 }

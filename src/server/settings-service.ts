@@ -87,6 +87,7 @@ export class SettingsService {
       for (const file of (await this.studios.bundle(item.bundleId)).files) await this.studios.file(item.bundleId, file.path);
     }
     const profiles = await Promise.all(p.avatarProfiles.map(a => this.avatars.validateDraft(a)));
+    await this.avatars.validateGaussianBudget(profiles);
     const clean = validatePreset({...p, studio:scene, avatarProfiles:profiles});
     const oldScene = this.studios.snapshot(), oldProfiles = this.avatars.snapshot();
     const oldPreferences = await this.presets.preferences();

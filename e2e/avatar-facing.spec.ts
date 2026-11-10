@@ -13,7 +13,7 @@ async function centerPixel(page:Page):Promise<number[]>{
 for(const independentBack of [false,true])test(`avatar rear darkens with independent back=${independentBack}`,async({page})=>{
   await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
   const solid=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=64;c.height=128;const x=c.getContext('2d')!;x.fillStyle='rgb(200,40,40)';x.fillRect(0,0,64,128);return c.toDataURL('image/png').split(',')[1]!;});
-  await personAction(page,page.locator('.person').first(),'画像を調整');
+  await personAction(page,page.locator('.person').first(),'アバターを調整');
   await page.locator('#avatar-file').setInputFiles({name:'red.png',mimeType:'image/png',buffer:Buffer.from(solid,'base64')});
   await expect(page.locator('#avatar-apply')).toBeEnabled();
   if(independentBack){await page.locator('#avatar-editor details').first().locator('summary').click();await page.locator('#avatar-back-file').setInputFiles({name:'back.png',mimeType:'image/png',buffer:Buffer.from(solid,'base64')});await expect(page.locator('#avatar-apply')).toBeEnabled();}
