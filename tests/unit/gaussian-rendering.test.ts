@@ -1,5 +1,7 @@
 import {expect,test} from 'bun:test';
 import * as THREE from 'three';
+import {SparkRenderer} from '@sparkjsdev/spark';
+import {prepareGaussianColor} from '../../src/web/gaussian/color-space.ts';
 import {createReflectionPass,disposeReflectionPass,reflectionInternals,renderPreparedReflection} from '../../src/web/studio/addon-adapters.ts';
 import {GAUSSIAN_COLOR_LAYER,GAUSSIAN_PROXY_LAYER,GaussianProxyDepthPass,gaussianShadowKey,hasGaussianColor,installGaussianRenderHook,renderSceneWithGaussians} from '../../src/web/studio/gaussian-layers.ts';
 import {GaussianReflectionInputs} from '../../src/web/studio/gaussian-reflections.ts';
@@ -19,6 +21,21 @@ function fakeRenderer(render:(scene:THREE.Scene,camera:THREE.Camera)=>void){
   getClearColor:(v:THREE.Color)=>v.set(0),getClearAlpha:()=>0,setClearColor:()=>{},setClearAlpha:()=>{},setViewport:()=>{},setScissor:()=>{},setScissorTest:()=>{},clear:()=>{},render,
  } as unknown as THREE.WebGLRenderer;
 }
+test('published Spark fragment uses Three sRGB decoding and rejects a changed conversion hook',()=>{
+ // Construct the actual packaged material; no shader source fixture is copied.
+ // No WebGL drawing occurs in this source-compatibility test.
+ const renderer={getContext:()=>({getExtension:()=>null})} as unknown as THREE.WebGLRenderer;
+ const spark=new SparkRenderer({renderer}),material=spark.material,original=material.fragmentShader,version=material.version;
+ try{
+  expect(original).toContain('if (encodeLinear)');expect(original).toContain('rgba.rgb = srgbToLinear(rgba.rgb);');
+  prepareGaussianColor(material);
+  expect(material.fragmentShader).toBe(original.replace('rgba.rgb = srgbToLinear(rgba.rgb);','rgba.rgb = sRGBTransferEOTF(vec4(rgba.rgb, 1.0)).rgb;'));
+  expect(material.version).toBe(version+1);
+  expect(()=>prepareGaussianColor(material)).toThrow('SPARK_COLOR_ADAPTER_CHANGED');
+  material.fragmentShader=original.replace('srgbToLinear(rgba.rgb)','updatedDecode(rgba.rgb)');
+  expect(()=>prepareGaussianColor(material)).toThrow('SPARK_COLOR_ADAPTER_CHANGED');
+ }finally{spark.dispose();}
+});
 test('view hook receives display/color draws while geometry and metering stay native',()=>{
  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera();let native=0,gaussian=0;
  const renderer=fakeRenderer(()=>native++),release=installGaussianRenderHook(scene,()=>gaussian++);

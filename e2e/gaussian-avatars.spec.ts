@@ -30,6 +30,7 @@ const profile=(asset:StoredGaussianAsset,userId:string)=>({kind:'gaussian',userI
 const ready=async(page:Page,count:number)=>{
   await expect(page.locator('#scene')).toHaveAttribute('data-gaussian-instances',String(count),{timeout:90000});
   await expect.poll(async()=>page.locator('#scene').getAttribute('data-gaussian-status').then(s=>JSON.parse(s??'[]').every((r:any)=>r.phase==='ready')),{timeout:90000}).toBe(true);
+  if(count)await expect.poll(async()=>Number(await page.locator('#scene').getAttribute('data-gaussian-selected-splats')),{timeout:90000}).toBeGreaterThan(0);
 };
 test.beforeAll(()=>mkdirSync('.work/gaussian',{recursive:true}));
 

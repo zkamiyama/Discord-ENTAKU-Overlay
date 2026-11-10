@@ -29,8 +29,10 @@ let densePacked:PackedSplats|undefined,denseFront:SplatMesh|undefined,denseRear:
 async function prepareDense(){
  if(densePacked)return;
  densePacked=new PackedSplats({construct(data){
-  // 9,216 distinct centers, several depth layers and subpixel-scale leaves at
-  // a distance. This makes both budget reduction and view-distance LoD visible.
+  // 9,216 distinct centers with several depth layers. Spark's standard traversal
+  // tests projected PARENT-node size, so subpixel leaves alone do not imply a
+  // large count reduction. At this 42-degree / 360px projection the published
+  // WASM selects 9,216 at 2m, 8,880 at 40m, and 216 at 80m (before GPU culling).
   for(let z=0;z<8;z++)for(let y=0;y<48;y++)for(let x=0;x<24;x++)data.pushSplat(new THREE.Vector3((x-11.5)*.03,.16+y*.027,(z-3.5)*.015),new THREE.Vector3(.022,.020,.018),new THREE.Quaternion(),.65,new THREE.Color(1,1,1));
  }});
  await densePacked.initialized;await densePacked.createLodSplats();
@@ -73,13 +75,33 @@ function draw(){
 }
 async function settle(options:Options={},count=24){
  if(options.dense)await prepareDense();
- configure(options);frames=[];let last=performance.now();
+ configure(options);return settleFrames(count);
+}
+async function settleFrames(count=24){
+ frames=[];let last=performance.now();
  for(let i=0;i<count;i++){await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));draw();const now=performance.now();frames.push(now-last);last=now;}
  return status();
 }
+// LoD and sorting are asynchronous. Check the completed LoD camera/budget as
+// well as stable counts, so an old selection cannot satisfy the next scenario.
+async function settleLod(options:Options={}){
+ await settle(options,options.split?40:36);let stable=0,previous='',last=performance.now();
+ for(let i=0;i<180;i++){
+  await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));draw();const now=performance.now();frames.push(now-last);last=now;const state=status();
+  const ready=state.activeViews.length===(options.split?2:1)&&state.activeViews.every(view=>
+   !view.lodPending&&view.lodBudget===view.budget&&view.lodPosition&&view.cameraPosition.every((value,index)=>Math.abs(value-view.lodPosition![index]!)<1e-4));
+  const signature=JSON.stringify(state.activeViews.map(view=>[view.selectedSplats,view.lodInstances]));
+  stable=ready&&signature===previous?stable+1:0;previous=signature;
+  if(stable>=4)return state;
+ }
+ throw new Error('GAUSSIAN_LOD_DID_NOT_SETTLE '+JSON.stringify(status()));
+}
+// A light-only movement keeps the caller's scene revision, camera, avatar and
+// quality settings fixed. The production shadow index must detect the move.
+async function moveLight(x:number,count=24){light.position.x=x;return settleFrames(count);}
 function pixels(){const gl=renderer.getContext(),data=new Uint8Array(width*height*4);gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data);return data;}
 function save(name:string){snapshots.set(name,pixels());return stats();}
-function sample(){const v=new THREE.Vector3(front.position.x,.8,.3).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
+function sample(y=.8){const v=new THREE.Vector3(front.position.x,y,.3).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
 function bounds(){const point=new THREE.Vector3(0,.04,.3).project(camera);return {floorTop:Math.floor((point.y+1)*height/2)-6};}
 function stats(){
  const data=pixels(),b=bounds();let red=0,blue=0,transparent=0,redFloor=0,blueFloor=0,leftRed=0,leftBlue=0,rightRed=0,rightBlue=0;
@@ -114,7 +136,26 @@ function reflectionAppearance(redOff:string,redOn:string,blueOff:string,blueOn:s
  }
  return {changed,redGain,blueGain,redSignal,blueSignal};
 }
-function status(){const sorted=frames.slice(4).sort((a,b)=>a-b),source=denseMode?densePacked!:packed,r=runtime.diagnostics();return {quality:quality.status,memory:{...renderer.info.memory},runtime:r,activeViews:r.views.filter(v=>splitMode?v.camera!==camera.uuid:v.camera===camera.uuid),source:{inputSplats:source.numSplats,lodSplats:source.lodSplats?.numSplats??0,originalCpuBytes:packedCpuBytes(source),lodCpuBytes:packedCpuBytes(source.lodSplats)},p50:sorted[Math.floor(sorted.length*.5)]??0,p95:sorted[Math.floor(sorted.length*.95)]??0,stats:stats(),sample:sample()};}
+function shadowMovement(beforeOff:string,beforeOn:string,afterOff:string,afterOn:string){
+ const a=snapshots.get(beforeOff)!,b=snapshots.get(beforeOn)!,c=snapshots.get(afterOff)!,d=snapshots.get(afterOn)!;
+ let beforeDarkened=0,afterDarkened=0,shifted=0,beforeWeight=0,afterWeight=0,beforeX=0,afterX=0;
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+  const i=(y*width+x)*4;
+  // The fixture's opaque neutral surface is the floor. Do not restrict this to
+  // the reflection ROI in front of the avatar: these shadows extend behind it.
+  const neutral=(p:Uint8Array)=>p[i+3]!>250&&Math.max(p[i]!,p[i+1]!,p[i+2]!)-Math.min(p[i]!,p[i+1]!,p[i+2]!)<5;
+  const firstFloor=neutral(a),secondFloor=neutral(c);if(!firstFloor&&!secondFloor)continue;
+  const sum=(p:Uint8Array)=>p[i]!+p[i+1]!+p[i+2]!;
+  const first=firstFloor?sum(a)-sum(b):0,second=secondFloor?sum(c)-sum(d):0;
+  // OFF/ON differences cancel the floor's direct/specular illumination change
+  // when the light moves. Only a change in the shadow response satisfies this.
+  if(first>20){beforeDarkened++;beforeWeight+=first;beforeX+=x*first;}
+  if(second>20){afterDarkened++;afterWeight+=second;afterX+=x*second;}
+  if(Math.abs(first-second)>20)shifted++;
+ }
+ return {beforeDarkened,afterDarkened,shifted,beforeCenterX:beforeWeight?beforeX/beforeWeight:null,afterCenterX:afterWeight?afterX/afterWeight:null};
+}
+function status(){const sorted=frames.slice(4).sort((a,b)=>a-b),source=denseMode?densePacked!:packed,r=runtime.diagnostics();return {quality:quality.status,memory:{...renderer.info.memory},runtime:r,activeViews:r.views.filter(v=>splitMode?v.camera!==camera.uuid:v.camera===camera.uuid),source:{inputSplats:source.numSplats,lodSplats:source.lodSplats?.numSplats??0,originalCpuBytes:packedCpuBytes(source),lodCpuBytes:packedCpuBytes(source.lodSplats)},sceneState:{revision:serial,avatarPosition:front.position.toArray(),lightPosition:light.position.toArray()},p50:sorted[Math.floor(sorted.length*.5)]??0,p95:sorted[Math.floor(sorted.length*.95)]??0,stats:stats(),sample:sample()};}
 function dispose(){quality.dispose();split.dispose();singleTarget.dispose();present.material.dispose();present.dispose();releaseVisual();runtime.dispose();for(const mesh of [front,rear,denseFront,denseRear])if(mesh){mesh.packedSplats=undefined;mesh.splats=undefined;mesh.dispose();}packed.dispose();densePacked?.dispose();for(const mesh of [proxy,floor,blocker]){mesh.geometry.dispose();mesh.material.dispose();}renderer.dispose();}
-(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,draw,save,compare,reflectionAppearance,stats,status,sample,dispose};
+(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,settleLod,moveLight,draw,save,compare,reflectionAppearance,shadowMovement,stats,status,sample,dispose};
 configure();draw();

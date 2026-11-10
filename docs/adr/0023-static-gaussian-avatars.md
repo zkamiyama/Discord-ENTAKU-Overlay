@@ -26,6 +26,8 @@ r187 SSRPass.renderはreadBufferを読まずbeautyを再描画するため、単
 
 GSの取得済みカラーを物理再照明とは扱わない。既存のworld・2D用MSAAと露出保護を維持し、色空間、深度、透過は画素試験で確認する。proxyなしは表示を許可するが、影とSSR幾何の不足を表示する。
 
+初回CIで直描画のRGBが[255,6,6]、render target経由が[255,1,1]となった。Spark 2.4.0のpow(rgb,2.2)と、Three r187のIEC sRGB変換が対にならないことが原因だった。color-space.tsで各SparkRendererの公開ShaderMaterial.fragmentShaderにある変換呼び出しを、Three標準のsRGBTransferEOTFへ合わせる。共有ShaderChunkやSDKソース、ソート、alpha、falloffは変更しない。依存更新で対象呼び出しが変わる場合はguard testで検出する。直描画とtargetの画素許容差3は維持する。
+
 ## 寿命・検証・配布
 
 素材ごとのロードとLoD生成はアセット変更時だけ行う。世代判定、共有データの参照数、個別失敗時のアイコン復帰、終了時の解放を検証する。発話にはリングと不透明度を使い、音量・音声・口形情報があるとは仮定しない。

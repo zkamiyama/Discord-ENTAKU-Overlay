@@ -40,6 +40,9 @@ export class AvatarEditor {
     this.dialog.addEventListener('cancel',event=>{if(this.busy)event.preventDefault();});
     $<HTMLSelectElement>('avatar-kind').onchange=()=>this.setKind($<HTMLSelectElement>('avatar-kind').value==='gaussian'?'gaussian':'image');
     $('avatar-cancel').onclick=()=>{if(!this.busy)this.dialog.close();};
+    // The form contains hidden inputs for the other display mode. Its
+    // novalidate flag leaves validation to the active profile validator here
+    // and on the server, instead of letting inactive controls block submission.
     $<HTMLFormElement>('avatar-form').onsubmit=e=>{e.preventDefault();void this.apply();};
     $('avatar-reset').onclick=()=>{if(confirm('この人のカスタムアバターを解除してDiscordアイコンへ戻しますか？'))void this.reset();};
     $<HTMLInputElement>('avatar-file').onchange=()=>{const file=$<HTMLInputElement>('avatar-file').files?.[0];if(file)void this.select(file);};

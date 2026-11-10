@@ -14,7 +14,9 @@
 
 同じ制約でChromiumも起動できませんでした。システムChromiumの起動ログは`socket() failed: Operation not permitted (1)`です。ブラウザ内の描画処理に入る前の失敗なので、画質の合否を判断する証拠には使いません。既存のGitHub ActionsでLinux／Windows検査とブラウザテストを実行し、その結果をこの記録へ追記します。
 
-現時点のブラウザ画素テストとWindows配布検査はCI結果待ちです。実GPU、OBS本体、実キャラクター素材での性能評価は未実施です。
+最初の実装コミット`1641de12733e1191f206b2af5381337e61a85f77`の[CI実行](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/actions/runs/42741629729)では、LinuxとWindowsの型検査・全276テストが合格しました。両OSでコンパイルと隔離した実行ファイルのスモークテストも合格し、Windows ZIPは419ファイルとSHA-256の検査を通過しました。ローカルで失敗した既存IPCテストは、CIの両OSで合格しています。
+
+最初のブラウザ実行は52件合格、7件不合格でした。非表示欄のHTMLフォーム検証による画像／GS保存の失敗、直描画とrender targetの暗色の差、影の測定範囲、遠距離LoDの想定値を修正・再検証中です。この初回結果だけで全受け入れ条件を合格にはしません。実GPU、OBS本体、実キャラクター素材での性能評価は未実施です。
 
 ## 受け入れ条件 A01〜A16
 
@@ -96,3 +98,38 @@ bun run verify:package
 | 見た目 | 同じ構図のPNG／動画、各A条件の合格・不合格・未実施 |
 
 `requestAnimationFrame`の間隔はGPUの描画時間ではありません。ソフトウェアWebGLのCI結果も実GPUの性能値として扱いません。GPUメモリとLoD構築時の最大メモリは、現行の公開APIでは取得できず、診断は`null`です。
+
+### フレーム間隔を測る
+
+素材の準備が終わった映像ページの開発者コンソールで、次を実行します。最初の60フレームを除き、その後600フレームの間隔を測ります。測定中は映像ページを前面に置き、ウィンドウの寸法や画質を変更しないでください。1体／8種類、通常／分割、影・SSRの各条件を変えるたびに実行し、返されたJSONを記録します。
+
+```js
+await (async () => {
+  const intervals = [];
+  let previous;
+  for (let i = 0; i < 661; i++) {
+    const now = await new Promise(resolve => requestAnimationFrame(resolve));
+    if (i > 60 && previous !== undefined) intervals.push(now - previous);
+    previous = now;
+  }
+  const sorted = [...intervals].sort((a, b) => a - b);
+  const canvas = document.querySelector('#scene');
+  const gl = canvas.getContext('webgl2');
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  return {
+    measurement: 'requestAnimationFrame interval, not GPU time',
+    samples: intervals.length,
+    durationMs: intervals.reduce((sum, value) => sum + value, 0),
+    p50Ms: sorted[Math.floor(sorted.length * 0.50)],
+    p95Ms: sorted[Math.floor(sorted.length * 0.95)],
+    userAgent: navigator.userAgent,
+    renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null,
+    width: canvas.width,
+    height: canvas.height,
+    dpr: devicePixelRatio,
+    gaussian: window.entakuGaussianDiagnostics()
+  };
+})()
+```
+
+この測定だけではOBSのブラウザソース内のフレーム間隔は分かりません。OBSでは統計と録画結果も併用し、ブラウザで測った値と区別します。公開APIから取得できる値だけを記録し、不明な指標は推定値で埋めません。

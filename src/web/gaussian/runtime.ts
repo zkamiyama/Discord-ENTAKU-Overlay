@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import { GAUSSIAN_COLOR_LAYER, installGaussianRenderHook } from '../studio/gaussian-layers.ts';
 import { GaussianAssetCache } from './assets.ts';
+import { prepareGaussianColor } from './color-space.ts';
 
 /** One draw node per scene, one sorter/LoD selection per camera. Source splats
  * are shared; view accumulators, ordering and LoD index textures are not. */
@@ -39,7 +40,10 @@ export class GaussianRuntime {
     };
   }
   private createView(): SparkRenderer {
-    const view = new SparkRenderer({ renderer: this.renderer, lodSplatCount: Math.floor(this.totalBudget / this.viewCount), enableLod: true, enableDriveLod: true, lodRaycast: 0, depthTest: true, depthWrite: false });
+    // Standard traversal stops before expanding a node would exceed the view
+    // budget. Keep that contract explicit when dividing one total across views.
+    const view = new SparkRenderer({ renderer: this.renderer, lodSplatCount: Math.floor(this.totalBudget / this.viewCount), enableLod: true, enableDriveLod: true, lodTraverseMode: 'standard', lodRaycast: 0, depthTest: true, depthWrite: false });
+    prepareGaussianColor(view.material);
     view.material.toneMapped = false;
     view.layers.set(1); view.layers.enable(GAUSSIAN_COLOR_LAYER);
     view.userData.entakuGaussianRenderer = true;
@@ -67,7 +71,7 @@ export class GaussianRuntime {
       totalBudget: this.totalBudget, activeViewCount: this.viewCount, instances: this.users,
       assets: this.assets.diagnostics(),
       rendererMemory: {textures:this.renderer.info.memory.textures,geometries:this.renderer.info.memory.geometries,programs:this.renderer.info.programs?.length??0},
-      views: [...this.views].map(([camera, view]) => ({ camera: camera.uuid, active: this.activeCameras.has(camera), selectedSplats: view.activeSplats, budget: view.lodSplatCount, width: view.renderSize.x, height: view.renderSize.y, lodInstances: [...view.lodInstances.values()].map(v => v.numSplats) })),
+      views: [...this.views].map(([camera, view]) => ({ camera: camera.uuid, active: this.activeCameras.has(camera), selectedSplats: view.activeSplats, budget: view.lodSplatCount, width: view.renderSize.x, height: view.renderSize.y, lodInstances: [...view.lodInstances.values()].map(v => v.numSplats), cameraPosition: camera.getWorldPosition(new THREE.Vector3()).toArray(), lodPosition: view.currentLod?.pos.toArray() ?? null, lodBudget: view.currentLod?.maxSplats ?? null, lodPending: view.lodDirty || view.currentLod !== view.lastLod })),
       // Browser APIs do not expose a reliable GPU allocation or LoD peak counter.
       gpuBytes: null, lodBuildPeakBytes: null,
     };
