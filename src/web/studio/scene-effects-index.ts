@@ -1,3 +1,4 @@
+import {GAUSSIAN_SURFACE_LAYER,GaussianSurface} from '../gaussian/surface.ts';
 import * as THREE from 'three';
 import {STUDIO_UNLIT_LAYER,installStudioAlphaShadows} from './studio-materials.ts';
 import type {QualitySettings} from '../../studio/quality.ts';
@@ -17,14 +18,15 @@ export class SceneEffectsIndex {
  hasUnlit=false;
  update(renderer:THREE.WebGLRenderer,scene:THREE.Scene,q:QualitySettings,source:string,displayLayer:number):boolean {
   renderer.shadowMap.enabled=q.shadows==='soft';renderer.shadowMap.type=THREE.PCFShadowMap;
-  const key=[scene.uuid,source,q.shadows,q.shadowSize,q.shadowLights,q.reflections,displayLayer,gaussianShadowKey(scene)].join('|');
+  const key=[scene.uuid,source,q.shadows,q.shadowSize,q.shadowLights,q.reflections,displayLayer,q.gaussianAlphaClip,gaussianShadowKey(scene)].join('|');
   if(key===this.key)return false;
   this.key=key;this.lights=[];this.reflective=[];this.hasUnlit=false;
   let desk:THREE.Object3D|undefined;
   const candidates:ShadowLight[]=[];
   scene.traverse(o=>{
    if(o.userData.entakuDesk)desk=o;
-   if(o instanceof THREE.Mesh&&o.userData.entakuGaussianRenderer){o.castShadow=false;o.receiveShadow=false;}
+   if(o instanceof GaussianSurface){o.alphaClip=q.gaussianAlphaClip;o.castShadow=true;o.receiveShadow=false;}
+   else if(o instanceof THREE.Mesh&&o.userData.entakuGaussianRenderer){o.castShadow=false;o.receiveShadow=false;}
    else if(o instanceof THREE.Mesh&&!o.layers.isEnabled(displayLayer)&&!o.layers.isEnabled(GAUSSIAN_COLOR_LAYER)){
     o.castShadow=true;o.receiveShadow=!o.userData.entakuStudioUnlit&&!o.layers.isEnabled(GAUSSIAN_PROXY_LAYER);installStudioAlphaShadows(o);
     if(o.userData.entakuStudioUnlit)this.hasUnlit=true;
@@ -33,7 +35,7 @@ export class SceneEffectsIndex {
   });
   scene.traverseVisible(o=>{
    if((o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight)&&o.intensity>0)candidates.push(o);
-   if(o instanceof THREE.Mesh&&!o.userData.entakuGaussianRenderer&&!o.layers.isEnabled(displayLayer)&&!o.layers.isEnabled(GAUSSIAN_COLOR_LAYER)&&!o.layers.isEnabled(GAUSSIAN_PROXY_LAYER)){
+   if(o instanceof THREE.Mesh&&!o.userData.entakuGaussianRenderer&&!o.layers.isEnabled(displayLayer)&&!o.layers.isEnabled(GAUSSIAN_COLOR_LAYER)&&!o.layers.isEnabled(GAUSSIAN_PROXY_LAYER)&&!o.layers.isEnabled(GAUSSIAN_SURFACE_LAYER)){
     const materials=Array.isArray(o.material)?o.material:[o.material];
     if(o.userData.entakuReflective||materials.some(m=>m instanceof THREE.MeshStandardMaterial&&(m.metalness>.2||m.roughness<.45)))this.reflective.push(o);
    }
@@ -41,7 +43,7 @@ export class SceneEffectsIndex {
   if(q.shadows==='soft')this.lights=candidates.sort((a,b)=>Number(b instanceof THREE.DirectionalLight)-Number(a instanceof THREE.DirectionalLight)||b.intensity-a.intensity).slice(0,q.shadowLights);
   for(const light of this.lights){
    light.castShadow=true;light.shadow.autoUpdate=false;
-   light.shadow.camera.layers.set(0);light.shadow.camera.layers.enable(STUDIO_UNLIT_LAYER);light.shadow.camera.layers.enable(GAUSSIAN_PROXY_LAYER);
+   light.shadow.camera.layers.set(0);light.shadow.camera.layers.enable(STUDIO_UNLIT_LAYER);light.shadow.camera.layers.enable(GAUSSIAN_PROXY_LAYER);light.shadow.camera.layers.enable(GAUSSIAN_SURFACE_LAYER);
    if(light.shadow.mapSize.x!==q.shadowSize){light.shadow.map?.dispose();light.shadow.map=null;light.shadow.mapSize.set(q.shadowSize,q.shadowSize);}
    light.shadow.bias=-.00005;light.shadow.normalBias=.012;light.shadow.radius=2.5;
    light.shadow.camera.near=.1;light.shadow.camera.far=Math.max(60,light.shadow.camera.far);light.shadow.camera.updateProjectionMatrix();light.shadow.needsUpdate=true;

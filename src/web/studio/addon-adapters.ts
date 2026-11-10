@@ -20,14 +20,15 @@ export function reflectionInternals(pass:SSRPass):ReflectionInternals {
  return candidate;
 }
 
-/** The caller has populated beauty COLOR first, then world+proxy DEPTH, and
+/** The caller has populated beauty COLOR first, then world+proxy/native DEPTH, and
  * selected geometry-only layers on the camera. No splat enters an override. */
-export function renderPreparedReflection(pass:SSRPass,renderer:THREE.WebGLRenderer,output:THREE.WebGLRenderTarget):void {
+export function renderPreparedReflection(pass:SSRPass,renderer:THREE.WebGLRenderer,output:THREE.WebGLRenderTarget,completeNormals?:()=>void):void {
  const bridge=reflectionInternals(pass),override=pass.scene.overrideMaterial,background=pass.scene.background,fog=pass.scene.fog;
  const saved:Array<[THREE.Object3D&{material?:THREE.Material|THREE.Material[]},THREE.Material|THREE.Material[]|undefined]>=[];
  pass.scene.traverseVisible(object=>{const o=object as THREE.Object3D&{material?:THREE.Material|THREE.Material[]};saved.push([o,o.material]);});
  try{
   bridge._renderOverride(renderer,pass.normalMaterial,pass.normalRenderTarget,0,0);
+  if(completeNormals){renderer.setRenderTarget(pass.normalRenderTarget);completeNormals();}
   if(pass.selective)bridge._renderMetalness(renderer,pass.metalnessOnMaterial,pass.metalnessRenderTarget,0,0);
   const u=pass.ssrMaterial.uniforms;
   u.tDiffuse!.value=pass.beautyRenderTarget.texture;u.tDepth!.value=pass.beautyRenderTarget.depthTexture;

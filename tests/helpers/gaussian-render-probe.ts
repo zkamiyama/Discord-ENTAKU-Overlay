@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {GaussianSurface,nativeSurfaceDiagnostics} from '../../src/web/gaussian/surface.ts';
 import {PackedSplats,SplatMesh} from '@sparkjsdev/spark';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 import {GaussianRuntime} from '../../src/web/gaussian/runtime.ts';
@@ -24,6 +25,7 @@ const packed=new PackedSplats({construct(data){
 await packed.initialized;await packed.createLodSplats();
 const front=new SplatMesh({packedSplats:packed,raycastable:false}),rear=new SplatMesh({packedSplats:packed,raycastable:false});
 for(const mesh of [front,rear]){mesh.layers.set(1);mesh.layers.enable(GAUSSIAN_COLOR_LAYER);mesh.userData.entakuGaussianInstance=true;scene.add(mesh);}
+const native=new GaussianSurface(packed),nativeRear=new GaussianSurface(packed);native.position.z=.3;nativeRear.position.z=-.3;native.visible=nativeRear.visible=false;scene.add(native,nativeRear);
 front.position.z=.3;rear.position.z=-.3;rear.recolor.setRGB(.025,.04,1);rear.visible=false;
 let densePacked:PackedSplats|undefined,denseFront:SplatMesh|undefined,denseRear:SplatMesh|undefined;
 async function prepareDense(){
@@ -44,6 +46,7 @@ const proxy=new THREE.Mesh(new THREE.BoxGeometry(.8,1.4,.22),new THREE.MeshBasic
 proxy.position.set(0,.8,.3);proxy.layers.set(GAUSSIAN_PROXY_LAYER);proxy.userData.entakuGaussianProxy=true;proxy.castShadow=true;scene.add(proxy);
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(10,8),new THREE.MeshStandardMaterial({color:0x777777,roughness:.08,metalness:.35}));floor.rotation.x=-Math.PI/2;floor.userData.entakuReflective=true;scene.add(floor);
 const blocker=new THREE.Mesh(new THREE.BoxGeometry(1.05,.7,.3),new THREE.MeshStandardMaterial({color:0x808080,roughness:.8}));blocker.position.set(0,.48,1.0);blocker.visible=false;scene.add(blocker);
+const spot=new THREE.SpotLight(0xffffff,40,0,.7,.3);spot.position.set(-2.5,4,2.2);spot.target.position.set(0,.7,.3);spot.visible=false;scene.add(spot,spot.target);
 const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(-2.5,4,2.2);scene.add(light,new THREE.HemisphereLight(0xffffff,0x777777,1.5));
 let width=640,height=360,serial=0,splitMode=false,splitSwapped=false,offscreen=false,denseMode=false,cameraDistance=5,q:QualitySettings={...DEFAULT_QUALITY},p:PostSettings={...DEFAULT_POST};
 const singleTarget=new THREE.WebGLRenderTarget(1,1,{depthBuffer:true});
@@ -52,15 +55,15 @@ const present=new FullScreenQuad(new THREE.ShaderMaterial({uniforms:{color:{valu
 }));
 let frames:number[]=[];
 const snapshots=new Map<string,Uint8Array>();
-type Options={color?:'red'|'blue'|'white';proxy?:boolean;blocker?:boolean;rear?:boolean;split?:boolean;swapSplit?:boolean;offscreen?:boolean;dense?:boolean;distance?:number;lodBudget?:number;width?:number;height?:number;quality?:Partial<QualitySettings>;post?:Partial<PostSettings>;exposure?:number;avatarX?:number;avatarZ?:number;lightX?:number};
+type Options={spot?:boolean;native?:boolean;alphaClip?:number;remove?:boolean;color?:'red'|'blue'|'white';proxy?:boolean;blocker?:boolean;rear?:boolean;split?:boolean;swapSplit?:boolean;offscreen?:boolean;dense?:boolean;distance?:number;lodBudget?:number;width?:number;height?:number;quality?:Partial<QualitySettings>;post?:Partial<PostSettings>;exposure?:number;avatarX?:number;avatarZ?:number;lightX?:number};
 function configure(options:Options={}){
- serial++;width=options.width??640;height=options.height??360;renderer.setSize(width,height,false);camera.aspect=width/height;cameraDistance=options.distance??5;camera.position.set(0,.7+cameraDistance*.28,cameraDistance);camera.lookAt(0,.7,0);camera.updateProjectionMatrix();
- q={...DEFAULT_QUALITY,shadows:'off',ao:'off',reflections:false,fxaa:false,msaa:0,reflectionOpacity:.85,effectsScale:1,...options.quality};
+ native.visible=!!options.native&&!options.remove;nativeRear.visible=!!options.native&&!!options.rear&&!options.remove;spot.visible=!!options.spot;light.visible=!options.spot;serial++;width=options.width??640;height=options.height??360;renderer.setSize(width,height,false);camera.aspect=width/height;cameraDistance=options.distance??5;camera.position.set(0,.7+cameraDistance*.28,cameraDistance);camera.lookAt(0,.7,0);camera.updateProjectionMatrix();
+ q={...DEFAULT_QUALITY,shadows:'off',ao:'off',reflections:false,fxaa:false,msaa:0,reflectionOpacity:.85,effectsScale:1,...options.quality,gaussianAlphaClip:options.alphaClip??.3};
  p={...DEFAULT_POST,enabled:false,saturation:1,contrast:1,...options.post};
  renderer.toneMappingExposure=options.exposure??1;splitMode=!!options.split;splitSwapped=!!options.swapSplit;offscreen=!!options.offscreen;denseMode=!!options.dense;runtime.setBudget(options.lodBudget??10000,splitMode?2:1);
  front.recolor.setRGB(...(options.color==='blue'?[.025,.04,1]:options.color==='white'?[1,1,1]:[1,.025,.025]) as [number,number,number]);
- proxy.visible=options.proxy!==false;front.visible=!denseMode;rear.visible=!!options.rear&&!denseMode;blocker.visible=!!options.blocker;
- front.position.x=proxy.position.x=options.avatarX??0;front.position.z=proxy.position.z=options.avatarZ??.3;light.position.x=options.lightX??-2.5;
+ proxy.visible=!options.native&&options.proxy!==false&&!options.remove;front.visible=!denseMode&&!options.remove;rear.visible=!!options.rear&&!denseMode;blocker.visible=!!options.blocker;
+ front.position.x=proxy.position.x=native.position.x=options.avatarX??0;front.position.z=proxy.position.z=native.position.z=options.avatarZ??.3;light.position.x=spot.position.x=options.lightX??-2.5;
  if(denseFront&&denseRear){denseFront.visible=denseMode;denseRear.visible=denseMode&&!!options.rear;denseFront.recolor.copy(front.recolor);denseFront.position.copy(front.position);}
 }
 function draw(){
@@ -102,7 +105,8 @@ async function settleLod(options:Options={}){
 }
 // A light-only movement keeps the caller's scene revision, camera, avatar and
 // quality settings fixed. The production shadow index must detect the move.
-async function moveLight(x:number,count=24){light.position.x=x;return settleFrames(count);}
+async function moveLight(x:number,count=24){light.position.x=spot.position.x=x;return settleFrames(count);}
+async function moveCamera(x:number,count=12){camera.position.x=x;camera.lookAt(0,.7,0);camera.updateMatrixWorld(true);return settleFrames(count);}
 function pixels(){const gl=renderer.getContext(),data=new Uint8Array(width*height*4);gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data);return data;}
 function save(name:string){snapshots.set(name,pixels());return stats();}
 function sample(y=.8){const v=new THREE.Vector3(front.position.x,y,front.position.z).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
@@ -159,7 +163,7 @@ function shadowMovement(beforeOff:string,beforeOn:string,afterOff:string,afterOn
  }
  return {beforeDarkened,afterDarkened,shifted,beforeCenterX:beforeWeight?beforeX/beforeWeight:null,afterCenterX:afterWeight?afterX/afterWeight:null};
 }
-function status(){const sorted=frames.slice(4).sort((a,b)=>a-b),source=denseMode?densePacked!:packed,r=runtime.diagnostics();return {quality:quality.status,memory:{...renderer.info.memory},runtime:r,activeViews:r.views.filter(v=>splitMode?v.camera!==camera.uuid:v.camera===camera.uuid),source:{inputSplats:source.numSplats,lodSplats:source.lodSplats?.numSplats??0,originalCpuBytes:packedCpuBytes(source),lodCpuBytes:packedCpuBytes(source.lodSplats)},sceneState:{revision:serial,avatarPosition:front.position.toArray(),lightPosition:light.position.toArray()},p50:sorted[Math.floor(sorted.length*.5)]??0,p95:sorted[Math.floor(sorted.length*.95)]??0,stats:stats(),sample:sample()};}
-function dispose(){quality.dispose();split.dispose();singleTarget.dispose();present.material.dispose();present.dispose();releaseVisual();runtime.dispose();for(const mesh of [front,rear,denseFront,denseRear])if(mesh){mesh.packedSplats=undefined;mesh.splats=undefined;mesh.dispose();}packed.dispose();densePacked?.dispose();for(const mesh of [proxy,floor,blocker]){mesh.geometry.dispose();mesh.material.dispose();}renderer.dispose();}
-(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,settleLod,moveLight,draw,save,compare,reflectionAppearance,shadowMovement,stats,status,sample,dispose};
+function status(){const sorted=frames.slice(4).sort((a,b)=>a-b),source=denseMode?densePacked!:packed,r=runtime.diagnostics();return {quality:quality.status,memory:{...renderer.info.memory},runtime:r,activeViews:r.views.filter(v=>splitMode?v.camera!==camera.uuid:v.camera===camera.uuid),source:{inputSplats:source.numSplats,lodSplats:source.lodSplats?.numSplats??0,originalCpuBytes:packedCpuBytes(source),lodCpuBytes:packedCpuBytes(source.lodSplats)},native:nativeSurfaceDiagnostics(scene),sceneState:{revision:serial,avatarPosition:front.position.toArray(),lightPosition:light.position.toArray()},p50:sorted[Math.floor(sorted.length*.5)]??0,p95:sorted[Math.floor(sorted.length*.95)]??0,stats:stats(),sample:sample()};}
+function dispose(){native.dispose();nativeRear.dispose();quality.dispose();split.dispose();singleTarget.dispose();present.material.dispose();present.dispose();releaseVisual();runtime.dispose();for(const mesh of [front,rear,denseFront,denseRear])if(mesh){mesh.packedSplats=undefined;mesh.splats=undefined;mesh.dispose();}packed.dispose();densePacked?.dispose();for(const mesh of [proxy,floor,blocker]){mesh.geometry.dispose();mesh.material.dispose();}renderer.dispose();}
+(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,settleLod,moveLight,moveCamera,draw,save,compare,reflectionAppearance,shadowMovement,stats,status,sample,dispose};
 configure();draw();

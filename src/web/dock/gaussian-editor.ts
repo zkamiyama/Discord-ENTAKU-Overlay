@@ -164,7 +164,7 @@ export class GaussianAvatarEditor {
     this.asset=asset;this.base=structuredClone(profile?.manifest??asset.manifest);
     const placement=asset.manifest.placement??{scale:1,offsetX:0,offsetY:0,offsetZ:0,yawRad:0};
     this.writeFields(profile??{kind:'gaussian',userId:this.userId,assetId:asset.assetId,manifest:this.base,...placement});
-    element('gaussian-proxy-status').textContent=this.base.proxy?'代理メッシュあり：人物から机・床への影と、反射の形状に使います。':'代理メッシュなし：人物の影と反射用の形状は未設定です。';
+    element('gaussian-proxy-status').textContent=this.base.proxy?'代理メッシュあり：人物から机・床への影と、反射の形状に使います。':'代理メッシュなし：3DGSから影・反射用の深度と法線を描画します。薄い部分は画質設定の閾値で調整できます。';
     element<HTMLSelectElement>('gaussian-assets').value=asset.assetId;this.updatePreview();
   }
   private async import():Promise<void> {

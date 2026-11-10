@@ -54,7 +54,7 @@ export function gaussianShadowKey(scene:THREE.Scene):string {
  const rows:string[]=[];
  scene.updateMatrixWorld(true);
  scene.traverseVisible(object=>{
-  if((object instanceof THREE.Mesh&&object.layers.isEnabled(GAUSSIAN_PROXY_LAYER))||object instanceof THREE.DirectionalLight||object instanceof THREE.SpotLight){
+  if((object instanceof THREE.Mesh&&(object.layers.isEnabled(GAUSSIAN_PROXY_LAYER)||object.userData.entakuGaussianSurface))||object instanceof THREE.DirectionalLight||object instanceof THREE.SpotLight){
    const transform=object.matrixWorld.elements.map(n=>Math.round(n*1e6)/1e6).join(',');
    if(object instanceof THREE.Mesh)rows.push(object.uuid+':'+object.geometry.uuid+':'+transform);
    else if(object instanceof THREE.DirectionalLight||object instanceof THREE.SpotLight){

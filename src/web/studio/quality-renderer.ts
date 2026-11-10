@@ -1,3 +1,4 @@
+import {GAUSSIAN_SURFACE_LAYER} from '../gaussian/surface.ts';
 import {SceneEffectsIndex} from './scene-effects-index.ts';
 import {saveRenderState} from './render-state.ts';
 import {EffectTargets} from './effect-targets.ts';
@@ -61,7 +62,7 @@ export class QualityRenderer {
  }
  render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false):void{
   const renderer=this.renderer;
-  camera.layers.enable(STUDIO_UNLIT_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);
+  camera.layers.enable(STUDIO_UNLIT_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);camera.layers.disable(GAUSSIAN_SURFACE_LAYER);
   this.index.update(renderer,scene,q,source,this.displayLayer);
   if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.recovery.reset();this.status='DIRECT';renderSceneWithGaussians(renderer,scene,camera);return;}
   if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderSceneWithGaussians(renderer,scene,camera);return;}
@@ -83,7 +84,7 @@ export class QualityRenderer {
    const samples=effectiveSamples(q.msaa,this.sampleCounts,renderer.capabilities.maxSamples);
    if(this.world!.samples!==samples){this.world!.dispose();this.world!.samples=samples;}this.msaaSamples=samples;
    if(w!==this.w||h!==this.h){this.w=w;this.h=h;this.targets.setSize(w,h);}
-   camera.layers.disable(this.displayLayer);camera.layers.disable(GAUSSIAN_COLOR_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);camera.layers.disable(STUDIO_UNLIT_LAYER);renderer.setScissorTest(false);renderer.autoClear=true;
+   camera.layers.disable(this.displayLayer);camera.layers.disable(GAUSSIAN_COLOR_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);camera.layers.disable(GAUSSIAN_SURFACE_LAYER);camera.layers.disable(STUDIO_UNLIT_LAYER);renderer.setScissorTest(false);renderer.autoClear=true;
    renderer.shadowMap.autoUpdate=false;
    renderer.setRenderTarget(this.world!);renderer.clear();renderer.render(scene,camera);
    let input=this.world!;

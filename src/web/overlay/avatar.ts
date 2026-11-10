@@ -37,7 +37,7 @@ export class Avatar {
   private baseYaw=0;
   user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
   custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
-  get shadowRoots():THREE.Object3D[]{return this.gaussian?.proxyRoot?[this.plate,this.gaussian.proxyRoot]:[this.plate];}
+  get shadowRoots():THREE.Object3D[]{return this.gaussian?.geometryRoot?[this.plate,this.gaussian.geometryRoot]:[this.plate];}
   constructor(private context:AvatarContext,user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);

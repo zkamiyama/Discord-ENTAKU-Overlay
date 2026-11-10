@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import { GAUSSIAN_COLOR_LAYER, installGaussianRenderHook } from '../studio/gaussian-layers.ts';
+import {nativeSurfaceDiagnostics} from './surface.ts';
 import { GaussianAssetCache } from './assets.ts';
 import { installGaussianSpeechGlow } from './speech-glow.ts';
 
@@ -72,6 +73,7 @@ export class GaussianRuntime {
     return {
       totalBudget: this.totalBudget, activeViewCount: this.viewCount, instances: this.users,
       assets: this.assets.diagnostics(),
+      nativeSurfaces:nativeSurfaceDiagnostics(this.scene),
       rendererMemory: {textures:this.renderer.info.memory.textures,geometries:this.renderer.info.memory.geometries,programs:this.renderer.info.programs?.length??0},
       views: [...this.views].map(([camera, view]) => {
         const position = camera.getWorldPosition(new THREE.Vector3()), quaternion = camera.getWorldQuaternion(new THREE.Quaternion());

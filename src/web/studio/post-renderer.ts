@@ -1,3 +1,4 @@
+import {renderGaussianSurfaces} from '../gaussian/surface.ts';
 import {saveRenderState} from './render-state.ts';
 import {createFocusMaterial,bloomTexture} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
@@ -53,7 +54,7 @@ export class PostRenderer {
    (this.depth.material as THREE.ShaderMaterial).uniforms.depth!.value=worldDepth;
    renderer.setRenderTarget(this.linear);renderer.autoClear=false;this.depth.render(renderer);
    if(unlitStudio||!p.excludeAvatars){camera.layers.mask=0;if(unlitStudio)camera.layers.enable(STUDIO_UNLIT_LAYER);if(!p.excludeAvatars)camera.layers.enable(this.displayLayer);scene.background=null;renderSceneWithGaussians(renderer,scene,camera);}
-   if(!p.excludeAvatars&&p.dof){this.proxyDepth??=new GaussianProxyDepthPass();this.proxyDepth.render(renderer,scene,camera);}
+   if(!p.excludeAvatars&&p.dof){this.proxyDepth??=new GaussianProxyDepthPass();this.proxyDepth.render(renderer,scene,camera);renderGaussianSurfaces(renderer,scene,camera,'depth');}
    renderer.outputColorSpace=outputSpace;camera.layers.mask=mask;scene.background=background;renderer.autoClear=true;
    let color=this.linear;
    if(p.dof&&p.maxBlur>0&&p.aperture>0){

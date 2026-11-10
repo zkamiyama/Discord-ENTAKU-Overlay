@@ -6,6 +6,7 @@ import { GAUSSIAN_COLOR_LAYER, GAUSSIAN_PROXY_LAYER } from '../studio/gaussian-l
 import { GaussianRuntime } from './runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from './assets.ts';
 import type { ResourceLease } from './resource-cache.ts';
+import {GaussianSurface} from './surface.ts';
 import { gaussianLocalTransform } from './transform.ts';
 import {setGaussianSpeechGlow,clearGaussianSpeechGlow} from './speech-glow.ts';
 export type { GaussianLoadStatus } from './assets.ts';
@@ -14,6 +15,8 @@ export class GaussianAvatarVisual {
   readonly root = new THREE.Group();
   readonly model = new THREE.Group();
   proxyRoot?: THREE.Group;
+  surface?:GaussianSurface;
+  get geometryRoot():THREE.Object3D|undefined{return this.proxyRoot??this.surface;}
   status: GaussianLoadStatus = { phase: 'loading' };
   private mesh?: SplatMesh;
   private proxyMaterial?: THREE.MeshBasicMaterial;
@@ -61,7 +64,7 @@ export class GaussianAvatarVisual {
           }
         });
         this.proxyRoot = proxy; this.model.add(proxy);
-      }
+      }else{this.surface=new GaussianSurface(asset.packed);this.model.add(this.surface);}
       this.releaseVisual = this.runtime.retainVisual();
       this.applyTransform();
       this.publish({ phase: 'ready', inputSplats: asset.inputSplats, loadMs: asset.loadMs, lodMs: asset.decodeAndLodMs });
@@ -86,9 +89,10 @@ export class GaussianAvatarVisual {
     this.ring.visible = !!this.mesh && speaking > .001;
     this.ring.material.opacity = Math.max(0, Math.min(1, speaking));
     // Shadows and SSR geometry disappear at the same visibility threshold as the avatar.
-    if (this.proxyRoot) this.proxyRoot.visible = opacity > .005;
+    if (this.geometryRoot) this.geometryRoot.visible = opacity > .005;
   }
   private clearAsset(): void {
+    this.surface?.dispose();this.surface=undefined;
     if (this.mesh) {
       clearGaussianSpeechGlow(this.mesh);
       this.mesh.removeFromParent();

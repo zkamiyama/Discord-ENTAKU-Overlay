@@ -1,4 +1,5 @@
 export interface QualitySettings {
+ gaussianAlphaClip:number;
  shadows:'off'|'soft';shadowSize:512|1024|2048;shadowLights:1|2|4|8;
  ao:'off'|'gtao';aoStrength:number;aoRadius:number;
  reflections:boolean;reflectionOpacity:number;effectsScale:.5|.75|1;fxaa:boolean;
@@ -6,14 +7,14 @@ export interface QualitySettings {
  msaa:0|2|4|8;renderScale:1|1.5|2;
  gi:'off'|'ssgi';giStrength:number;giRadius:number;
 }
-export const DEFAULT_QUALITY:QualitySettings={shadows:'soft',shadowSize:1024,shadowLights:8,ao:'gtao',aoStrength:.8,aoRadius:.35,reflections:true,reflectionOpacity:.18,effectsScale:.5,fxaa:true,nameplates:'blue',msaa:4,renderScale:1,gi:'off',giStrength:.6,giRadius:1.5};
+export const DEFAULT_QUALITY:QualitySettings={gaussianAlphaClip:.3,shadows:'soft',shadowSize:1024,shadowLights:8,ao:'gtao',aoStrength:.8,aoRadius:.35,reflections:true,reflectionOpacity:.18,effectsScale:.5,fxaa:true,nameplates:'blue',msaa:4,renderScale:1,gi:'off',giStrength:.6,giRadius:1.5};
 export function validateQuality(value:unknown):QualitySettings {
  if(value===undefined)return {...DEFAULT_QUALITY};
  if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('STUDIO_QUALITY_INVALID');
  const q=value as Record<string,unknown>;
  if(Object.keys(q).some(k=>!Object.hasOwn(DEFAULT_QUALITY,k)))throw new Error('STUDIO_QUALITY_INVALID');
  const v={...DEFAULT_QUALITY,...q} as QualitySettings;
- if(![0,2,4,8].includes(v.msaa)||![1,1.5,2].includes(v.renderScale)||!['off','ssgi'].includes(v.gi)||
+ if(typeof v.gaussianAlphaClip!=='number'||!Number.isFinite(v.gaussianAlphaClip)||v.gaussianAlphaClip<.01||v.gaussianAlphaClip>.99||![0,2,4,8].includes(v.msaa)||![1,1.5,2].includes(v.renderScale)||!['off','ssgi'].includes(v.gi)||
   typeof v.giStrength!=='number'||!Number.isFinite(v.giStrength)||v.giStrength<0||v.giStrength>2||
   typeof v.giRadius!=='number'||!Number.isFinite(v.giRadius)||v.giRadius<.1||v.giRadius>5||
   !['off','soft'].includes(v.shadows)||![512,1024,2048].includes(v.shadowSize)||![1,2,4,8].includes(v.shadowLights)||!['off','gtao'].includes(v.ao)||

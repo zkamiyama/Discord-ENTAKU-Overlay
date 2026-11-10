@@ -5,7 +5,7 @@ import {DEFAULT_GAUSSIAN_SETTINGS,validateGaussianSettings} from '../../assets/g
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioClient} from '../shared/client.ts';
 const input=(id:string)=>document.getElementById(id) as HTMLInputElement;
-const fields:Record<string,keyof QualitySettings>={'quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates','quality-msaa':'msaa','quality-render-scale':'renderScale','quality-gi-strength':'giStrength','quality-gi-radius':'giRadius'};
+const fields:Record<string,keyof QualitySettings>={'quality-gaussian-alpha':'gaussianAlphaClip','quality-shadows':'shadows','quality-shadow-size':'shadowSize','quality-shadow-lights':'shadowLights','quality-ao-strength':'aoStrength','quality-ao-radius':'aoRadius','quality-reflection-strength':'reflectionOpacity','quality-scale':'effectsScale','quality-nameplates':'nameplates','quality-msaa':'msaa','quality-render-scale':'renderScale','quality-gi-strength':'giStrength','quality-gi-radius':'giRadius'};
 export class QualityPanel {
  private form:SettingForm<'quality'>;
  private gaussianForm:SettingForm<'gaussian'>;

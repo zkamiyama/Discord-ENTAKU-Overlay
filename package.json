@@ -26,11 +26,12 @@
     "bench:domain": "bun run scripts/benchmark-domain.ts",
     "bench:render": "bun run scripts/benchmark-render.ts",
     "test:ui": "bun run build:web && playwright test e2e/rc15-controls.spec.ts e2e/presets-seats.spec.ts e2e/vc-chat.spec.ts e2e/gaussian-avatars.spec.ts",
-    "test:render": "bun run build:web && playwright test e2e/render-regressions.spec.ts e2e/post-effects.spec.ts e2e/studio-materials.spec.ts e2e/exposure.spec.ts e2e/split-screen.spec.ts e2e/gaussian-render.spec.ts",
+    "test:render": "bun run build:web && playwright test e2e/render-regressions.spec.ts e2e/post-effects.spec.ts e2e/studio-materials.spec.ts e2e/exposure.spec.ts e2e/split-screen.spec.ts e2e/gaussian-render.spec.ts e2e/gaussian-native-surface.spec.ts",
     "fixtures:gaussian": "bun run scripts/generate-gaussian-fixtures.ts",
     "test:gaussian": "bun test tests/unit/gaussian-*.test.ts tests/integration/gaussian-*.test.ts",
     "test:gaussian:browser": "bun run build:web && playwright test e2e/gaussian-*.spec.ts",
-    "preview:gaussian-glow": "bun run scripts/render-gaussian-fresnel.ts"
+    "preview:gaussian-glow": "bun run scripts/render-gaussian-fresnel.ts",
+    "bench:gaussian-native": "bun run scripts/benchmark-gaussian-native.ts"
   },
   "dependencies": {
     "@sparkjsdev/spark": "2.4.0",
