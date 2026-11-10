@@ -55,12 +55,29 @@ function frame(time:number):void{
     stage.position.fromArray(state.studio.tableAnchor.position);stage.rotation.y=THREE.MathUtils.degToRad(state.studio.tableAnchor.yawDeg);stage.updateMatrixWorld(true);
     const target=stage.localToWorld(new THREE.Vector3().fromArray(pose.target));stage.localToWorld(camera.position);camera.lookAt(target);
     const studioStatus=studioVisual.setLength(length,offsetZ);if(!client.connected||state.camera.studioHidden)studioVisual.root.visible=false;canvas.dataset.studioStatus=state.camera.studioHidden?'CAMERA_SAFE_FALLBACK':studioStatus;
+    // Studio GLB objects can be assigned to a speaking participant. Their
+    // inverted-hull speech indicator lives in the display layer, and the
+    // original mesh replaces that participant's 2D/3DGS body, not the nameplate.
+    const assignedUsers=new Set(state.session.reservations.map(r=>r.userId));
+    const meshVoices=new Map<string,{visible:boolean;opacity:number;intensity:number}>();
+    for(const [userId,avatar] of avatars){
+      const eligible=assignedUsers.has(userId)&&avatar.user.presence!=='absent'&&avatar.opacity>.005;
+      avatar.setMeshBodyActive(eligible&&studioVisual.hasMeshSpeaker(userId));
+      meshVoices.set(userId,{
+        visible:eligible,opacity:eligible?avatar.opacity:0,
+        intensity:eligible&&client.connected&&state.connection==='ready'&&avatar.user.presence==='present'&&avatar.user.speaking==='active'
+          ?avatar.glow*avatar.opacity*(.875+.125*Math.sin(time*Math.PI*.004)):0
+      });
+    }
+    studioVisual.setMeshSpeech(meshVoices,state.studio.post?.speechGlowScale??4);
     canvas.dataset.studioRevision=String(state.studio.revision);canvas.dataset.composition=state.camera.composition??state.camera.shot.kind;canvas.dataset.transition=state.camera.transition;canvas.dataset.straightLength=String(length);canvas.dataset.deskOffsetZ=String(offsetZ);canvas.dataset.cameraPosition=camera.position.toArray().join(',');canvas.dataset.cameraLocalPosition=pose.position.join(',');canvas.dataset.cameraLocalTarget=pose.target.join(',');
   }
   gaussian.setBudget(state?.studio.gaussian?.lodSplatCount??DEFAULT_GAUSSIAN_SETTINGS.lodSplatCount,state?.camera.shot.kind==='SPLIT'&&!!state.camera.panels&&client.connected&&studioVisual.readyForCamera&&renderer.extensions.has('EXT_color_buffer_float')?2:1);
   if(!contextLost)Object.assign(canvas.dataset,program.render(state,pose,studioVisual,client.connected,time,length,offsetZ,near));
   const gaussianDiagnostics=gaussian.diagnostics();
-  canvas.dataset.gaussianInstances=String(gaussianDiagnostics.instances);canvas.dataset.gaussianAssets=String(gaussianDiagnostics.assets.length);
+  canvas.dataset.gaussianInstances=String(gaussianDiagnostics.instances);
+  canvas.dataset.meshSpeakerCount=String(studioVisual.meshSpeechCount);
+  canvas.dataset.meshSpeaking=String(studioVisual.activeMeshSpeakers);canvas.dataset.gaussianAssets=String(gaussianDiagnostics.assets.length);
   canvas.dataset.gaussianSelectedSplats=String(gaussianDiagnostics.views.filter(view=>view.active).reduce((sum,view)=>sum+view.selectedSplats,0));
   canvas.dataset.gaussianStatus=JSON.stringify([...avatars.values()].filter(a=>a.gaussian).map(a=>({userId:a.user.userId,...a.gaussian!.status})));
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report);}

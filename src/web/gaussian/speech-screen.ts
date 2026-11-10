@@ -13,10 +13,11 @@ export function clearGaussianSpeechBounds(mesh:SplatMesh):void {boundsByMesh.del
  * The result is in framebuffer pixels, not world metres or CSS pixels.
  * CUT, zoom, split cameras and render resolution are all handled per view.
  */
-export function projectedGaussianHeightPixels(mesh:SplatMesh,camera:THREE.Camera,framebufferHeight:number):number|null {
- const box=boundsByMesh.get(mesh);
- if(!box||box.isEmpty()||!(framebufferHeight>0))return null;
- const transform=new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse).multiply(mesh.matrixWorld);
+/** Shared mesh and splat pixel projection: bounds are in object-local metres.
+ * Callers prepare model matrixWorld before the view is drawn. */
+export function projectedObjectHeightPixels(object:THREE.Object3D,box:THREE.Box3,camera:THREE.Camera,framebufferHeight:number):number|null {
+ if(box.isEmpty()||!(framebufferHeight>0))return null;
+ const transform=new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse).multiply(object.matrixWorld);
  const clip=new THREE.Vector4();
  let low=Infinity,high=-Infinity,nearCut=false;
  for(const x of [box.min.x,box.max.x])for(const y of [box.min.y,box.max.y])for(const z of [box.min.z,box.max.z]){
@@ -33,18 +34,22 @@ export function projectedGaussianHeightPixels(mesh:SplatMesh,camera:THREE.Camera
  return Number.isFinite(pixels)?Math.max(0,pixels):null;
 }
 
-/** Target halo dilation radius for one speaking character in output pixels.
- * At the default glow setting (4), use 6% of its projected body height.
- * A viewport-relative minimum keeps distant people legible; a maximum caps
- * nearby closeups. The 1..8 user control scales this radius by 0.25..2.
- */
-export function gaussianScreenGlowRadius(mesh:SplatMesh,camera:THREE.Camera|undefined,framebufferHeight:number|undefined,scale:number):number {
+/** Gaussian helper and 3D-mesh avatar callers share this projection exactly. */
+export function projectedGaussianHeightPixels(mesh:SplatMesh,camera:THREE.Camera,framebufferHeight:number):number|null {
+ const box=boundsByMesh.get(mesh);
+ return box?projectedObjectHeightPixels(mesh,box,camera,framebufferHeight):null;
+}
+
+/** Target outline radius from body height, in the destination's actual pixels. */
+export function speechScreenGlowRadius(bodyPixels:number|null,framebufferHeight:number|undefined,scale:number):number {
  const strength=THREE.MathUtils.clamp(Number.isFinite(scale)?scale:4,1,8)/4;
- if(!camera||!Number.isFinite(framebufferHeight)||!framebufferHeight||framebufferHeight<=0)return 8.5*strength;
+ if(!Number.isFinite(framebufferHeight)||!framebufferHeight||framebufferHeight<=0)return 8.5*strength;
  const height=framebufferHeight;
- const projected=projectedGaussianHeightPixels(mesh,camera,height);
- const bodyPixels=projected===null?height*.4:projected;
+ const projected=bodyPixels===null?height*.4:bodyPixels;
  const minimum=Math.max(4,height*.012),maximum=Math.min(72,Math.max(minimum,height*.065));
- const radius=THREE.MathUtils.clamp(bodyPixels*.06,minimum,maximum);
- return radius*strength;
+ return THREE.MathUtils.clamp(projected*.06,minimum,maximum)*strength;
+}
+/** Per-frame Gaussian owner mapping; never scans the original splat array. */
+export function gaussianScreenGlowRadius(mesh:SplatMesh,camera:THREE.Camera|undefined,framebufferHeight:number|undefined,scale:number):number {
+ return speechScreenGlowRadius(camera&&framebufferHeight?projectedGaussianHeightPixels(mesh,camera,framebufferHeight):null,framebufferHeight,scale);
 }
