@@ -2,7 +2,7 @@ import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {StudioScene} from '../../studio/manifest.ts';
 import type {StudioClient} from '../shared/client.ts';
 import {syncNumericControls} from './numeric-controls.ts';
-type Section='quality'|'post'|'exposure'|'direction';
+type Section='quality'|'post'|'exposure'|'direction'|'gaussian';
 type Control=HTMLInputElement|HTMLSelectElement|HTMLButtonElement;
 /** All parameter panels share the same lock, revision and failure policy. Never
  * retry a stale full scene: request current state and let the operator retry. */

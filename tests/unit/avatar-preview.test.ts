@@ -1,12 +1,12 @@
 import {test,expect} from 'bun:test';
 import * as THREE from 'three';
 import {AvatarPreview,type PreviewDependencies} from '../../src/web/dock/avatar-preview.ts';
-import type {AvatarProfile} from '../../src/assets/avatar-profile.ts';
+import type {ImageAvatarProfile} from '../../src/assets/avatar-profile.ts';
 import type {PreviewStage} from '../../src/web/studio/preview.ts';
 import type {CustomAvatarVisual} from '../../src/web/overlay/custom-avatar.ts';
 import {DEFAULT_QUALITY} from '../../src/studio/quality.ts';
 import {DEFAULT_POST} from '../../src/studio/post-effects.ts';
-const profile={userId:'1',assetId:'0'.repeat(64),image:{width:64,height:128,mime:'image/png'},faceRect:[.25,.1,.5,.25],scale:1,offsetX:0,offsetY:0} as AvatarProfile;
+const profile={userId:'1',assetId:'0'.repeat(64),image:{width:64,height:128,mime:'image/png'},faceRect:[.25,.1,.5,.25],scale:1,offsetX:0,offsetY:0} as ImageAvatarProfile;
 function fixture(){
  let disposed=0,copiesClosed=0;const jobs:Array<(v:CustomAvatarVisual)=>void>=[];
  const scene=new THREE.Scene(),stage={scene,camera:new THREE.PerspectiveCamera(),controls:{target:new THREE.Vector3(),update(){}},qualitySettings:{...DEFAULT_QUALITY},postSettings:{...DEFAULT_POST},dispose(){disposed++;}} as unknown as PreviewStage;

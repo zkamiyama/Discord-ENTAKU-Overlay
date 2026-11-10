@@ -21,7 +21,8 @@ for(const path of Object.keys(files)){
 const requireFile=(name:string):Uint8Array=>{
   const value=files[root+name];if(!value?.length)throw new Error('PACKAGE_FILE_MISSING: '+name);return value;
 };
-for(const name of ['ENTAKU-Overlay.exe','Start-Demo.cmd','Start-Live.cmd','START-HERE.md','LICENSE','THIRD_PARTY_NOTICES.md','licenses/Apache-2.0.txt','docs/acceptance.md','examples/studio-room.scene.json','source/AGENTS.md'])requireFile(name);
+for(const name of ['ENTAKU-Overlay.exe','Start-Demo.cmd','Start-Live.cmd','START-HERE.md','LICENSE','THIRD_PARTY_NOTICES.md','licenses/Apache-2.0.txt','licenses/Spark-LICENSE.txt','docs/acceptance.md','docs/gaussian-avatars.md','examples/studio-room.scene.json','examples/gaussian/fixtures.json','source/AGENTS.md'])requireFile(name);
+for(let i=1;i<=8;i++)requireFile(`examples/gaussian/character-${String(i).padStart(2,'0')}.entaku.zip`);
 const exe=requireFile('ENTAKU-Overlay.exe');if(exe[0]!==77||exe[1]!==90)throw new Error('PACKAGE_EXE_INVALID');
 const info=JSON.parse(strFromU8(requireFile('BUILD-INFO.json')));
 const head=Bun.spawnSync(['git','rev-parse','HEAD']);

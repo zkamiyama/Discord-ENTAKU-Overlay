@@ -3,7 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, lstat, readdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { inspectImage, MAX_IMAGE_BYTES, type ImageInfo } from './image.ts';
-import { validateProfile, type AvatarProfile } from './avatar-profile.ts';
+import {GaussianStore} from './gaussian-store.ts';
+import {GAUSSIAN_LIMITS,type GaussianAvatarProfile} from './gaussian-profile.ts';
+import { validateProfile, isGaussianProfile, type ImageAvatarProfile, type AvatarProfile } from './avatar-profile.ts';
 export interface StoredImage extends ImageInfo { assetId: string; byteLength: number }
 const validId = (id: string) => /^[a-f0-9]{64}$/.test(id);
 async function readBounded(path: string, maximum: number): Promise<Buffer> {
@@ -26,14 +28,15 @@ export class AvatarStore {
   private metadata = new Map<string, StoredImage>();
   private profiles: AvatarProfile[] = [];
   private imageBytes = 0;
-  constructor(private directory: string | null = null) {}
+  readonly gaussian: GaussianStore;
+  constructor(private directory: string | null = null) { this.gaussian=new GaussianStore(directory); }
   async initialize(): Promise<AvatarProfile[]> {
     if (!this.directory) return [];
     await mkdir(join(this.directory, 'assets', 'avatars'), { recursive: true, mode: 0o700 });
     try {
       const payload: unknown = JSON.parse((await readBounded(join(this.directory, 'avatars.json'), 2 * 1024 * 1024)).toString('utf8'));
       const value = payload as { schemaVersion?: number; profiles?: unknown[] };
-      if (!value || value.schemaVersion !== 1 || !Array.isArray(value.profiles) || value.profiles.length > 256) throw new Error();
+      if (!value || ![1,2].includes(value.schemaVersion??0) || !Array.isArray(value.profiles) || value.profiles.length > 256) throw new Error();
       const profiles = value.profiles.map(validateProfile);
       if (new Set(profiles.map(p => p.userId)).size !== profiles.length) throw new Error();
       this.profiles = profiles;
@@ -70,19 +73,34 @@ export class AvatarStore {
     const info = { ...inspectImage(bytes), assetId, byteLength: bytes.byteLength };
     return { info, bytes };
   }
+  async validateDraft(draft: {kind:'gaussian'} & Record<string,unknown>): Promise<GaussianAvatarProfile>;
+  async validateDraft(draft: {kind?:'image'} & Record<string,unknown>): Promise<ImageAvatarProfile>;
+  async validateDraft(draft: unknown): Promise<AvatarProfile>;
   async validateDraft(draft: unknown): Promise<AvatarProfile> {
     if (!draft || typeof draft !== 'object') throw new Error('INVALID_AVATAR_PROFILE');
     const p = draft as AvatarProfile;
+    if (isGaussianProfile(p)) { const clean=validateProfile(p) as GaussianAvatarProfile; await this.gaussian.validateProfileAssets(clean); return clean; }
     const { info } = await this.get(p.assetId).catch(()=>{throw new Error('ASSET_NOT_FOUND');});
     let back;
     if(p.back){const b=await this.get(p.back.assetId).catch(()=>{throw new Error('ASSET_NOT_FOUND');});back={...p.back,image:{width:b.info.width,height:b.info.height,mime:b.info.mime}};}
     return validateProfile({ ...p, ...(back?{back}:{}), image: { width: info.width, height: info.height, mime: info.mime } });
   }
+  /** Count every saved assignment, including absent participants. Sharing a
+   * package saves decode/storage work, but each participant is a render instance. */
+  async validateGaussianBudget(profiles: readonly AvatarProfile[]): Promise<void> {
+    let splats = 0;
+    for (const profile of profiles) if (isGaussianProfile(profile)) {
+      splats += (await this.gaussian.asset(profile.assetId)).splatCount;
+      if (splats > GAUSSIAN_LIMITS.activeSplats) throw new Error('GAUSSIAN_ACTIVE_SPLAT_LIMIT');
+    }
+  }
   async saveProfiles(profiles: readonly AvatarProfile[]): Promise<void> {
     if (profiles.length > 256) throw new Error('TOO_MANY_AVATAR_PROFILES');
     const clean = profiles.map(validateProfile);
     if (new Set(clean.map(p => p.userId)).size !== clean.length) throw new Error('INVALID_AVATAR_PROFILE');
-    if (this.directory) await writeAtomicJson(join(this.directory,'avatars.json'), {schemaVersion:1,profiles:clean}, 'AVATAR_SETTINGS_WRITE_FAILED', true);
+    await this.validateGaussianBudget(clean);
+    for(const profile of clean)if(isGaussianProfile(profile))await this.gaussian.validateProfileAssets(profile);
+    if (this.directory) await writeAtomicJson(join(this.directory,'avatars.json'), {schemaVersion:2,profiles:clean}, 'AVATAR_SETTINGS_WRITE_FAILED', true);
     this.profiles = clean;
   }
 }

@@ -1,7 +1,7 @@
 import {PreviewStage} from '../studio/preview.ts';
 import {CustomAvatarVisual} from '../overlay/custom-avatar.ts';
 import {loadImagePair} from '../shared/image-pair.ts';
-import type {AvatarProfile} from '../../assets/avatar-profile.ts';
+import type {ImageAvatarProfile} from '../../assets/avatar-profile.ts';
 
 export interface PreviewDependencies {
  stage:(canvas:HTMLCanvasElement)=>PreviewStage;
@@ -31,7 +31,7 @@ export class AvatarPreview {
   this.stage.controls.target.set(0,1.25,3.4);this.stage.camera.position.set(0,1.7,1.5);this.stage.controls.update();
   this.stage.onFrame=()=>this.visual?.update(1,.85+.15*Math.sin(performance.now()*.006),0,glowScale());
  }
- update(image:ImageBitmap,profile:AvatarProfile,back?:ImageBitmap):void {
+ update(image:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap):void {
   if(this.closed)return;
   const signature=JSON.stringify(profile);
   if(this.image===image&&this.back===back&&this.signature===signature)return;
@@ -44,7 +44,7 @@ export class AvatarPreview {
   this.generation++;clearTimeout(this.timer);this.timer=undefined;
   this.pending=false;this.signature='';this.image=this.back=undefined;
  }
- private async build(version:number,image:ImageBitmap,profile:AvatarProfile,back?:ImageBitmap):Promise<void>{
+ private async build(version:number,image:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap):Promise<void>{
   let copies:[ImageBitmap,ImageBitmap|undefined]|undefined;
   try{
    // Own copies across the worker await. The editor may close or replace originals.

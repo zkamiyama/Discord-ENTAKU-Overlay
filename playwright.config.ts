@@ -6,5 +6,5 @@ export default defineConfig({
   // Keep actions/DOM/network traces; continuous screencasts compete with SwiftShader.
   // Explicit pixel screenshots and failure screenshots remain enabled.
   use: { trace:{mode:'retain-on-failure',screenshots:false}, screenshot:'only-on-failure', channel: 'chromium', locale: 'ja-JP', baseURL: 'http://127.0.0.1:31339', viewport: { width: 1280, height: 720 },
-    launchOptions: { args: ['--enable-unsafe-swiftshader','--use-angle=swiftshader'] } },
+    launchOptions: { ...(process.env.ENTAKU_CHROMIUM_PATH?{executablePath:process.env.ENTAKU_CHROMIUM_PATH}:{}),args: ['--enable-unsafe-swiftshader','--use-angle=swiftshader'] } },
 });

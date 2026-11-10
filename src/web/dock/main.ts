@@ -54,7 +54,7 @@ function openMenu(row:Row,seats=false):void{
    add('users',label,()=>void command({type:'seat-move',userId:user.userId,slotIndex:seat.slotIndex},state.revision),seat.slotIndex===user.slotIndex);
   }
  }else{
- add('image','画像を調整',()=>void editor.open(user.userId,user.name));
+ add('image','アバターを調整',()=>void editor.open(user.userId,user.name));
  add('crown','司会に指定',()=>void command({type:'moderators',userIds:[user.userId]}),user.slotIndex===undefined);
  add('users','共同司会に追加',()=>void command({type:'moderators',userIds:[...hosts,user.userId]}),user.slotIndex===undefined||hosts.includes(user.userId)||hosts.length>=2);
  if(hosts.includes(user.userId)&&hosts.length===2)add('users','司会指定を解除',()=>void command({type:'moderators',userIds:hosts.filter(id=>id!==user.userId)}));

@@ -2,8 +2,9 @@ import {fitImage,imagePoint} from './image-selection.ts';
 import {loadAvatarImage} from './avatar-image.ts';
 import {syncNumericControls} from './numeric-controls.ts';
 import { loadImagePair } from '../shared/image-pair.ts';
+import {GaussianAvatarEditor,GAUSSIAN_ERROR_MESSAGES} from './gaussian-editor.ts';
 import {AvatarPreview} from './avatar-preview.ts';
-import { avatarBounds, validateProfile, type AvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
+import { avatarBounds, validateProfile, isGaussianProfile, type ImageAvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import { StudioClient } from '../shared/client.ts';
 const messages: Record<string,string> = {
@@ -26,18 +27,21 @@ export class AvatarEditor {
   private backImage:StoredImage|null=null;
   private backFit={x:0,y:0,w:1,h:1};
   private preview:AvatarPreview|null=null;
-  private get previewPending():boolean{return this.preview?.pending??false;}
+  private gaussian:GaussianAvatarEditor|null=null;
+  private kind:'image'|'gaussian'='image';
+  private get previewPending():boolean{return this.kind==='gaussian'?(this.gaussian?.pending??false):(this.preview?.pending??false);}
   private image:StoredImage|null=null;
   private userId=''; private revision=0; private generation=0; private busy=false;
   private drag: {x:number;y:number;pointer:number}|null=null;
   private fit={x:0,y:0,w:1,h:1};
   private fields=['face-x','face-y','face-w','face-h','avatar-scale','avatar-offset-x','avatar-offset-y','back-face-x','back-face-y','back-face-w','back-face-h','frame-x','frame-y','frame-w','frame-h','avatar-frame-enable'];
   constructor(private client:StudioClient){
-    this.dialog.addEventListener('close',()=>{this.generation++;this.preview?.dispose();this.preview=null;this.bitmap?.close();this.backBitmap?.close();this.bitmap=this.backBitmap=null;this.image=this.backImage=null;});
+    this.dialog.addEventListener('close',()=>{this.generation++;this.gaussian?.dispose();this.gaussian=null;this.preview?.dispose();this.preview=null;this.bitmap?.close();this.backBitmap?.close();this.bitmap=this.backBitmap=null;this.image=this.backImage=null;});
     this.dialog.addEventListener('cancel',event=>{if(this.busy)event.preventDefault();});
+    $<HTMLSelectElement>('avatar-kind').onchange=()=>this.setKind($<HTMLSelectElement>('avatar-kind').value==='gaussian'?'gaussian':'image');
     $('avatar-cancel').onclick=()=>{if(!this.busy)this.dialog.close();};
     $<HTMLFormElement>('avatar-form').onsubmit=e=>{e.preventDefault();void this.apply();};
-    $('avatar-reset').onclick=()=>{if(confirm('この人のカスタム画像を解除してDiscordアイコンへ戻しますか？'))void this.reset();};
+    $('avatar-reset').onclick=()=>{if(confirm('この人のカスタムアバターを解除してDiscordアイコンへ戻しますか？'))void this.reset();};
     $<HTMLInputElement>('avatar-file').onchange=()=>{const file=$<HTMLInputElement>('avatar-file').files?.[0];if(file)void this.select(file);};
     $<HTMLInputElement>('avatar-back-file').onchange=()=>{const file=$<HTMLInputElement>('avatar-back-file').files?.[0];if(file)void this.selectBack(file);};
     $('avatar-back-remove').onclick=()=>{this.backBitmap?.close();this.backBitmap=null;this.backImage=null;this.draw();};
@@ -64,7 +68,9 @@ export class AvatarEditor {
     if(this.busy||this.dialog.open||!this.client.state)return;
     this.userId=userId;this.revision=this.client.state.revision;this.image=null;this.bitmap=null;this.backImage=null;this.backBitmap=null;
     $('avatar-person').textContent=name; $<HTMLInputElement>('avatar-file').value='';
-    const profile=this.client.state.avatarProfiles.find(p=>p.userId===userId);
+    const stored=this.client.state.avatarProfiles.find(p=>p.userId===userId);
+    const profile=stored&&!isGaussianProfile(stored)?stored:undefined;
+    this.gaussian=new GaussianAvatarEditor(this.client,()=>this.draw());
     this.setRect(profile?.faceRect??[.25,.1,.5,.25]);
     $<HTMLInputElement>('avatar-scale').value=String(profile?.scale??1);
     $<HTMLInputElement>('avatar-offset-x').value=String(profile?.offsetX??0);
@@ -74,10 +80,8 @@ export class AvatarEditor {
     $<HTMLInputElement>('avatar-frame-enable').checked=!!profile?.framingRect;
     $<HTMLSelectElement>('avatar-selection-target').value='face';$<HTMLInputElement>('avatar-back-file').value='';
     this.feedback('');this.dialog.showModal();
-    this.preview=new AvatarPreview($<HTMLCanvasElement>('avatar-3d-preview'),error=>{
-      if(error){this.report(error);$<HTMLButtonElement>('avatar-apply').disabled=true;}
-      else $<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending||!this.validDraft();
-    },()=>this.client.state?.studio.post?.speechGlowScale??4);this.draw();
+    this.setKind(stored&&isGaussianProfile(stored)?'gaussian':'image');
+    void this.gaussian.open(userId,stored&&isGaussianProfile(stored)?stored:undefined);
     if(profile){
       const version=++this.generation;this.setBusy(true);
       try{
@@ -88,17 +92,28 @@ export class AvatarEditor {
       }catch(e){this.report(e);}finally{this.setBusy(false);this.draw();}
     }
   }
+  private setKind(kind:'image'|'gaussian'):void {
+    this.kind=kind;$<HTMLSelectElement>('avatar-kind').value=kind;
+    $('avatar-image-fields').hidden=kind!=='image';$('avatar-gaussian-fields').hidden=kind!=='gaussian';
+    this.gaussian?.setActive(kind==='gaussian');
+    if(kind==='gaussian'){this.preview?.dispose();this.preview=null;}
+    else if(!this.preview)this.preview=new AvatarPreview($<HTMLCanvasElement>('avatar-3d-preview'),error=>{
+      if(error){this.report(error);$<HTMLButtonElement>('avatar-apply').disabled=true;}
+      else $<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending||!this.validDraft();
+    },()=>this.client.state?.studio.post?.speechGlowScale??4);
+    this.draw();
+  }
   private setBusy(value:boolean):void{
     this.busy=value;
-    for(const e of this.dialog.querySelectorAll<HTMLInputElement|HTMLButtonElement>('input,button'))e.disabled=value;
+    for(const e of this.dialog.querySelectorAll<HTMLInputElement|HTMLButtonElement|HTMLSelectElement>('input,button,select'))e.disabled=value;
     if(!value)$<HTMLButtonElement>('avatar-apply').disabled=this.previewPending||!this.validDraft();syncNumericControls();
   }
   private feedback(text:string,code=''):void{delete $('avatar-feedback').dataset.validation;$('avatar-feedback').textContent=text;$('avatar-feedback').dataset.errorCode=code;}
-  private report(error:unknown):void{const code=error instanceof Error?error.message:'AVATAR_EDIT_FAILED';this.feedback(messages[code]??'画像を読み込み・保存できませんでした。',code);}
+  private report(error:unknown):void{const code=error instanceof Error?error.message:'AVATAR_EDIT_FAILED';this.feedback((this.kind==='gaussian'?GAUSSIAN_ERROR_MESSAGES[code]:undefined)??messages[code]??(this.kind==='gaussian'?'3DGSの設定を保存できませんでした。素材と設定を確認してください。':'画像を読み込み・保存できませんでした。'),code);}
   private setNamedRect(prefix:string,rect:FaceRect):void{['x','y','w','h'].forEach((name,i)=>{$<HTMLInputElement>(prefix+'-'+name).value=(rect[i]!*100).toFixed(3);});}
   private setRect(rect:FaceRect):void{this.setNamedRect('face',rect);}
   private getRect(prefix:string):FaceRect{return ['x','y','w','h'].map(name=>Number($<HTMLInputElement>(prefix+'-'+name).value)/100) as unknown as FaceRect;}
-  private draft():AvatarProfile{
+  private draft():ImageAvatarProfile{
     if(!this.image)throw new Error('IMAGE_REQUIRED');
     return {userId:this.userId,assetId:this.image.assetId,image:{width:this.image.width,height:this.image.height,mime:this.image.mime},
       faceRect:['face-x','face-y','face-w','face-h'].map(id=>Number($<HTMLInputElement>(id).value)/100) as unknown as FaceRect,
@@ -106,7 +121,7 @@ export class AvatarEditor {
       ...(this.backImage?{back:{assetId:this.backImage.assetId,image:{width:this.backImage.width,height:this.backImage.height,mime:this.backImage.mime},faceRect:this.getRect('back-face')}}:{}),
       ...($<HTMLInputElement>('avatar-frame-enable').checked?{framingRect:this.getRect('frame')}:{})};
   }
-  private validDraft():boolean{try{validateProfile(this.draft());return true;}catch{return false;}}
+  private validDraft():boolean{if(this.kind==='gaussian')return this.gaussian?.valid??false;try{validateProfile(this.draft());return true;}catch{return false;}}
   private point(event:PointerEvent):{x:number;y:number}{
     return imagePoint(event.clientX,event.clientY,this.canvas.getBoundingClientRect(),this.canvas.width,this.canvas.height,this.fit);
   }
@@ -129,7 +144,8 @@ export class AvatarEditor {
   }
   private updatePreview():void{
     if(!this.bitmap||!this.preview||!this.validDraft()){this.preview?.cancel();return;}
-    this.preview.update(this.bitmap,validateProfile(this.draft()),this.backBitmap??undefined);
+    const clean=validateProfile(this.draft());if(isGaussianProfile(clean))return;
+    this.preview.update(this.bitmap,clean,this.backBitmap??undefined);
     $<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending;
   }
   private drawBack():void{
@@ -140,6 +156,7 @@ export class AvatarEditor {
     const f=this.backFit,r=this.getRect('back-face');c.drawImage(this.backBitmap,f.x,f.y,f.w,f.h);c.strokeStyle='#70f1ad';c.lineWidth=2;c.strokeRect(f.x+r[0]*f.w,f.y+r[1]*f.h,r[2]*f.w,r[3]*f.h);
   }
   private draw():void{
+    if(this.kind==='gaussian'){$<HTMLButtonElement>('avatar-apply').disabled=this.busy||this.previewPending||!this.validDraft();syncNumericControls();return;}
     syncNumericControls();
     this.drawBack();
     const context=this.canvas.getContext('2d')!,w=this.canvas.width,h=this.canvas.height;
@@ -158,7 +175,7 @@ export class AvatarEditor {
   }
   private async apply():Promise<void>{
     if(this.busy||this.previewPending)return;this.setBusy(true);
-    try{const profile=validateProfile(this.draft());await this.client.command({type:'avatar-set',profile},this.revision);this.dialog.close();}
+    try{const profile=this.kind==='gaussian'?this.gaussian!.draft():validateProfile(this.draft());await this.client.command({type:'avatar-set',profile},this.revision);this.dialog.close();}
     catch(e){this.report(e);}finally{this.setBusy(false);}
   }
   private async reset():Promise<void>{

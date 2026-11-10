@@ -69,6 +69,7 @@ jobs:
           name: entaku-browser-evidence-${{ matrix.shard }}
           path: |
             .work/*.png
+            .work/gaussian/
             test-results/
           if-no-files-found: ignore
           retention-days: 14

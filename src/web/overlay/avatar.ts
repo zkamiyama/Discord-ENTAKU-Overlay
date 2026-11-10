@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type {Participant,SeatTransform,AppSnapshot} from '../../contracts/domain.ts';
 import type {AvatarProfile} from '../../assets/avatar-profile.ts';
+import {isGaussianProfile} from '../../assets/avatar-profile.ts';
 import type {StudioClient} from '../shared/client.ts';
 import {CustomAvatarVisual} from './custom-avatar.ts';
 import {loadImagePair} from '../shared/image-pair.ts';
@@ -11,7 +12,9 @@ import {avatarFacingYaw} from '../../geometry/avatar-facing.ts';
 import {protectDisplayObject} from '../studio/exposure-renderer.ts';
 import {DEFAULT_QUALITY} from '../../studio/quality.ts';
 import {disposeObject} from '../studio/dispose.ts';
-export interface AvatarContext {client:StudioClient;stage:THREE.Group;camera:THREE.Camera;failures:Set<string>;state:()=>AppSnapshot|null}
+import {GaussianRuntime} from '../gaussian/runtime.ts';
+import {GaussianAvatarVisual} from '../gaussian/avatar-visual.ts';
+export interface AvatarContext {client:StudioClient;stage:THREE.Group;camera:THREE.Camera;failures:Set<string>;state:()=>AppSnapshot|null;gaussian:GaussianRuntime}
 const vertexShader = `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`;
 function imageMaterial(texture:THREE.Texture):THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({uniforms:{map:{value:texture},opacity:{value:1}},vertexShader,fragmentShader:`
@@ -33,7 +36,8 @@ export class Avatar {
   outline:THREE.Mesh<THREE.RingGeometry,THREE.ShaderMaterial>; nameplate:NameplateVisual;
   private baseYaw=0;
   user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
-  custom:CustomAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
+  custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
+  get shadowRoots():THREE.Object3D[]{return this.gaussian?.proxyRoot?[this.plate,this.gaussian.proxyRoot]:[this.plate];}
   constructor(private context:AvatarContext,user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
@@ -48,8 +52,24 @@ export class Avatar {
     const key=JSON.stringify(profile??null);
     if(key!==this.profileKey){
       this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
-      if(!profile){this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;}
-      else void loadImagePair(this.context.client.customImage(profile.assetId),profile.back?this.context.client.customImage(profile.back.assetId):undefined).then(async([bitmap,back])=>{
+      if(!profile){this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;this.body.visible=this.outline.visible=true;}
+      else if(isGaussianProfile(profile)){
+        this.custom?.dispose();this.custom=null;
+        if(!this.gaussian){
+          const visual=new GaussianAvatarVisual(this.context.gaussian,status=>{
+            if(this.disposed||this.gaussian!==visual)return;
+            this.body.visible=status.phase!=='ready';this.outline.visible=status.phase!=='ready';
+            if(status.phase==='error')this.context.failures.add(this.user.userId);
+            else this.context.failures.delete(this.user.userId);
+          });
+          this.gaussian=visual;this.root.add(visual.root);
+        }
+        void this.gaussian.setProfile(profile).catch(()=>{});
+      }
+      else {
+        this.gaussian?.dispose();this.gaussian=null;
+        if(!this.custom)this.body.visible=this.outline.visible=true;
+        void loadImagePair(this.context.client.customImage(profile.assetId),profile.back?this.context.client.customImage(profile.back.assetId):undefined).then(async([bitmap,back])=>{
         try{
           if(this.disposed||generation!==this.customVersion)return;
           const next=await CustomAvatarVisual.create(bitmap,profile,back);
@@ -61,11 +81,13 @@ export class Avatar {
         this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;
         // Rendering remains usable; diagnostic code contains no path, URL or capability.
         this.context.failures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
-      });
+        });
+      }
     }
     this.nameplate.setName(user.displayName,this.context.state()?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates);
     this.user=user;
-    if(!profile&&user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
+    // Keep the Discord icon ready as an isolated fallback for either asset type.
+    if(user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
       if(user.avatarUrl)void this.context.client.avatar(user.userId).then(bitmap=>{
         if(this.disposed||version!==this.textureVersion){bitmap.close();return;}
         const texture=new THREE.Texture(bitmap);texture.needsUpdate=true;texture.colorSpace=THREE.SRGBColorSpace;
@@ -79,7 +101,7 @@ export class Avatar {
     const target=visible?(this.user.presence==='stale'?.45:1):0;
     this.opacity+=(target-this.opacity)*(1-Math.exp(-dt/.2));this.root.visible=this.plate.visible=this.opacity>.005;
     this.root.position.fromArray(seat.faceAnchor);
-    if(this.profile){this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX;this.root.position.z-=Math.sin(seat.baseYawRad)*this.profile.offsetX;this.root.position.y+=this.profile.offsetY;}
+    if(this.profile){const z=isGaussianProfile(this.profile)?this.profile.offsetZ:0;this.root.position.x+=Math.cos(seat.baseYawRad)*this.profile.offsetX+Math.sin(seat.baseYawRad)*z;this.root.position.z+=-Math.sin(seat.baseYawRad)*this.profile.offsetX+Math.cos(seat.baseYawRad)*z;this.root.position.y+=this.profile.offsetY;}
     // Follow the current shot immediately. Camera MOVE may interpolate its pose,
     // but avatars must not keep swivelling after a CUT.
     this.baseYaw=seat.baseYawRad;this.faceCamera(this.context.camera.position);
@@ -88,11 +110,12 @@ export class Avatar {
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
     this.outline.material.uniforms.strength!.value=intensity;const glowScale=this.context.state()?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,this.context.state()?.studio.tableAnchor.position[1]??0,glowScale);
+    this.gaussian?.update(this.opacity,intensity);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
   }
-  faceCamera(position:THREE.Vector3):void{this.root.rotation.y=avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
+  faceCamera(position:THREE.Vector3):void{this.root.rotation.y=this.profile&&isGaussianProfile(this.profile)?this.baseYaw:avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
   dispose():void {
-    this.disposed=true;this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.context.stage.remove(this.root,this.plate);
+    this.disposed=true;this.customVersion++;this.textureVersion++;this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;this.context.stage.remove(this.root,this.plate);
     this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
     const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
     disposeObject(this.plate);

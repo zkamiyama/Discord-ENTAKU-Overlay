@@ -5,6 +5,7 @@ This application bundles JavaScript, WebAssembly decoders, and the Bun runtime. 
 | Component | Use | Notice |
 |---|---|---|
 | Phosphor Icons 2.1.1 | Selected SVG icons, no font files | MIT; `licenses/Phosphor-LICENSE.txt` in the distribution |
+| Spark 2.4.0 | Static Gaussian splats, LoD generation, embedded worker JavaScript and WebAssembly | MIT; Copyright World Labs, Inc.; `licenses/Spark-LICENSE.txt` in the distribution; source commit `ffe210dc0a45d0515a06c9235878108112827d61` |
 | Three.js 0.187.0 | Rendering, GLTFLoader, LoadingManager, controls and math | MIT; `licenses/three-LICENSE.txt` in the distribution |
 | Draco | Unmodified glTF decoder shipped with Three.js | Apache-2.0; `licenses/Apache-2.0.txt`, `licenses/Draco-README.md`; Copyright the Draco Authors |
 | Basis Universal | Unmodified KTX2 transcoder shipped with Three.js | Apache-2.0; `licenses/Apache-2.0.txt`, `licenses/Basis-README.md`; Copyright 2019-2026 Binomial LLC |
@@ -25,3 +26,7 @@ The application source is provided under this repository's LICENSE. Upstream run
 TypeScript, Playwright, and type packages are development tools and are not included as application runtime dependencies. No font files are distributed.
 
 Discord and OBS are separate applications and are not included. StreamKit compatibility authentication is an explicitly enabled interoperability path, not an independently approved application credential. It does not itself establish permission to distribute that authentication method. User tokens are not extracted and self-bots are not used.
+
+Spark source and bundled implementation: https://github.com/sparkjsdev/spark/tree/ffe210dc0a45d0515a06c9235878108112827d61
+
+The eight generated Gaussian fixture characters and their proxy meshes are original synthetic test data dedicated under CC0-1.0. They are not scanned people or third-party character models. The application code and generator remain under MIT.
