@@ -11,13 +11,13 @@ test('speech belongs to the instance and current displayed LoD mapping, not shar
  a.visible=b.visible=true;a.parent=b.parent=null;
  const out=ranges();setGaussianSpeechGlow(a,.7,8);
  expect(fillGaussianSpeechRanges([record(a,512,102),record(b,2048,83)],out)).toBe(1);
- expect(out[0]!.toArray()).toEqual([512,614,.7,2]);
+ expect(out[0]!.toArray()).toEqual([512,614,.7,17]);
  // Other view assigns the same meshes different bases/counts and order.
  expect(fillGaussianSpeechRanges([record(b,0,900),record(a,4096,17)],out)).toBe(1);
- expect(out[0]!.toArray()).toEqual([4096,4113,.7,2]);
+ expect(out[0]!.toArray()).toEqual([4096,4113,.7,17]);
  setGaussianSpeechGlow(a,0);setGaussianSpeechGlow(b,.4,1);
  fillGaussianSpeechRanges([record(a,0,1000),record(b,8192,5)],out);
- expect(out[0]!.toArray()).toEqual([8192,8197,.4,.25]);
+ expect(out[0]!.toArray()).toEqual([8192,8197,.4,2.125]);
  expect(out.slice(1).every(v=>v.lengthSq()===0)).toBe(true);
  clearGaussianSpeechGlow(a);clearGaussianSpeechGlow(b);
 });
@@ -27,7 +27,7 @@ test('all 32 participants, hidden ancestors, invalid inputs and retired entries 
  const mapping=meshes.map((m,i)=>record(m,i*16384,500)),out=ranges();
  meshes.forEach(m=>setGaussianSpeechGlow(m,2,Infinity));
  expect(fillGaussianSpeechRanges(mapping,out)).toBe(32);
- expect(out[31]!.toArray()).toEqual([31*16384,31*16384+500,1,1]);
+ expect(out[31]!.toArray()).toEqual([31*16384,31*16384+500,1,8.5]);
  expect(()=>fillGaussianSpeechRanges(mapping,out.slice(0,8))).toThrow('GAUSSIAN_SPEECH_RANGE_OVERFLOW');
  const parent=new THREE.Group();parent.visible=false;meshes[0]!.parent=parent;
  expect(fillGaussianSpeechRanges(mapping,out)).toBe(31);
@@ -50,6 +50,7 @@ test('adapter guards published shaders and restores its instance without changin
  expect(effect.uniforms.speechBackdropPass.value).toBe(0);
  expect(spark.material.fragmentShader).toContain('backdropA');
  expect(spark.material.vertexShader).toContain('vSpeech');
+ expect(spark.material.vertexShader).toContain('if(speechBackdropPass==1&&vSpeech<=.001)return;');
  expect(JSON.stringify(THREE.ShaderChunk)).toBe(chunks);
  effect.dispose();expect(spark.onBeforeRender).toBe(before);
  expect(spark.material.vertexShader).toBe(source);expect(spark.material.fragmentShader).toBe(fragment);
@@ -65,8 +66,9 @@ test('draw-node uniforms use the active view AFTER the native callback replaces 
  setGaussianSpeechGlow(mesh,.8);node.display.mapping=[record(mesh,0,99)];
  node.onBeforeRender=()=>{other.display.mapping=[record(mesh,512,7)];};
  const effect=installGaussianSpeechGlow(node,()=>other);
- node.onBeforeRender(renderer,new THREE.Scene(),new THREE.PerspectiveCamera());
- expect(effect.uniforms.speakerRanges.value[0]!.toArray()).toEqual([512,519,.8,1]);
+ const camera=new THREE.PerspectiveCamera();other.renderSize.set(640,480);
+ node.onBeforeRender(renderer,new THREE.Scene(),camera);
+ expect(effect.uniforms.speakerRanges.value[0]!.toArray()).toEqual([512,519,.8,11.52]);
  clearGaussianSpeechGlow(mesh);effect.dispose();node.dispose();other.dispose();
 });
 

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {PackedSplats,SplatMesh,SparkRenderer} from '@sparkjsdev/spark';
 import {GaussianRuntime} from '../../src/web/gaussian/runtime.ts';
-import {setGaussianSpeechGlow,fillGaussianSpeechRanges} from '../../src/web/gaussian/speech-glow.ts';
+import {setGaussianSpeechGlow,setGaussianSpeechBounds,fillGaussianSpeechRanges} from '../../src/web/gaussian/speech-glow.ts';
 import {GAUSSIAN_COLOR_LAYER} from '../../src/web/studio/gaussian-layers.ts';
 import {QualityRenderer} from '../../src/web/studio/quality-renderer.ts';
 import {SplitRenderer} from '../../src/web/studio/split-renderer.ts';
@@ -20,6 +20,7 @@ const first=new SplatMesh({packedSplats:packed,raycastable:false}),second=new Sp
 await Promise.all([first.initialized,second.initialized]);
 for(const mesh of [first,second]){mesh.layers.set(1);mesh.layers.enable(GAUSSIAN_COLOR_LAYER);scene.add(mesh);}
 second.recolor.setRGB(1.15,.76,.58);
+for(const mesh of [first,second])setGaussianSpeechBounds(mesh,new THREE.Box3(new THREE.Vector3(-.65,0,-.4),new THREE.Vector3(.65,1.95,.4)));
 // A broad, almost 2D human silhouette made of spherical splats.
  // Its min/mid scale ratio is 1, so Fresnel-only rim is identically zero.
  const flatPacked=new PackedSplats({construct(data){
@@ -38,12 +39,13 @@ second.recolor.setRGB(1.15,.76,.58);
  const flat=new SplatMesh({packedSplats:flatPacked,raycastable:false});
  await flat.initialized;flat.layers.set(1);flat.layers.enable(GAUSSIAN_COLOR_LAYER);
  flat.visible=false;scene.add(flat);
+setGaussianSpeechBounds(flat,new THREE.Box3(new THREE.Vector3(-1.01,0,-.04),new THREE.Vector3(1.01,1.74,.04)));
 const table=new THREE.Mesh(new THREE.BoxGeometry(2.6,.09,.85),new THREE.MeshStandardMaterial({color:0x66544b,roughness:.5}));table.position.set(0,.47,.5);table.userData.entakuReflective=true;scene.add(table);
 const blocker=new THREE.Mesh(new THREE.BoxGeometry(.25,2,.2),new THREE.MeshStandardMaterial({color:0x737d8a}));blocker.position.set(-.06,1,.85);scene.add(blocker);
 scene.add(new THREE.HemisphereLight(0xffffff,0x333333,1.5));
 const quality=new QualityRenderer(renderer),split=new SplitRenderer(renderer);
 let width=480,height=480,serial=0,options:Options={},q:QualitySettings,p:PostSettings;
-type Options={mode?:0|1|2;speaking?:'first'|'second'|'both'|'none';layout?:'single'|'overlap'|'hidden'|'blocker'|'planar';background?:boolean;split?:boolean;swap?:boolean;width?:number;height?:number;budget?:number;glowScale?:number;post?:Partial<PostSettings>;quality?:Partial<QualitySettings>};
+type Options={mode?:0|1|2;speaking?:'first'|'second'|'both'|'none';layout?:'single'|'overlap'|'hidden'|'blocker'|'planar';background?:boolean;split?:boolean;swap?:boolean;width?:number;height?:number;budget?:number;glowScale?:number;cameraDistance?:number;post?:Partial<PostSettings>;quality?:Partial<QualitySettings>};
 type Draw={camera:string;ranges:number[][];expected:number[][]};
 let draws:Draw[]=[];
 function recordDraw(node:SparkRenderer){
@@ -51,7 +53,7 @@ function recordDraw(node:SparkRenderer){
   // Test-only introspection of the real runtime; the draw node must use the
   // current camera's display mapping after native Spark onBeforeRender.
   const view=(runtime as unknown as {views:Map<THREE.Camera,SparkRenderer>}).views.get(c)!;
-  const expected=Array.from({length:32},()=>new THREE.Vector4());fillGaussianSpeechRanges(view.display.mapping,expected);
+  const expected=Array.from({length:32},()=>new THREE.Vector4());fillGaussianSpeechRanges(view.display.mapping,expected,c,view.renderSize.y);
   draws.push({camera:c.uuid,ranges:node.material.uniforms.speakerRanges!.value.map((v:THREE.Vector4)=>v.toArray()),expected:expected.map(v=>v.toArray())});
  };
 }
@@ -64,7 +66,7 @@ function draw(){
  }else quality.render(scene,camera,q,String(serial),p,{distance:4,range:.5});
 }
 async function settle(next:Options={}){
- options=next;serial++;scene.background=next.background?new THREE.Color(0x15273b):null;width=next.width??480;height=next.height??480;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();
+ options=next;serial++;scene.background=next.background?new THREE.Color(0x15273b):null;width=next.width??480;height=next.height??480;renderer.setSize(width,height,false);camera.aspect=width/height;camera.position.set(.65,1.65,next.cameraDistance??3.9);camera.lookAt(0,1.05,0);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
  const flatMode=next.layout==='planar';flat.visible=flatMode;first.visible=!flatMode;
  second.visible=next.layout==='overlap';first.position.set(second.visible?-.16:0,0,second.visible?-.18:0);second.position.set(.36,-.03,.39);second.rotation.y=-.12;
  blocker.visible=next.layout==='hidden'||next.layout==='blocker';blocker.scale.x=next.layout==='hidden'?12:1;

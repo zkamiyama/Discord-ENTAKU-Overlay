@@ -99,3 +99,31 @@ test('speaker backdrop preserves scene background, world ordering and silent rec
  expect(r.stopped.max).toBeLessThanOrEqual(3);
  expect(errors).toEqual([]);
 });
+
+test('screen-space halo responds to projected body size, target pixels and glow setting',async({page})=>{
+ test.setTimeout(240000);const errors=await setup(page);
+ const result=await page.evaluate(async()=>{
+  const p=(window as any).gaussianSpeechProbe;
+  const radius=(state:any)=>{
+    const values=state.draws.flatMap((d:any)=>d.ranges.filter((r:number[])=>r[2]!>0).map((r:number[])=>r[3]!));
+    return Math.max(...values);
+  };
+  const base={layout:'planar',width:600,height:600,cameraDistance:5};
+  await p.settle({...base,speaking:'none'});p.save('screenOff');
+  const thin=await p.settle({...base,glowScale:1});p.save('screenThin');
+  const thinExterior=p.haloOutside('screenOff','screenThin');
+  const wide=await p.settle({...base,glowScale:8});p.save('screenWide');
+  const wideExterior=p.haloOutside('screenOff','screenWide');
+  const near=await p.settle({...base,cameraDistance:2.7,glowScale:4});
+  const far=await p.settle({...base,cameraDistance:7,glowScale:4});
+  const half=await p.settle({...base,cameraDistance:7,height:300,glowScale:4});
+  return {thin:radius(thin),wide:radius(wide),near:radius(near),far:radius(far),half:radius(half),thinExterior,wideExterior};
+ });
+ writeFileSync('.work/gaussian/speech-screen-space-results.json',JSON.stringify(result,null,2));
+ expect(result.wide).toBeCloseTo(result.thin*8,3);
+ expect(result.near).toBeGreaterThan(result.far*1.6);
+ expect(result.half).toBeCloseTo(result.far*.5,1);
+ expect(result.wideExterior.count).toBeGreaterThan(result.thinExterior.count*1.4);
+ expect(result.wideExterior.green).toBeGreaterThan(result.thinExterior.green);
+ expect(errors).toEqual([]);
+});

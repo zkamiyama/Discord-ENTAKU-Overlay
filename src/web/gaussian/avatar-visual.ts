@@ -7,8 +7,8 @@ import { GaussianRuntime } from './runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from './assets.ts';
 import type { ResourceLease } from './resource-cache.ts';
 import {GaussianSurface} from './surface.ts';
-import { gaussianLocalTransform } from './transform.ts';
-import {setGaussianSpeechGlow,clearGaussianSpeechGlow} from './speech-glow.ts';
+import { gaussianLocalTransform, gaussianNormalization } from './transform.ts';
+import {setGaussianSpeechGlow,clearGaussianSpeechGlow,setGaussianSpeechBounds} from './speech-glow.ts';
 export type { GaussianLoadStatus } from './assets.ts';
 
 export class GaussianAvatarVisual {
@@ -78,6 +78,15 @@ export class GaussianAvatarVisual {
     if (!this.profile) return;
     this.model.matrix.copy(gaussianLocalTransform(this.profile));
     this.model.matrixWorldNeedsUpdate = true;
+    if(this.mesh){
+      // Manifest bounds are canonical metres; shader splats remain in source
+      // coordinates. Convert the calibrated body box back to source space
+      // so each view can project the same mesh at its actual screen size.
+      const body=this.profile.manifest.bodyBounds;
+      const local=new THREE.Box3(new THREE.Vector3(...body.min),new THREE.Vector3(...body.max))
+        .applyMatrix4(gaussianNormalization(this.profile.manifest).invert());
+      setGaussianSpeechBounds(this.mesh,local);
+    }
   }
   update(opacity: number, speaking: number, glowScale=4): void {
     if (this.mesh) {this.mesh.opacity = opacity;setGaussianSpeechGlow(this.mesh,opacity>.005?speaking:0,glowScale);}
