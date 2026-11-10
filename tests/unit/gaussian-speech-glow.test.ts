@@ -50,6 +50,7 @@ test('adapter guards published shaders and restores its instance without changin
  expect(effect.uniforms.speechBackdropPass.value).toBe(0);
  expect(spark.material.fragmentShader).toContain('backdropA');
  expect(spark.material.vertexShader).toContain('vSpeech');
+ expect(spark.material.vertexShader).toContain('if(speechBackdropPass==1&&vSpeech<=.001)return;');
  expect(JSON.stringify(THREE.ShaderChunk)).toBe(chunks);
  effect.dispose();expect(spark.onBeforeRender).toBe(before);
  expect(spark.material.vertexShader).toBe(source);expect(spark.material.fragmentShader).toBe(fragment);

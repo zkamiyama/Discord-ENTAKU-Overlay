@@ -93,6 +93,9 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
   }
  }
  `);
+ // A single participant may speak among eight: avoid rasterizing silent
+ // Gaussian splats into the expensive expanded backdrop pass.
+ m.vertexShader=replace(m.vertexShader,'if (enable2DGS && any(zeroScales)) {',`if(speechBackdropPass==1&&vSpeech<=.001)return;\n        if (enable2DGS && any(zeroScales)) {`);
  m.vertexShader=replace(m.vertexShader,'vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;',`
  // Expand raster support only. Original Gaussian uv/alpha must not be rescaled.
  // Both expansions are screen pixels; thin projected splats have separate ratios.
