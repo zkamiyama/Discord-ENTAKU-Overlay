@@ -45,27 +45,28 @@ proxy.position.set(0,.8,.3);proxy.layers.set(GAUSSIAN_PROXY_LAYER);proxy.userDat
 const floor=new THREE.Mesh(new THREE.PlaneGeometry(10,8),new THREE.MeshStandardMaterial({color:0x777777,roughness:.08,metalness:.35}));floor.rotation.x=-Math.PI/2;floor.userData.entakuReflective=true;scene.add(floor);
 const blocker=new THREE.Mesh(new THREE.BoxGeometry(1.05,.7,.3),new THREE.MeshStandardMaterial({color:0x808080,roughness:.8}));blocker.position.set(0,.48,1.0);blocker.visible=false;scene.add(blocker);
 const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(-2.5,4,2.2);scene.add(light,new THREE.HemisphereLight(0xffffff,0x777777,1.5));
-let width=640,height=360,serial=0,splitMode=false,offscreen=false,denseMode=false,cameraDistance=5,q:QualitySettings={...DEFAULT_QUALITY},p:PostSettings={...DEFAULT_POST};
+let width=640,height=360,serial=0,splitMode=false,splitSwapped=false,offscreen=false,denseMode=false,cameraDistance=5,q:QualitySettings={...DEFAULT_QUALITY},p:PostSettings={...DEFAULT_POST};
 const singleTarget=new THREE.WebGLRenderTarget(1,1,{depthBuffer:true});
 const present=new FullScreenQuad(new THREE.ShaderMaterial({uniforms:{color:{value:singleTarget.texture}},depthTest:false,depthWrite:false,toneMapped:false,blending:THREE.NoBlending,
  vertexShader:'varying vec2 v;void main(){v=uv;gl_Position=vec4(position.xy,0.,1.);}',fragmentShader:'uniform sampler2D color;varying vec2 v;void main(){gl_FragColor=texture2D(color,v);}'
 }));
 let frames:number[]=[];
 const snapshots=new Map<string,Uint8Array>();
-type Options={color?:'red'|'blue'|'white';proxy?:boolean;blocker?:boolean;rear?:boolean;split?:boolean;offscreen?:boolean;dense?:boolean;distance?:number;lodBudget?:number;width?:number;height?:number;quality?:Partial<QualitySettings>;post?:Partial<PostSettings>;exposure?:number;avatarX?:number;lightX?:number};
+type Options={color?:'red'|'blue'|'white';proxy?:boolean;blocker?:boolean;rear?:boolean;split?:boolean;swapSplit?:boolean;offscreen?:boolean;dense?:boolean;distance?:number;lodBudget?:number;width?:number;height?:number;quality?:Partial<QualitySettings>;post?:Partial<PostSettings>;exposure?:number;avatarX?:number;avatarZ?:number;lightX?:number};
 function configure(options:Options={}){
  serial++;width=options.width??640;height=options.height??360;renderer.setSize(width,height,false);camera.aspect=width/height;cameraDistance=options.distance??5;camera.position.set(0,.7+cameraDistance*.28,cameraDistance);camera.lookAt(0,.7,0);camera.updateProjectionMatrix();
  q={...DEFAULT_QUALITY,shadows:'off',ao:'off',reflections:false,fxaa:false,msaa:0,reflectionOpacity:.85,effectsScale:1,...options.quality};
  p={...DEFAULT_POST,enabled:false,saturation:1,contrast:1,...options.post};
- renderer.toneMappingExposure=options.exposure??1;splitMode=!!options.split;offscreen=!!options.offscreen;denseMode=!!options.dense;runtime.setBudget(options.lodBudget??10000,splitMode?2:1);
+ renderer.toneMappingExposure=options.exposure??1;splitMode=!!options.split;splitSwapped=!!options.swapSplit;offscreen=!!options.offscreen;denseMode=!!options.dense;runtime.setBudget(options.lodBudget??10000,splitMode?2:1);
  front.recolor.setRGB(...(options.color==='blue'?[.025,.04,1]:options.color==='white'?[1,1,1]:[1,.025,.025]) as [number,number,number]);
  proxy.visible=options.proxy!==false;front.visible=!denseMode;rear.visible=!!options.rear&&!denseMode;blocker.visible=!!options.blocker;
- front.position.x=proxy.position.x=options.avatarX??0;light.position.x=options.lightX??-2.5;
- if(denseFront&&denseRear){denseFront.visible=denseMode;denseRear.visible=denseMode&&!!options.rear;denseFront.recolor.copy(front.recolor);denseFront.position.x=front.position.x;}
+ front.position.x=proxy.position.x=options.avatarX??0;front.position.z=proxy.position.z=options.avatarZ??.3;light.position.x=options.lightX??-2.5;
+ if(denseFront&&denseRear){denseFront.visible=denseMode;denseRear.visible=denseMode&&!!options.rear;denseFront.recolor.copy(front.recolor);denseFront.position.copy(front.position);}
 }
 function draw(){
  if(splitMode){
-  const panels:readonly [SplitPanel,SplitPanel]=[{userId:'front',pose:{position:[0,.8+cameraDistance*.14,cameraDistance],target:[0,.8,0],fov:40}},{userId:'rear',pose:{position:[0,.8+cameraDistance*.14,-cameraDistance],target:[0,.8,0],fov:40}}];
+  const z=splitSwapped?-cameraDistance:cameraDistance;
+  const panels:readonly [SplitPanel,SplitPanel]=[{userId:'front',pose:{position:[0,.8+cameraDistance*.14,z],target:[0,.8,0],fov:40}},{userId:'rear',pose:{position:[0,.8+cameraDistance*.14,-z],target:[0,.8,0],fov:40}}];
   split.render(scene,panels,q,p,String(serial),(panel,view)=>{view.position.fromArray(panel.pose.position);view.lookAt(new THREE.Vector3().fromArray(panel.pose.target));view.fov=panel.pose.fov;view.near=.05;view.far=100;return {distance:cameraDistance,range:.3};});
  }else{
   if(offscreen){if(singleTarget.width!==width||singleTarget.height!==height)singleTarget.setSize(width,height);renderer.setRenderTarget(singleTarget);}
@@ -82,15 +83,18 @@ async function settleFrames(count=24){
  for(let i=0;i<count;i++){await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));draw();const now=performance.now();frames.push(now-last);last=now;}
  return status();
 }
-// LoD and sorting are asynchronous. Check the completed LoD camera/budget as
-// well as stable counts, so an old selection cannot satisfy the next scenario.
+// LoD and sorting are asynchronous. A completed result must match this camera,
+// projection and budget, and reach the displayed accumulator. Spark 2.4 bumps
+// shared mesh versions on each view's LoD completion, so a matching completed
+// selection can coexist with pending refresh work indefinitely in split mode.
 async function settleLod(options:Options={}){
- await settle(options,options.split?40:36);let stable=0,previous='',last=performance.now();
+ const started=performance.now();await settle(options,options.split?40:36);let stable=0,previous='',last=performance.now();
  for(let i=0;i<180;i++){
   await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));draw();const now=performance.now();frames.push(now-last);last=now;const state=status();
   const ready=state.activeViews.length===(options.split?2:1)&&state.activeViews.every(view=>
-   !view.lodPending&&view.lodBudget===view.budget&&view.lodPosition&&view.cameraPosition.every((value,index)=>Math.abs(value-view.lodPosition![index]!)<1e-4));
-  const signature=JSON.stringify(state.activeViews.map(view=>[view.selectedSplats,view.lodInstances]));
+   view.lodMatchesView&&view.lodCompletedRequestAt!==null&&view.lodCompletedRequestAt>=started&&view.selectedSplats>0&&view.lodInstances.length>0&&
+   view.lodInstances.every((count,index)=>count===view.displayedLodInstances[index]));
+  const signature=JSON.stringify(state.activeViews.map(view=>[view.selectedSplats,view.lodInstances,view.displayedLodInstances]));
   stable=ready&&signature===previous?stable+1:0;previous=signature;
   if(stable>=4)return state;
  }
@@ -101,8 +105,8 @@ async function settleLod(options:Options={}){
 async function moveLight(x:number,count=24){light.position.x=x;return settleFrames(count);}
 function pixels(){const gl=renderer.getContext(),data=new Uint8Array(width*height*4);gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data);return data;}
 function save(name:string){snapshots.set(name,pixels());return stats();}
-function sample(y=.8){const v=new THREE.Vector3(front.position.x,y,.3).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
-function bounds(){const point=new THREE.Vector3(0,.04,.3).project(camera);return {floorTop:Math.floor((point.y+1)*height/2)-6};}
+function sample(y=.8){const v=new THREE.Vector3(front.position.x,y,front.position.z).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
+function bounds(){const point=new THREE.Vector3(0,.04,front.position.z).project(camera);return {floorTop:Math.floor((point.y+1)*height/2)-6};}
 function stats(){
  const data=pixels(),b=bounds();let red=0,blue=0,transparent=0,redFloor=0,blueFloor=0,leftRed=0,leftBlue=0,rightRed=0,rightBlue=0;
  for(let y=0;y<height;y++)for(let x=0;x<width;x++){

@@ -22,16 +22,15 @@ manifestやGLBから参照されないファイルは拒否します。README、
 
 ## manifestの完全な例
 
-次の例は任意項目も含みます。対応する `avatar.spz`、`proxy.glb`、`preview.png` をZIPに含めてください。代理メッシュやプレビューがない場合は、該当キー自体を省略します。`null` は指定しません。
+次の例は配布サンプル `character-01.entaku.zip` のmanifestと一致します。[JSONファイル](../examples/gaussian/manifest.json)も参照できます。対応する `avatar.ply` と `proxy.glb` をZIPに含めてください。任意の `preview` と `placement` は省略しています。代理メッシュやプレビューがない場合は、該当キー自体を省略します。`null` は指定しません。
 
 ```json
 {
   "schemaVersion": 1,
   "kind": "entaku-gaussian-avatar",
-  "name": "サンプルキャラクター",
-  "splat": "avatar.spz",
+  "name": "合成キャラクター 1",
+  "splat": "avatar.ply",
   "proxy": "proxy.glb",
-  "preview": "preview.png",
   "coordinates": {
     "units": "m",
     "up": "+Y",
@@ -42,28 +41,23 @@ manifestやGLBから参照されないファイルは拒否します。README、
     "rotation": [0, 0, 0],
     "translation": [0, 0, 0]
   },
-  "faceAnchor": [0, 1.5, 0],
+  "faceAnchor": [0, 1.35, 0],
   "faceBounds": {
-    "min": [-0.14, 1.36, -0.1],
-    "max": [0.14, 1.64, 0.1]
+    "min": [-0.3, 1.05, -0.29],
+    "max": [0.3, 1.65, 0.29]
   },
   "bodyBounds": {
-    "min": [-0.3, -0.05, -0.2],
-    "max": [0.3, 1.7, 0.2]
+    "min": [-0.38, -0.06, -0.29],
+    "max": [0.38, 1.65, 0.29]
   },
   "framingBounds": {
-    "min": [-0.35, -0.05, -0.25],
-    "max": [0.35, 1.75, 0.25]
-  },
-  "placement": {
-    "scale": 1,
-    "offsetX": 0,
-    "offsetY": 0,
-    "offsetZ": 0,
-    "yawRad": 0
+    "min": [-0.38, -0.06, -0.29],
+    "max": [0.38, 1.65, 0.29]
   }
 }
 ```
+
+合成サンプルの範囲は、PLY内の点中心だけでなくGaussianの広がりも含めています。
 
 ### キーと値
 

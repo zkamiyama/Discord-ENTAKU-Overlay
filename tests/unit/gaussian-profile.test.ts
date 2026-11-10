@@ -10,10 +10,10 @@ const manifest=gaussianFixture().manifest;
 const profile=()=>validateProfile({kind:'gaussian',userId:'1',assetId:'a'.repeat(64),manifest,scale:1,offsetX:0,offsetY:0,offsetZ:0,yawRad:0});
 test('Gaussian geometry uses real face anchor, rotated 3D body and crop without image fields',()=>{
   const p=profile();expect(isGaussianProfile(p)).toBe(true);expect(p).not.toHaveProperty('faceRect');expect(p).not.toHaveProperty('image');
-  const body=avatarEnvelopeBounds(p);expect(body.top).toBeCloseTo(.21);expect(body.bottom).toBeCloseTo(-1.41);expect(requiredAvatarPitch(p)).toBeCloseTo(.68);
-  const rotated=validateProfile({...p,yawRad:Math.PI/2});expect(avatarEnvelopeBounds(rotated).right).toBeCloseTo(.19);expect(requiredAvatarPitch(rotated)).toBeCloseTo(.50);
-  const crop=validateProfile({...p,manifest:{...manifest,framingBounds:{min:[-.16,1.15,-.15],max:[.16,1.55,.15]}}});expect(avatarFramingBounds(crop).bottom).toBeCloseTo(-.2);expect(avatarEnvelopeBounds(crop).bottom).toBeCloseTo(-1.41);
-  if(!isGaussianProfile(p))throw new Error();expect(gaussianFaceSize(p)).toEqual({halfWidth:.15,halfHeight:expect.closeTo(.15,7)});
+  const body=avatarEnvelopeBounds(p);expect(body.top).toBeCloseTo(.30);expect(body.bottom).toBeCloseTo(-1.41);expect(requiredAvatarPitch(p)).toBeCloseTo(.88);
+  const rotated=validateProfile({...p,yawRad:Math.PI/2});expect(avatarEnvelopeBounds(rotated).right).toBeCloseTo(.29);expect(requiredAvatarPitch(rotated)).toBeCloseTo(.70);
+  const crop=validateProfile({...p,manifest:{...manifest,framingBounds:{min:[-.31,1.05,-.30],max:[.31,1.65,.30]}}});expect(avatarFramingBounds(crop).bottom).toBeCloseTo(-.30);expect(avatarEnvelopeBounds(crop).bottom).toBeCloseTo(-1.41);
+  if(!isGaussianProfile(p))throw new Error();expect(gaussianFaceSize(p)).toEqual({halfWidth:.30,halfHeight:expect.closeTo(.30,7)});
 });
 test('invalid canonical geometry, source axes, nonuniform scale and identities are rejected',()=>{
   expect(()=>validateGaussianManifest({...manifest,userId:'123'})).toThrow('GAUSSIAN_MANIFEST_INVALID');
@@ -44,5 +44,5 @@ test('camera context applies seat-local offsets and uses Gaussian face dimension
   const reservation=state.session.reservations.find(r=>r.userId===id)!,seat=layout.seats[reservation.slotIndex]!,actual=geometry.seats.get(id)!;
   expect(actual.faceAnchor[0]).toBeCloseTo(seat.faceAnchor[0]+Math.cos(seat.baseYawRad)*.1+Math.sin(seat.baseYawRad)*.25);
   expect(actual.faceAnchor[1]).toBeCloseTo(seat.faceAnchor[1]+.2);
-  expect(geometry.extents.get(id)?.faceHalfWidth).toBeCloseTo(.15);expect(geometry.extents.get(id)?.faceHalfHeight).toBeCloseTo(.15);
+  expect(geometry.extents.get(id)?.faceHalfWidth).toBeCloseTo(.30);expect(geometry.extents.get(id)?.faceHalfHeight).toBeCloseTo(.30);
 });

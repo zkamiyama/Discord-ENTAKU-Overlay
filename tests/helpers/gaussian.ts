@@ -47,7 +47,10 @@ export function gaussianSpz(version:1|2|3|4,count=3):Uint8Array{
 }
 export function gaussianFixture(index=0,options:{proxy?:boolean;format?:'ply'|'spz';count?:number;alternateColor?:boolean}={}){
   const splatCount=options.count??384+index*64,format=options.format??'ply',splat=`avatar.${format}`,d=dimensions(index),color=colors[(index+(options.alternateColor?3:0))%colors.length]!;
-  const manifest:GaussianAvatarManifest={schemaVersion:1,kind:'entaku-gaussian-avatar',name:`合成キャラクター ${index+1}`,splat,...(options.proxy===false?{}:{proxy:'proxy.glb'}),coordinates:{units:'m',up:'+Y',forward:'+Z'},normalization:{scale:1,rotation:[0,0,0],translation:[0,0,0]},faceAnchor:[0,d.height-.15,0],faceBounds:{min:[-.15,d.height-.3,-.14],max:[.15,d.height,.14]},bodyBounds:{min:[-d.width-.06,-.06,-d.depth-.06],max:[d.width+.06,d.height+.06,d.depth+.06]},framingBounds:{min:[-d.width-.06,-.06,-d.depth-.06],max:[d.width+.06,d.height+.06,d.depth+.06]}};
+  // Bounds include the Gaussian footprint, not only its center: Spark's
+  // default sqrt(8) standard deviations extend these .052/.055m splats ~.15m.
+  const round=(n:number)=>Math.round(n*1000)/1000,halfWidth=round(d.width+.16),halfDepth=round(d.depth+.16),top=round(d.height+.15);
+  const manifest:GaussianAvatarManifest={schemaVersion:1,kind:'entaku-gaussian-avatar',name:`合成キャラクター ${index+1}`,splat,...(options.proxy===false?{}:{proxy:'proxy.glb'}),coordinates:{units:'m',up:'+Y',forward:'+Z'},normalization:{scale:1,rotation:[0,0,0],translation:[0,0,0]},faceAnchor:[0,d.height-.15,0],faceBounds:{min:[-.30,round(d.height-.45),-.29],max:[.30,top,.29]},bodyBounds:{min:[-halfWidth,-.06,-halfDepth],max:[halfWidth,top,halfDepth]},framingBounds:{min:[-halfWidth,-.06,-halfDepth],max:[halfWidth,top,halfDepth]}};
   const files:GaussianFile[]=[{path:'manifest.json',bytes:Buffer.from(JSON.stringify(manifest))},{path:splat,bytes:format==='ply'?gaussianPly(index,splatCount,options.alternateColor):gaussianSpz(3,splatCount)}];
   if(options.proxy!==false)files.push({path:'proxy.glb',bytes:boxProxy(index)});
   return {manifest,files,archive:zipSync(Object.fromEntries(files.map(f=>[f.path,f.bytes])),{level:1}),splatCount,color};

@@ -1,6 +1,6 @@
 import type {AvatarProfile} from '../assets/avatar-profile.ts';
 import {avatarEnvelopeBounds,avatarFramingBounds,isGaussianProfile} from '../assets/avatar-profile.ts';
-import {gaussianFaceSize} from '../assets/gaussian-profile.ts';
+import {gaussianBounds,gaussianFaceSize} from '../assets/gaussian-profile.ts';
 import type {Participant,SeatSession,SeatTransform} from '../contracts/domain.ts';
 import type {DeskLayout} from '../geometry/capsule.ts';
 import type {AvatarExtent} from './camera-planner.ts';
@@ -25,6 +25,12 @@ export class CameraContext {
       const b=avatarFramingBounds(p),body=avatarEnvelopeBounds(p);
       const face=isGaussianProfile(p)?gaussianFaceSize(p):{halfHeight:.14*p.scale,halfWidth:.14*p.scale*(p.faceRect[2]*p.image.width)/(p.faceRect[3]*p.image.height)};
       extents.set(id,{bodyHalfWidth:Math.max(-body.left,body.right),bodyTopY:1.25+p.offsetY+body.top,bodyBottomY:Math.max(0,1.25+p.offsetY+body.bottom),faceHalfHeight:face.halfHeight,faceHalfWidth:face.halfWidth,halfWidth:Math.max(-b.left,b.right)+Math.abs(p.offsetX),topY:1.25+p.offsetY+b.top,bottomY:Math.max(0,1.25+p.offsetY+b.bottom)});
+      if(isGaussianProfile(p)){
+        // GS volumes retain their actual depth after user scale/yaw. Images
+        // keep the existing camera-facing depth approximation in the planners.
+        const framing=gaussianBounds(p,p.manifest.framingBounds),body=gaussianBounds(p),face=gaussianBounds(p,p.manifest.faceBounds);
+        Object.assign(extents.get(id)!,{back:framing.back,front:framing.front,bodyBack:body.back,bodyFront:body.front,faceBack:face.back,faceFront:face.front});
+      }
     }
     return this.cached={seats,extents};
   }

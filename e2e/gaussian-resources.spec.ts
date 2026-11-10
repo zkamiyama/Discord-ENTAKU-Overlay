@@ -4,6 +4,7 @@ import {gaussianFixture} from '../tests/helpers/gaussian.ts';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import type {AppSnapshot} from '../src/contracts/domain.ts';
 import type {StoredGaussianAsset} from '../src/assets/gaussian-store.ts';
+import {DEFAULT_EXPOSURE} from '../src/studio/exposure.ts';
 
 async function snapshot(page:Page):Promise<AppSnapshot>{
  return page.evaluate(()=>new Promise<any>((resolve,reject)=>{
@@ -74,23 +75,43 @@ test('repeated shared assets and editor lifetimes release workers, textures and 
  const watch=(p:Page,label:string)=>{p.on('pageerror',e=>errors.push(label+': '+e.message));p.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(label+': '+m.text());});};
  watch(page,'dock');await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');
  const state=await snapshot(page);
- await command(page,{type:'studio-set',scene:{...state.studio,quality:{...state.studio.quality,shadows:'off',ao:'off',reflections:false,gi:'off',msaa:0,fxaa:false},post:{...state.studio.post,enabled:false},exposure:{...state.studio.exposure,mode:'manual',manualExposure:1}}});
+ await command(page,{type:'studio-set',scene:{...state.studio,quality:{...state.studio.quality,shadows:'off',ao:'off',reflections:false,gi:'off',msaa:0,fxaa:false},post:{...state.studio.post,enabled:false},exposure:{...DEFAULT_EXPOSURE,...state.studio.exposure,mode:'manual',manualExposure:1}}});
  const a=await importAsset(page,0),b=await importAsset(page,1);
  const overlay=await context.newPage();watch(overlay,'overlay');await overlay.setViewportSize({width:640,height:360});await overlay.goto('/overlay');
  await expect(overlay.locator('#scene')).toHaveAttribute('data-gaussian-instances','0');
  let sourceRequests=0;overlay.on('request',r=>{if(r.url().includes(`/api/gaussian-assets/${a.assetId}/file?`))sourceRequests++;});
  const initial={dock:await resources(page),overlay:await resources(overlay)},cycles:any[]=[];
  for(let cycle=0;cycle<3;cycle++){
-  await command(page,{type:'avatar-set',profile:profile(a,'100')});await command(page,{type:'avatar-set',profile:profile(a,'101')});await ready(overlay,2,a.splatCount);
+  await command(page,{type:'avatar-set',profile:profile(a,'101')});await command(page,{type:'avatar-set',profile:profile(a,'102')});await ready(overlay,2,a.splatCount);
   const shared=await diagnostics(overlay),requestsBefore=sourceRequests;expect(shared.assets[0].references).toBe(2);
-  await command(page,{type:'avatar-reset',userId:'100'});await ready(overlay,1,a.splatCount);
+  // Exercise the production director and render path, including its two panel
+  // targets. This pair is nonadjacent in the demo layout, so dialogue uses SPLIT.
+  for(const userId of ['101','102'])await command(page,{type:'demo-speaking',userId,active:true});
+  await command(page,{type:'mode',mode:'AUTO'});
+  await expect(overlay.locator('#scene')).toHaveAttribute('data-split-count','2',{timeout:30000});
+  await expect.poll(async()=>{
+   const d=await diagnostics(overlay),active=d.views.filter((v:any)=>v.active);
+   return d.activeViewCount===2&&active.length===2&&active.every((v:any)=>v.selectedSplats>0);
+  },{timeout:30000}).toBe(true);
+  const splitDiagnostics=await diagnostics(overlay),splitResources=await resources(overlay);
+  expect(splitDiagnostics.views.length).toBeLessThanOrEqual(3);
+  await command(page,{type:'single',userId:'101'});
+  await command(page,{type:'mode',mode:'HOLD'});
+  for(const userId of ['101','102'])await command(page,{type:'demo-speaking',userId,active:false});
+  await expect(overlay.locator('#scene')).toHaveAttribute('data-split-count','1');await ready(overlay,2,a.splatCount);
+  const singleDiagnostics=await diagnostics(overlay),singleResources=await resources(overlay);
+  expect(singleDiagnostics.activeViewCount).toBe(1);expect(singleDiagnostics.views.filter((v:any)=>v.active)).toHaveLength(1);
+  expect(singleDiagnostics.views.length).toBeLessThanOrEqual(3);
+  expect(singleDiagnostics.assets[0].loadMs).toBe(shared.assets[0].loadMs);
+  expect(singleDiagnostics.assets[0].decodeAndLodMs).toBe(shared.assets[0].decodeAndLodMs);expect(sourceRequests).toBe(requestsBefore);
+  await command(page,{type:'avatar-reset',userId:'101'});await ready(overlay,1,a.splatCount);
   const survivor=await diagnostics(overlay);expect(survivor.assets[0].references).toBe(1);
   expect(survivor.assets[0].loadMs).toBe(shared.assets[0].loadMs);expect(survivor.assets[0].decodeAndLodMs).toBe(shared.assets[0].decodeAndLodMs);expect(sourceRequests).toBe(requestsBefore);
   // A different asset replaces the surviving instance; repeated swaps must
   // retire the old source instead of appending another cache entry each time.
-  await command(page,{type:'avatar-set',profile:profile(b,'101')});await ready(overlay,1,b.splatCount);
+  await command(page,{type:'avatar-set',profile:profile(b,'102')});await ready(overlay,1,b.splatCount);
   const swapped=await diagnostics(overlay);expect(swapped.assets).toHaveLength(1);expect(swapped.assets[0].references).toBe(1);
-  await page.bringToFront();await personAction(page,page.locator('.person[data-user-id="101"]'),'アバターを調整');
+  await page.bringToFront();await personAction(page,page.locator('.person[data-user-id="102"]'),'アバターを調整');
   await expect(page.locator('#gaussian-status')).toHaveAttribute('data-phase','ready',{timeout:60000});await expect(page.locator('#avatar-apply')).toBeEnabled();
   // A second character in the same editor forces preview asset replacement too.
   await page.locator('#gaussian-assets').selectOption(a.assetId);await expect(page.locator('#gaussian-assets')).toHaveValue(a.assetId);
@@ -104,12 +125,17 @@ test('repeated shared assets and editor lifetimes release workers, textures and 
   await expect.poll(async()=>(await resources(page)).workers.live,{timeout:15000}).toBeLessThan(editorOpen.workers.live);
   const editorClosed=await resources(page);
   expect(editorClosed.workers.live).toBeLessThan(editorOpen.workers.live);
-  await command(page,{type:'avatar-reset',userId:'101'});await ready(overlay,0);
+  await command(page,{type:'avatar-reset',userId:'102'});await ready(overlay,0);
   const cleared=await diagnostics(overlay),overlayResources=await resources(overlay);
   expect(cleared.instances).toBe(0);expect(cleared.assets).toEqual([]);expect(cleared.views).toEqual([]);
-  cycles.push({cycle,shared,survivor,swapped,editorOpen,editorClosed,cleared,overlayResources});
+  cycles.push({cycle,shared,splitDiagnostics,splitResources,singleDiagnostics,singleResources,survivor,swapped,editorOpen,editorClosed,cleared,overlayResources});
   if(cycle>0){
    const warm=cycles[0];
+   for(const [current,first] of [[splitResources,warm.splitResources],[singleResources,warm.singleResources]]){
+    expect(current.workers.live).toBeLessThanOrEqual(first.workers.live);
+    expect(current.textures.live).toBeLessThanOrEqual(first.textures.live+2);
+    expect(current.framebuffers.live).toBeLessThanOrEqual(first.framebuffers.live+1);
+   }
    // Spark retains a bounded decoder-worker pool; compare with a warmed, empty
    // runtime, not an unsupported claim that every shared worker must be zero.
    expect(editorClosed.workers.live).toBeLessThanOrEqual(warm.editorClosed.workers.live);

@@ -71,7 +71,32 @@ export class GaussianRuntime {
       totalBudget: this.totalBudget, activeViewCount: this.viewCount, instances: this.users,
       assets: this.assets.diagnostics(),
       rendererMemory: {textures:this.renderer.info.memory.textures,geometries:this.renderer.info.memory.geometries,programs:this.renderer.info.programs?.length??0},
-      views: [...this.views].map(([camera, view]) => ({ camera: camera.uuid, active: this.activeCameras.has(camera), selectedSplats: view.activeSplats, budget: view.lodSplatCount, width: view.renderSize.x, height: view.renderSize.y, lodInstances: [...view.lodInstances.values()].map(v => v.numSplats), cameraPosition: camera.getWorldPosition(new THREE.Vector3()).toArray(), lodPosition: view.currentLod?.pos.toArray() ?? null, lodBudget: view.currentLod?.maxSplats ?? null, lodPending: view.lodDirty || view.currentLod !== view.lastLod })),
+      views: [...this.views].map(([camera, view]) => {
+        const position = camera.getWorldPosition(new THREE.Vector3()), quaternion = camera.getWorldQuaternion(new THREE.Quaternion());
+        let pixelScaleLimit = 0;
+        if (camera instanceof THREE.PerspectiveCamera) pixelScaleLimit = 2 / camera.projectionMatrix.elements[5]! / view.renderSize.y;
+        else if (camera instanceof THREE.OrthographicCamera) pixelScaleLimit = Math.min((camera.top - camera.bottom) / camera.zoom / Math.max(1, view.renderSize.y), (camera.right - camera.left) / camera.zoom / Math.max(1, view.renderSize.x));
+        pixelScaleLimit *= view.lodRenderScale;
+        const completed = view.currentLod, meshes = view.lodMeshes.map(record => record.mesh);
+        // Spark 2.4 assigns currentLod only after updateLodInstances completes.
+        // Shared meshes can dirty both views again through mappingVersion, so
+        // pending refresh work does not invalidate an already matching result.
+        // Its timestamp is the completed request's start, not completion latency.
+        const lodMatchesView = !!completed && completed.pos.distanceTo(position) < 1e-4 &&
+          1 - Math.abs(completed.quat.dot(quaternion)) < 1e-6 && completed.maxSplats === (view.lodSplatCount ?? 0) * view.lodSplatScale &&
+          Math.abs(completed.pixelScaleLimit - pixelScaleLimit) <= Math.max(1e-9, pixelScaleLimit * 1e-5);
+        return {
+          camera: camera.uuid, active: this.activeCameras.has(camera), selectedSplats: view.activeSplats, budget: view.lodSplatCount, width: view.renderSize.x, height: view.renderSize.y,
+          // Ignore cached selections for hidden/retired meshes. Display counts
+          // come from the accumulator actually used by the draw node.
+          lodInstances: meshes.map(mesh => view.lodInstances.get(mesh)?.numSplats ?? 0),
+          displayedLodInstances: meshes.map(mesh => view.display.mapping.find(record => record.node === mesh)?.count ?? 0),
+          cameraPosition: position.toArray(), cameraQuaternion: quaternion.toArray(), pixelScaleLimit,
+          lodPosition: completed?.pos.toArray() ?? null, lodQuaternion: completed?.quat.toArray() ?? null, lodPixelScaleLimit: completed?.pixelScaleLimit ?? null,
+          lodBudget: completed?.maxSplats ?? null, lodCompletedRequestAt: completed?.timestamp ?? null, lodRequestedAt: view.lastLod?.timestamp ?? null,
+          lodMatchesView, lodPending: view.lodDirty || view.currentLod !== view.lastLod,
+        };
+      }),
       // Browser APIs do not expose a reliable GPU allocation or LoD peak counter.
       gpuBytes: null, lodBuildPeakBytes: null,
     };

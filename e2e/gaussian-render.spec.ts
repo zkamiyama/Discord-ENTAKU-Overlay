@@ -38,19 +38,24 @@ test('world occlusion and proxy shadows follow avatar/light moves and removal',a
   await p.settle({});const plain=p.save('plain');
   await p.settle({blocker:true});const occluded=p.save('occluded');
   await p.settle({blocker:true,proxy:false});p.save('occludedNoProxy');const selfOcclusion=p.compare('occluded','occludedNoProxy');
+  // The same world box must stop occluding when the GS crosses in front of it.
+  // Comparing against a same-distance clear view avoids a size/distance bias.
+  await p.settle({avatarZ:1.8});const inFrontClear=p.save('inFrontClear');
+  await p.settle({avatarZ:1.8,blocker:true});const inFrontOfBox=p.save('inFrontOfBox');
   await p.settle({quality:{shadows:'soft'}});p.save('shadow');const shadow=p.compare('plain','shadow','floor'),lightBefore=p.status();
   const lightAfter=await p.moveLight(2.5);p.save('lightMoved');
   await p.settle({lightX:2.5});p.save('lightMovedOff');
   const lightMovement=p.shadowMovement('plain','shadow','lightMovedOff','lightMoved');
-  await p.settle({quality:{shadows:'soft'},proxy:false});p.save('removed');const removed=p.compare('plain','removed','floor');
+  await p.settle({quality:{shadows:'soft'},proxy:false});p.save('removed');const removed=p.compare('plain','removed');
   await p.settle({quality:{shadows:'soft'},avatarX:1});p.save('moved');const moved=p.compare('shadow','moved','floor');
   await p.settle({avatarX:1});p.save('movedOff');const avatarMovement=p.shadowMovement('plain','shadow','movedOff','moved');
   await p.settle({quality:{shadows:'soft'},avatarX:1},8);
-  return {plain,occluded,selfOcclusion,shadow,lightBefore,lightAfter,lightMovement,removed,moved,avatarMovement,status:p.status()};
+  return {plain,occluded,selfOcclusion,inFrontClear,inFrontOfBox,shadow,lightBefore,lightAfter,lightMovement,removed,moved,avatarMovement,status:p.status()};
  });
  console.log('3DGS geometry pixels',result);writeFileSync('.work/gaussian/geometry-results.json',JSON.stringify(result,null,2));
  await page.locator('canvas').screenshot({path:'.work/gaussian/shadow-moved.png',omitBackground:true});
  expect(result.occluded.red).toBeLessThan(result.plain.red*.8);expect(result.selfOcclusion.changed).toBeLessThan(10);
+ expect(result.inFrontClear.red).toBeGreaterThan(1000);expect(result.inFrontOfBox.red).toBeGreaterThan(result.inFrontClear.red*.98);
  expect(result.lightAfter.sceneState.revision).toBe(result.lightBefore.sceneState.revision);expect(result.lightAfter.sceneState.avatarPosition).toEqual(result.lightBefore.sceneState.avatarPosition);
  expect(result.lightMovement.beforeDarkened).toBeGreaterThan(50);expect(result.lightMovement.afterDarkened).toBeGreaterThan(50);expect(result.lightMovement.shifted).toBeGreaterThan(50);
  expect(result.lightMovement.beforeCenterX).toBeGreaterThan(result.lightMovement.afterCenterX+10);
@@ -93,19 +98,27 @@ test('opposite split cameras keep independent color ordering through CUTs, resiz
  const result=await page.evaluate(async()=>{
   const p=(window as any).gaussianRenderProbe;
   await p.settle({split:true,rear:true},36);const first=p.status();
+  // Three real CUTs reuse the same two cameras while exchanging their poses.
+  // A shared stale sort/order would keep the old dominant color after a cut.
+  const cuts=[];for(const swapped of [true,false,true])cuts.push({swapped,...await p.settle({split:true,rear:true,swapSplit:swapped},24)});
   await p.settle({rear:true,quality:{reflections:true,ao:'gtao',msaa:4,fxaa:true},post:{enabled:true,excludeAvatars:false,dof:true,bloom:true,aperture:.005,maxBlur:4}});const included=p.status();
   await p.settle({split:true,rear:true,width:800,height:450,quality:{msaa:4}},32);const resized=p.status();
   await p.settle({split:true,rear:true},24);const returned=p.status();
-  return {first,included,resized,returned};
+  return {first,cuts,included,resized,returned};
  });
  console.log('3DGS multi-view pixels',result);writeFileSync('.work/gaussian/split-results.json',JSON.stringify(result,null,2));
  await page.locator('canvas').screenshot({path:'.work/gaussian/split-opposite.png',omitBackground:true});
- for(const state of [result.first,result.resized,result.returned]){
-  expect(state.stats.leftRed).toBeGreaterThan(500);expect(state.stats.rightBlue).toBeGreaterThan(500);
-  expect(state.stats.leftRed).toBeGreaterThan(state.stats.leftBlue*2);expect(state.stats.rightBlue).toBeGreaterThan(state.stats.rightRed*2);
+ for(const state of [result.first,...result.cuts,result.resized,result.returned]){
+  const left=state.swapped?'leftBlue':'leftRed',leftOther=state.swapped?'leftRed':'leftBlue',right=state.swapped?'rightRed':'rightBlue',rightOther=state.swapped?'rightBlue':'rightRed';
+  expect(state.stats[left]).toBeGreaterThan(500);expect(state.stats[right]).toBeGreaterThan(500);
+  expect(state.stats[left]).toBeGreaterThan(state.stats[leftOther]*2);expect(state.stats[right]).toBeGreaterThan(state.stats[rightOther]*2);
   expect(state.stats.transparent).toBeGreaterThan(1000);expect(state.runtime.views.length).toBeLessThanOrEqual(3);
+  expect(state.activeViews).toHaveLength(2);expect(state.activeViews.map((v:any)=>v.camera)).toEqual(result.first.activeViews.map((v:any)=>v.camera));
+  expect(state.activeViews.map((v:any)=>Math.sign(v.cameraPosition[2]))).toEqual(state.swapped?[-1,1]:[1,-1]);
+  expect(state.activeViews.reduce((n:number,v:any)=>n+v.budget,0)).toBe(state.runtime.totalBudget);
+  for(const view of state.activeViews){const selected=view.lodInstances.reduce((n:number,count:number)=>n+count,0);expect(selected).toBeGreaterThan(0);expect(selected).toBeLessThanOrEqual(view.budget);}
  }
- expect(result.included.quality).toBe('EFFECTS');expect(result.included.stats.red).toBeGreaterThan(100);
+ expect(result.included.quality).toBe('EFFECTS');expect(result.included.stats.red).toBeGreaterThan(100);expect(result.included.stats.transparent).toBeGreaterThan(1000);
  expect(result.returned.memory.textures).toBeLessThanOrEqual(result.resized.memory.textures+3);expect(errors).toEqual([]);
 });
 test('LoD selection responds to distance and one shared budget for both split views',async({page})=>{
