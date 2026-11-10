@@ -3,7 +3,7 @@ import { SparkRenderer } from '@sparkjsdev/spark';
 import { GAUSSIAN_COLOR_LAYER, installGaussianRenderHook } from '../studio/gaussian-layers.ts';
 import {nativeSurfaceDiagnostics} from './surface.ts';
 import { GaussianAssetCache } from './assets.ts';
-import { installGaussianSpeechGlow } from './speech-glow.ts';
+import { installGaussianSpeechGlow, hasSpeakingGaussian } from './speech-glow.ts';
 
 /** One draw node per scene, one sorter/LoD selection per camera. Source splats
  * are shared; view accumulators, ordering and LoD index textures are not. */
@@ -66,8 +66,33 @@ export class GaussianRuntime {
     const target = this.renderer.getRenderTarget();
     if (target) view.renderSize.set(target.width, target.height);
     else this.renderer.getDrawingBufferSize(view.renderSize);
-    const previous=this.renderingView;this.renderingView=view;
-    try{view.render(this.scene,camera);}finally{this.renderingView=previous;}
+    const previous=this.renderingView,mask=camera.layers.mask,auto=this.renderer.autoClear,background=this.scene.background;
+    this.renderingView=view;
+    const backdrop=this.drawNode!.material.uniforms.speechBackdropPass!;
+    try{
+      if(!hasSpeakingGaussian(this.scene)||this.drawNode!.material.uniforms.rimMode?.value===0){
+        view.render(this.scene,camera);
+      }else{
+        // The backdrop writes color, never depth. The ordinary scene draw then
+        // keeps its ORIGINAL world/GS transparent sorting and draws on top.
+        // Opaque walls and the desk overwrite a backdrop behind them.
+        camera.layers.set(GAUSSIAN_COLOR_LAYER);
+        if(!auto)this.scene.background=null; // Caller already prepared its world.
+        backdrop.value=1;
+        view.render(this.scene,camera);
+        backdrop.value=0;
+        this.renderer.autoClear=false;
+        this.scene.background=null; // Do not clear a just-drawn backdrop.
+        camera.layers.mask=mask;
+        view.render(this.scene,camera);
+      }
+    }finally{
+      backdrop.value=0;
+      camera.layers.mask=mask;
+      this.scene.background=background;
+      this.renderer.autoClear=auto;
+      this.renderingView=previous;
+    }
   }
   diagnostics() {
     return {
