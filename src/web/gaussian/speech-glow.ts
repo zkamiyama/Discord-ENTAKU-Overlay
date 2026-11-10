@@ -13,6 +13,12 @@ export function setGaussianSpeechGlow(mesh:SplatMesh,strength:number,scale=4):vo
  speech.set(mesh,{strength:value,scale:Number.isFinite(scale)?THREE.MathUtils.clamp(scale,1,8):4});
 }
 export function clearGaussianSpeechGlow(mesh:SplatMesh):void {speech.delete(mesh);}
+/** Only create the background halo draw when a visible SplatMesh is speaking. */
+export function hasSpeakingGaussian(scene:THREE.Scene):boolean {
+ let active=false;
+ scene.traverseVisible(object=>{if(!active&&speech.has(object as SplatMesh))active=true;});
+ return active;
+}
 
 /** Read the DISPLAYED accumulator, after Spark's onBeforeRender may swap it.
  * In split mode this is the active view, NOT the sole scene draw node's view.
@@ -33,16 +39,17 @@ export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mappi
 }
 
 /** Spark 2.4.0 adapter: original falloff, sorting and depth test are retained.
- * Isotropic/needle-shaped splats get no inferred-normal rim. The existing ring
- * remains an independent speaking indicator for such assets. No mesh expansion,
- * full-screen blur, additional sorters or render targets are required.
+ * Fresnel alone fails on near-planar and isotropic human PLYs. Render a low
+ * alpha expanded backdrop BEFORE the normal splat color; the normal pass covers
+ * the inside, while the silhouette remains. One extra color draw while someone
+ * speaks, with no new geometry, sort worker or full-screen render target.
  */
 export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>SparkRenderer=()=>spark) {
  const m=spark.material;
  const vertex=m.vertexShader,fragment=m.fragmentShader,originalBefore=spark.onBeforeRender;
  if(spark.covSplats)throw new Error('GAUSSIAN_SPEECH_REQUIRES_SCALE_QUATERNION_ENCODING');
  const u={
-  rimMode:{value:2},speakerCount:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},haloPixels:{value:5},haloOpacity:{value:0.035},haloIntensity:{value:2.0},
+  rimMode:{value:2},speakerCount:{value:0},speechBackdropPass:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},haloPixels:{value:5},haloOpacity:{value:0.035},haloIntensity:{value:2.0},
   rimTint:{value:new THREE.Color().setRGB(.04,1,.22)},
   speakerRanges:{value:Array.from({length:MAX_GAUSSIAN_SPEAKERS},()=>new THREE.Vector4())},
  };
@@ -52,14 +59,15 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
   return src.replace(needle,value);
  };
  m.vertexShader=replace(m.vertexShader,'void main() {',`
- uniform int rimMode,speakerCount;
+ uniform int rimMode,speakerCount,speechBackdropPass;
  uniform float rimPower,haloPixels;
  uniform vec4 speakerRanges[32];
  flat out float vRim;
+ flat out float vSpeech;
  float speechScale=1.0;
  flat out vec2 vHaloScale;
  void main() {
-  vRim=0.0;vHaloScale=vec2(1.0);
+  vRim=0.0;vSpeech=0.0;vHaloScale=vec2(1.0);
  `);
  m.vertexShader=replace(m.vertexShader,'vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);',`
  vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
@@ -71,6 +79,7 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
    if(float(splatIndex)>=range.x&&float(splatIndex)<range.y){speech=range.z;speechScale=range.w;break;}
   }
   if(speech>0.0){
+  vSpeech=speech;
   float lo=min(scales.x,min(scales.y,scales.z));
   float hi=max(scales.x,max(scales.y,scales.z));
   float mid=scales.x+scales.y+scales.z-lo-hi;
@@ -85,16 +94,17 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  m.vertexShader=replace(m.vertexShader,'vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;',`
  // Expand raster support only. Original Gaussian uv/alpha must not be rescaled.
  // Both expansions are screen pixels; thin projected splats have separate ratios.
- float haloPad=(rimMode==2&&vRim>.0001)?haloPixels*speechScale:0.0;
+ float haloPad=(speechBackdropPass==1&&vSpeech>.001)?haloPixels*speechScale*1.7:(rimMode==2&&vRim>.0001)?haloPixels*speechScale:0.0;
  vHaloScale=vec2(1.0+haloPad/max(scale1,1e-4),1.0+haloPad/max(scale2,1e-4));
  vSplatUv=position.xy*adjustedStdDev*vHaloScale;
  vec2 pixelOffset = position.x * eigenVec1 * (scale1+haloPad) + position.y * eigenVec2 * (scale2+haloPad);
  `);
  m.fragmentShader=replace(m.fragmentShader,'void main() {',`
- uniform int rimMode;
+ uniform int rimMode,speechBackdropPass;
  uniform float rimIntensity,haloOpacity,haloIntensity;
  uniform vec3 rimTint;
  flat in float vRim;
+ flat in float vSpeech;
  flat in vec2 vHaloScale;
  void main() {
  `);
@@ -107,13 +117,19 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  if(z2>adjustedStdDev*adjustedStdDev)rgba.a=0.0;
  float originalAlpha=rgba.a;
  float haloA=(rimMode==2)?min(0.12,haloOpacity*vRim*min(vRgba.a,1.0)*exp(-.5*haloZ2)):0.0;
- float finalAlpha=originalAlpha+(1.0-originalAlpha)*haloA;
+ // The backdrop is drawn BEFORE the normal, fully sorted Gaussian color.
+ // Dense interior splats are subsequently covered, leaving the silhouette halo.
+ float backdropA=(speechBackdropPass==1)?min(0.16,0.038*vSpeech*min(vRgba.a,1.0)*exp(-.5*haloZ2)):0.0;
+ float finalAlpha=speechBackdropPass==1?backdropA:originalAlpha+(1.0-originalAlpha)*haloA;
  if (finalAlpha < minAlpha) {
  `);
  m.fragmentShader=replace(m.fragmentShader,'#ifdef PREMULTIPLIED_ALPHA',`
  // Keep silent splats byte-equivalent to native rendering. Emission is added
  // in linear light on BOTH direct-sRGB and render-target paths.
- if(vRim>0.0){
+ if(speechBackdropPass==1){
+  rgba.a=finalAlpha;
+  rgba.rgb=encodeLinear?rimTint:sRGBTransferOETF(vec4(rimTint,1.0)).rgb;
+ }else if(vRim>0.0){
   vec3 linearRgb=encodeLinear?rgba.rgb:sRGBTransferEOTF(vec4(rgba.rgb,1.0)).rgb;
   vec3 premul=linearRgb*originalAlpha + rimTint*(rimIntensity*vRim*originalAlpha + haloIntensity*(1.0-originalAlpha)*haloA);
   rgba.a=finalAlpha;

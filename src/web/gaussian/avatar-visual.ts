@@ -20,7 +20,6 @@ export class GaussianAvatarVisual {
   status: GaussianLoadStatus = { phase: 'loading' };
   private mesh?: SplatMesh;
   private proxyMaterial?: THREE.MeshBasicMaterial;
-  private readonly ring = new THREE.Mesh(new THREE.RingGeometry(.17, .20, 48), new THREE.MeshBasicMaterial({ color: 0x42ef70, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
   private lease?: ResourceLease<GaussianAsset>;
   private releaseVisual?: () => void;
   private generation = 0;
@@ -29,9 +28,8 @@ export class GaussianAvatarVisual {
   private stopped = false;
   private loading: Promise<void> = Promise.resolve();
   constructor(private readonly runtime: GaussianRuntime, private readonly onStatus: (status: GaussianLoadStatus) => void = () => {}) {
-    this.root.name = '3DGS avatar'; this.root.add(this.model, this.ring);
+    this.root.name = '3DGS avatar'; this.root.add(this.model);
     this.model.matrixAutoUpdate = false;
-    this.ring.layers.set(1);
   }
   private publish(status: GaussianLoadStatus): void { this.status = status; this.onStatus(status); }
   setProfile(profile: GaussianAvatarProfile): Promise<void> {
@@ -80,14 +78,9 @@ export class GaussianAvatarVisual {
     if (!this.profile) return;
     this.model.matrix.copy(gaussianLocalTransform(this.profile));
     this.model.matrixWorldNeedsUpdate = true;
-    const face = this.profile.manifest.faceBounds;
-    this.ring.scale.setScalar(Math.max(.5, (face.max[1] - face.min[1]) * this.profile.scale / .28));
-    this.ring.position.z = Math.max(0, face.max[2] - this.profile.manifest.faceAnchor[2]) * this.profile.scale + .025;
   }
   update(opacity: number, speaking: number, glowScale=4): void {
     if (this.mesh) {this.mesh.opacity = opacity;setGaussianSpeechGlow(this.mesh,opacity>.005?speaking:0,glowScale);}
-    this.ring.visible = !!this.mesh && speaking > .001;
-    this.ring.material.opacity = Math.max(0, Math.min(1, speaking));
     // Shadows and SSR geometry disappear at the same visibility threshold as the avatar.
     if (this.geometryRoot) this.geometryRoot.visible = opacity > .005;
   }
@@ -114,6 +107,6 @@ export class GaussianAvatarVisual {
   dispose(): void {
     if (this.stopped) return;
     this.stopped = true; this.generation++; this.clearAsset();
-    this.ring.geometry.dispose(); this.ring.material.dispose(); this.root.removeFromParent(); this.root.clear();
+    this.root.removeFromParent(); this.root.clear();
   }
 }

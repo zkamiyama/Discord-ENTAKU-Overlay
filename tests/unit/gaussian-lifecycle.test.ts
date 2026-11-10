@@ -130,7 +130,9 @@ test('participant speech, stale, leave, rejoin and seat movement reach the same 
   const runtime={assets:{acquire:(p:GaussianAvatarProfile,observe:(s:GaussianLoadStatus)=>void)=>cache.acquire(gaussianAssetKey(p),async()=>{loads++;return shared;},observe)},retainVisual:()=>()=>{}} as unknown as GaussianRuntime;
   const visual=new GaussianAvatarVisual(runtime),p={...profile(),offsetX:.1,offsetY:.12,offsetZ:.2,yawRad:.4};await visual.setProfile(p);
   const mesh=visual.model.children.find(object=>object instanceof SplatMesh) as SplatMesh;
-  const ring=visual.root.children.find(object=>object instanceof THREE.Mesh&&object.geometry.type==='RingGeometry') as THREE.Mesh<THREE.RingGeometry,THREE.MeshBasicMaterial>;
+  // A 3DGS avatar uses the Gaussian silhouette glow, never a flat speech ring.
+  expect(visual.root.children).toEqual([visual.model]);
+  visual.root.traverse(object=>{if(object instanceof THREE.Mesh)expect(object.geometry).not.toBeInstanceOf(THREE.RingGeometry);});
   // Omit DOM-backed nameplate construction, but use the production Avatar
   // update/render methods and the real Gaussian visual, mesh and proxy.
   const avatar=Object.assign(Object.create(Avatar.prototype),{
@@ -145,17 +147,17 @@ test('participant speech, stale, leave, rejoin and seat movement reach the same 
   const state=(presence:typeof avatar.user.presence,speaking:typeof avatar.user.speaking)=>avatar.update({...avatar.user,presence,speaking},p);
   try{
     frames();expect(mesh.opacity).toBeGreaterThan(.99);expect(avatar.root.visible).toBe(true);
-    state('present','active');frames();expect(ring.visible).toBe(true);expect(ring.material.opacity).toBeGreaterThan(.7);
+    state('present','active');frames();
     const ranges=Array.from({length:32},()=>new THREE.Vector4()),mapping=[{node:mesh,base:512,count:1,version:0}];
     expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(1);expect(ranges[0]!.z).toBeGreaterThan(.7);
     state('stale','active');frames();expect(mesh.opacity).toBeGreaterThan(.44);expect(mesh.opacity).toBeLessThan(.46);
-    expect(ring.visible).toBe(false);expect(visual.proxyRoot!.visible).toBe(true);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
+    expect(visual.proxyRoot!.visible).toBe(true);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
     state('absent','inactive');frames();expect(avatar.root.visible).toBe(false);expect(visual.proxyRoot!.visible).toBe(false);
-    state('present','active');frames();expect(mesh.opacity).toBeGreaterThan(.99);expect(ring.visible).toBe(true);
+    state('present','active');frames();expect(mesh.opacity).toBeGreaterThan(.99);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(1);
     frames(seats[3]!);const seat=seats[3]!;
     const expected=new THREE.Vector3(p.offsetX,p.offsetY,p.offsetZ).applyAxisAngle(new THREE.Vector3(0,1,0),seat.baseYawRad).add(new THREE.Vector3().fromArray(seat.faceAnchor));
     expect(avatar.root.position.distanceTo(expected)).toBeLessThan(1e-10);expect(avatar.root.rotation.y).toBe(seat.baseYawRad);
-    frames(seat,false);expect(ring.visible).toBe(false);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
+    frames(seat,false);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
     expect(visual.model.children).toContain(mesh);expect(mesh.packedSplats).toBe(shared.packed);expect(loads).toBe(1);
   }finally{visual.dispose();cache.dispose();geometry.dispose();material.dispose();}
 });

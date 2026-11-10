@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import * as THREE from 'three';
 import {SparkRenderer,SplatMesh} from '@sparkjsdev/spark';
-import {MAX_GAUSSIAN_SPEAKERS,fillGaussianSpeechRanges,setGaussianSpeechGlow,clearGaussianSpeechGlow,installGaussianSpeechGlow} from '../../src/web/gaussian/speech-glow.ts';
+import {MAX_GAUSSIAN_SPEAKERS,hasSpeakingGaussian,fillGaussianSpeechRanges,setGaussianSpeechGlow,clearGaussianSpeechGlow,installGaussianSpeechGlow} from '../../src/web/gaussian/speech-glow.ts';
 
 const ranges=()=>Array.from({length:MAX_GAUSSIAN_SPEAKERS},()=>new THREE.Vector4());
 const record=(node:SplatMesh,base:number,count:number)=>({node,base,count,version:0});
@@ -47,6 +47,9 @@ test('adapter guards published shaders and restores its instance without changin
  expect(spark.material.fragmentShader).toContain('rgba.a * exp(-0.5 * z2)');
  expect(spark.material.depthTest).toBe(true);expect(spark.material.depthWrite).toBe(false);
  expect(effect.uniforms.rimMode.value).toBe(2);
+ expect(effect.uniforms.speechBackdropPass.value).toBe(0);
+ expect(spark.material.fragmentShader).toContain('backdropA');
+ expect(spark.material.vertexShader).toContain('vSpeech');
  expect(JSON.stringify(THREE.ShaderChunk)).toBe(chunks);
  effect.dispose();expect(spark.onBeforeRender).toBe(before);
  expect(spark.material.vertexShader).toBe(source);expect(spark.material.fragmentShader).toBe(fragment);
@@ -65,4 +68,16 @@ test('draw-node uniforms use the active view AFTER the native callback replaces 
  node.onBeforeRender(renderer,new THREE.Scene(),new THREE.PerspectiveCamera());
  expect(effect.uniforms.speakerRanges.value[0]!.toArray()).toEqual([512,519,.8,1]);
  clearGaussianSpeechGlow(mesh);effect.dispose();node.dispose();other.dispose();
+});
+
+test('speaking backdrop is drawn only for visible live instances',()=>{
+ const scene=new THREE.Scene(),root=new THREE.Group(),mesh=new THREE.Object3D() as unknown as SplatMesh;
+ scene.add(root);root.add(mesh);
+ expect(hasSpeakingGaussian(scene)).toBe(false);
+ setGaussianSpeechGlow(mesh,1);expect(hasSpeakingGaussian(scene)).toBe(true);
+ mesh.visible=false;expect(hasSpeakingGaussian(scene)).toBe(false);
+ mesh.visible=true;root.visible=false;expect(hasSpeakingGaussian(scene)).toBe(false);
+ root.visible=true;setGaussianSpeechGlow(mesh,0);expect(hasSpeakingGaussian(scene)).toBe(false);
+ setGaussianSpeechGlow(mesh,.4);root.remove(mesh);expect(hasSpeakingGaussian(scene)).toBe(false);
+ clearGaussianSpeechGlow(mesh);
 });
