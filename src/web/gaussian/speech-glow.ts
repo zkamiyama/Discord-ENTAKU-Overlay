@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type {SparkRenderer, SplatMesh} from '@sparkjsdev/spark';
 import {prepareGaussianColor} from './color-space.ts';
+import {gaussianScreenGlowRadius,clearGaussianSpeechBounds} from './speech-screen.ts';
+export {setGaussianSpeechBounds} from './speech-screen.ts';
 
 /** Speech uniforms are instance-local, not part of shared PackedSplats.
  * Updating speech must not regenerate the asset, LoD tree or accumulator.
@@ -12,7 +14,7 @@ export function setGaussianSpeechGlow(mesh:SplatMesh,strength:number,scale=4):vo
  if(value<=.001){speech.delete(mesh);return;}
  speech.set(mesh,{strength:value,scale:Number.isFinite(scale)?THREE.MathUtils.clamp(scale,1,8):4});
 }
-export function clearGaussianSpeechGlow(mesh:SplatMesh):void {speech.delete(mesh);}
+export function clearGaussianSpeechGlow(mesh:SplatMesh):void {speech.delete(mesh);clearGaussianSpeechBounds(mesh);}
 /** Only create the background halo draw when a visible SplatMesh is speaking. */
 export function hasSpeakingGaussian(scene:THREE.Scene):boolean {
  let active=false;
@@ -23,7 +25,7 @@ export function hasSpeakingGaussian(scene:THREE.Scene):boolean {
 /** Read the DISPLAYED accumulator, after Spark's onBeforeRender may swap it.
  * In split mode this is the active view, NOT the sole scene draw node's view.
  */
-export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mapping'],ranges:THREE.Vector4[]):number {
+export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mapping'],ranges:THREE.Vector4[],camera?:THREE.Camera,framebufferHeight?:number):number {
  for(const range of ranges)range.set(0,0,0,0);
  let count=0;
  for(const record of mapping){
@@ -33,7 +35,7 @@ export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mappi
   for(let parent:THREE.Object3D|null=record.node;parent;parent=parent.parent){if(!parent.visible){visible=false;break;}}
   if(!visible)continue;
   if(count>=ranges.length)throw new Error('GAUSSIAN_SPEECH_RANGE_OVERFLOW');
-  ranges[count++]!.set(record.base,record.base+record.count,state.strength,state.scale/4);
+  ranges[count++]!.set(record.base,record.base+record.count,state.strength,gaussianScreenGlowRadius(record.node as SplatMesh,camera,framebufferHeight,state.scale));
  }
  return count;
 }
@@ -49,7 +51,7 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  const vertex=m.vertexShader,fragment=m.fragmentShader,originalBefore=spark.onBeforeRender;
  if(spark.covSplats)throw new Error('GAUSSIAN_SPEECH_REQUIRES_SCALE_QUATERNION_ENCODING');
  const u={
-  rimMode:{value:2},speakerCount:{value:0},speechBackdropPass:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},haloPixels:{value:5},haloOpacity:{value:0.035},haloIntensity:{value:2.0},
+  rimMode:{value:2},speakerCount:{value:0},speechBackdropPass:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},haloOpacity:{value:0.035},haloIntensity:{value:2.0},
   rimTint:{value:new THREE.Color().setRGB(.04,1,.22)},
   speakerRanges:{value:Array.from({length:MAX_GAUSSIAN_SPEAKERS},()=>new THREE.Vector4())},
  };
@@ -60,11 +62,11 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  };
  m.vertexShader=replace(m.vertexShader,'void main() {',`
  uniform int rimMode,speakerCount,speechBackdropPass;
- uniform float rimPower,haloPixels;
+ uniform float rimPower;
  uniform vec4 speakerRanges[32];
  flat out float vRim;
  flat out float vSpeech;
- float speechScale=1.0;
+ float speechPad=0.0;
  flat out vec2 vHaloScale;
  void main() {
   vRim=0.0;vSpeech=0.0;vHaloScale=vec2(1.0);
@@ -76,7 +78,7 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
   for(int owner=0;owner<32;owner++){
    if(owner>=speakerCount)break;
    vec4 range=speakerRanges[owner];
-   if(float(splatIndex)>=range.x&&float(splatIndex)<range.y){speech=range.z;speechScale=range.w;break;}
+   if(float(splatIndex)>=range.x&&float(splatIndex)<range.y){speech=range.z;speechPad=range.w;break;}
   }
   if(speech>0.0){
   vSpeech=speech;
@@ -94,7 +96,9 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  m.vertexShader=replace(m.vertexShader,'vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;',`
  // Expand raster support only. Original Gaussian uv/alpha must not be rescaled.
  // Both expansions are screen pixels; thin projected splats have separate ratios.
- float haloPad=(speechBackdropPass==1&&vSpeech>.001)?haloPixels*speechScale*1.7:(rimMode==2&&vRim>.0001)?haloPixels*speechScale:0.0;
+ // speechPad is the per-speaker dilation in actual framebuffer pixels.
+ // Multiply by focalAdjustment because Spark divides offsets by renderSize*focalAdjustment.
+ float haloPad=((speechBackdropPass==1&&vSpeech>.001)?speechPad:(rimMode==2&&vRim>.0001)?speechPad*.59:0.0)*focalAdjustment;
  vHaloScale=vec2(1.0+haloPad/max(scale1,1e-4),1.0+haloPad/max(scale2,1e-4));
  vSplatUv=position.xy*adjustedStdDev*vHaloScale;
  vec2 pixelOffset = position.x * eigenVec1 * (scale1+haloPad) + position.y * eigenVec2 * (scale2+haloPad);
@@ -119,7 +123,20 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  float haloA=(rimMode==2)?min(0.12,haloOpacity*vRim*min(vRgba.a,1.0)*exp(-.5*haloZ2)):0.0;
  // The backdrop is drawn BEFORE the normal, fully sorted Gaussian color.
  // Dense interior splats are subsequently covered, leaving the silhouette halo.
- float backdropA=(speechBackdropPass==1)?min(0.16,0.038*vSpeech*min(vRgba.a,1.0)*exp(-.5*haloZ2)):0.0;
+ float backdropA=0.0;
+ if(speechBackdropPass==1&&vSpeech>.001){
+  // The footprint expands by a calibrated SCREEN-SPACE pixel radius.
+  // Fade across that expanded band, preserving the Gaussian's soft falloff.
+  vec2 radial=vSplatUv/vHaloScale;
+  float expandedRadius=length(radial)/max(adjustedStdDev,1e-5);
+  vec2 direction=normalize(radial+vec2(1e-6));
+  float originalBoundary=inversesqrt(max(1e-6,dot(direction*vHaloScale,direction*vHaloScale)));
+  float outside=clamp((expandedRadius-originalBoundary)/max(1e-5,1.0-originalBoundary),0.0,1.0);
+  float fade=1.0-smoothstep(0.0,1.0,outside);
+  // Respect each Gaussian's soft falloff: dense real PLYs would otherwise
+  // accumulate a solid neon slab rather than a translucent edge glow.
+  backdropA=min(0.15,0.035*vSpeech*min(vRgba.a,1.0)*fade*exp(-0.5*haloZ2));
+ }
  float finalAlpha=speechBackdropPass==1?backdropA:originalAlpha+(1.0-originalAlpha)*haloA;
  if (finalAlpha < minAlpha) {
  `);
@@ -141,7 +158,8 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
  m.needsUpdate=true;
  const before=function(this:SparkRenderer,...args:Parameters<typeof spark.onBeforeRender>){
   originalBefore.apply(this,args);
-  u.speakerCount.value=fillGaussianSpeechRanges(activeView().display.mapping,u.speakerRanges.value);
+  const view=activeView();
+  u.speakerCount.value=fillGaussianSpeechRanges(view.display.mapping,u.speakerRanges.value,args[2],view.renderSize.y);
   this.material.uniformsNeedUpdate=true;
  };
  spark.onBeforeRender=before;

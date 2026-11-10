@@ -8,6 +8,7 @@ import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from '.
 import { gaussianLocalTransform, gaussianNormalization } from '../../src/web/gaussian/transform.ts';
 import type { GaussianAvatarProfile } from '../../src/assets/gaussian-profile.ts';
 import {fillGaussianSpeechRanges} from '../../src/web/gaussian/speech-glow.ts';
+import {projectedGaussianHeightPixels} from '../../src/web/gaussian/speech-screen.ts';
 import {Avatar} from '../../src/web/overlay/avatar.ts';
 import {makeLayout} from '../../src/geometry/capsule.ts';
 
@@ -64,7 +65,13 @@ test('two visuals share packed data and transform edits/speaking do not reload o
   const firstMesh = first.model.children.find(o => o instanceof SplatMesh) as SplatMesh;
   const secondMesh = second.model.children.find(o => o instanceof SplatMesh) as SplatMesh;
   expect(firstMesh.packedSplats).toBe(secondMesh.packedSplats); expect(instances).toBe(2);
+  const camera=new THREE.PerspectiveCamera(40,1,.05,30);camera.position.set(0,-.65,6);camera.lookAt(0,-.65,0);camera.updateMatrixWorld(true);
+  first.root.updateWorldMatrix(true,true);
+  const beforeHeight=projectedGaussianHeightPixels(firstMesh,camera,720)!;
+  expect(beforeHeight).toBeGreaterThan(150);
   await first.setProfile({ ...p, scale: 1.2, yawRad: .7, offsetX: .1 });
+  first.root.updateWorldMatrix(true,true);
+  expect(projectedGaussianHeightPixels(firstMesh,camera,720)!).toBeGreaterThan(beforeHeight*1.02);
   for (let n = 0; n < 20; n++) first.update(n / 20, n % 2);
   expect(loads).toBe(1); expect(first.model.children).toContain(firstMesh);
   first.dispose(); expect(secondMesh.packedSplats?.packedArray).not.toBeNull(); expect(instances).toBe(1);

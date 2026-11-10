@@ -70,7 +70,7 @@ export class GaussianRuntime {
     this.renderingView=view;
     const backdrop=this.drawNode!.material.uniforms.speechBackdropPass!;
     try{
-      if(!hasSpeakingGaussian(this.scene)||this.drawNode!.material.uniforms.rimMode?.value===0){
+      if(!hasSpeakingGaussian(this.scene)||this.drawNode!.material.uniforms.rimMode?.value!==2){
         view.render(this.scene,camera);
       }else{
         // The backdrop writes color, never depth. The ordinary scene draw then
