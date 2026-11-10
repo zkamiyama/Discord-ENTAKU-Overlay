@@ -91,13 +91,16 @@ window.entakuGaussianDiagnostics()
 | `instances` | 表示用のGSインスタンス数 |
 | `assets[].inputSplats` | 素材の元Splat数 |
 | `assets[].originalCpuBytes` / `lodCpuBytes` | 公開APIから数えられる元データ／LoD配列のCPUメモリ量 |
-| `assets[].loadMs` | HTTP取得時間 |
-| `assets[].decodeAndLodMs` | デコードとLoD生成を合わせた時間 |
+| `assets[].sourceBytes` | GS本体と主proxyファイルの取得バイト数 |
+| `assets[].loadMs` | GS本体と主proxyファイルのHTTP取得時間 |
+| `assets[].decodeAndLodMs` | 取得後の素材準備時間。GSのデコード・LoD生成とproxyの準備を並行実行 |
 | `views[].selectedSplats` / `budget` | 視点ごとの選択Splat数と予算 |
 | `views[].active` | 現在のフレームで使われた視点かどうか |
 | `gpuBytes` / `lodBuildPeakBytes` | 取得できないため`null` |
 
-公開APIではデコードとLoD生成の時間を分離できません。上のCPU値はプロセス全体の使用量ではなく、GPUメモリや生成時の最大値も含みません。
+現在の計測では、GSのデコードとLoD生成を分けて測っていません。proxy付きの`decodeAndLodMs`は、proxyの依存ファイル取得・デコード・形状検査が終わるまでの時間も含みます。LoD単独の所要時間は取得していません。
+
+`sourceBytes`には、主GLB内の埋め込みデータを含みます。後から取得するproxyの外部buffer・texture、manifest、preview、decoderのJS／WASMは加算しません。上のCPU値は公開配列のバイト数で、プロセス全体やGPUメモリ、生成時の最大値は測っていません。
 
 ## 保存と持ち運び
 
