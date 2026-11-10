@@ -1,0 +1,45 @@
+# ADR 0023：静的3DGSアバターと代理形状
+
+## 基準と依存
+
+作業開始時のmainはa00cdc2b4b9a656c2026f43bde0c59c011cd8c53で、実装指示の参照版と一致した。ルートAGENTS.mdが適用され、追加のAGENTS.mdはなかった。以前の作業ツリーの変更は触らず、新しいworktreeで作業する。
+
+公開npmパッケージの@sparkjsdev/spark 2.4.0を固定する。threeは0.187.0を維持する。Sparkのpeer dependencyはthree >=0.180.0だが、実際の型検査・ビルド・描画試験で接続を確認する。raw sourceのVite用importではなくdist/spark.module.jsをBunで束ねる。固定コミットの文書と公開配布物が異なる部分は、配布物の型と実行結果を優先する。
+
+## データと配置
+
+画像プロフィールは従来形式を受け入れ、GSはkind:gaussianで区別する。画像用faceRectをGSへ流用しない。GSの顔・身体・撮影範囲は、正規化後の右手系・Y-up・+Z-front・メートルで指定する。モデルの単位と軸を変換してから正規化を一度適用し、顔アンカーを原点へ移し、ユーザー倍率と席の変換を一度ずつ適用する。
+
+キャラクターパッケージはアプリ固有のZIP形式とし、manifest.json、SPZまたは3DGS PLY、任意のproxy.glb・preview.pngを含む。ユーザーIDはパッケージに入れない。ローカル保存は内容ハッシュによる不変アセット、参加者との対応はavatars.jsonで管理する。旧プリセットと設定の読み込みは回帰試験へ残す。
+
+画像とは別に、1素材100万Splat、ファイル128MiB、ZIP192MiB、展開256MiB・64ファイル、保存128素材・1GiB、同時元データ800万Splatを上限とする。通常の点群PLYと非対応SPZ版を明示的に拒否する。GLBの解釈は公式GLTFLoaderと既存のローカル参照解決を使う。
+
+## 描画経路
+
+既存のWebGLRendererを共用する。SparkRendererの描画用ノードはSceneへ一つだけ追加し、追加視点のSparkRendererはSceneへ追加せず、公式renderによる一時的な描画オーバーライドを使う。元データは参照数付きで共用し、視点ごとのソート・LoDの作業状態は別に持つ。通常と左右分割の予算をアプリ全体で割り当てる。
+
+GSカラーはDISPLAY_LAYERとGS専用レイヤー、proxyは別の幾何レイヤーとする。親Groupだけのレイヤー設定に依存しない。Sparkは一般Meshの影設定とnormal overrideから除外する。GS本体は座席方向に固定し、2D用のカメラ追従を行わない。
+
+主画面は環境の深度でGSを遮蔽する。proxyは先に主画面へ深度を書かない。影はライト視点からproxyを描き、SSRはGSのカラーとworld＋proxyの深度・法線を別々に用意する。人物をDoFへ含める場合はカラーを描いた後でproxy深度を使う。
+
+r187 SSRPass.renderはreadBufferを読まずbeautyを再描画するため、単にカラー画像を渡す設計にはしない。公式のSSRレイ追跡・ぼかし・反射面マスクを維持し、入力作成だけを版固定のアダプターへ分離する。selectsは反射を受ける面であり、人物の登録リストには使わない。
+
+GSの取得済みカラーを物理再照明とは扱わない。既存のworld・2D用MSAAと露出保護を維持し、色空間、深度、透過は画素試験で確認する。proxyなしは表示を許可するが、影とSSR幾何の不足を表示する。
+
+## 寿命・検証・配布
+
+素材ごとのロードとLoD生成はアセット変更時だけ行う。世代判定、共有データの参照数、個別失敗時のアイコン復帰、終了時の解放を検証する。発話にはリングと不透明度を使い、音量・音声・口形情報があるとは仮定しない。
+
+A01〜A16へ対応する合成fixtureと自動試験を追加する。8種類は色だけでなく形状・Splat数も異なる元データで作る。既存の2D・カメラ・画素回帰を維持する。workerとWASMは公開配布物に含まれるものをローカルJSへ束ね、外部CDNや広いunsafe-evalを追加しない。空キャッシュ・ネット遮断・コンパイル済みデモで確認する。
+
+実キャラクター素材とOBS実機は未提供であり、ソフトウェアWebGLの結果を実GPU性能へ置き換えない。最終記録には実装、機能試験、実機試験を分け、未実施項目の再現手順を残す。
+
+## 一次資料
+
+- Spark 2.4.0公開パッケージ：https://registry.npmjs.org/@sparkjsdev%2fspark
+- Spark固定実装：https://github.com/sparkjsdev/spark/tree/ffe210dc0a45d0515a06c9235878108112827d61
+- 複数視点：https://sparkjs.dev/docs/spark-renderer/
+- LoD生成：https://sparkjs.dev/docs/lod-getting-started/
+- SSR入力：https://github.com/mrdoob/three.js/blob/r187/examples/jsm/postprocessing/SSRPass.js
+- 影の更新：https://threejs.org/docs/pages/LightShadow.html
+- 色空間：https://threejs.org/manual/en/color-management.html
