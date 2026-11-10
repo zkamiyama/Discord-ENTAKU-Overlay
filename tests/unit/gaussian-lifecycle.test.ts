@@ -7,6 +7,7 @@ import type { GaussianRuntime } from '../../src/web/gaussian/runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from '../../src/web/gaussian/assets.ts';
 import { gaussianLocalTransform, gaussianNormalization } from '../../src/web/gaussian/transform.ts';
 import type { GaussianAvatarProfile } from '../../src/assets/gaussian-profile.ts';
+import {fillGaussianSpeechRanges} from '../../src/web/gaussian/speech-glow.ts';
 import {Avatar} from '../../src/web/overlay/avatar.ts';
 import {makeLayout} from '../../src/geometry/capsule.ts';
 
@@ -145,14 +146,16 @@ test('participant speech, stale, leave, rejoin and seat movement reach the same 
   try{
     frames();expect(mesh.opacity).toBeGreaterThan(.99);expect(avatar.root.visible).toBe(true);
     state('present','active');frames();expect(ring.visible).toBe(true);expect(ring.material.opacity).toBeGreaterThan(.7);
+    const ranges=Array.from({length:32},()=>new THREE.Vector4()),mapping=[{node:mesh,base:512,count:1,version:0}];
+    expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(1);expect(ranges[0]!.z).toBeGreaterThan(.7);
     state('stale','active');frames();expect(mesh.opacity).toBeGreaterThan(.44);expect(mesh.opacity).toBeLessThan(.46);
-    expect(ring.visible).toBe(false);expect(visual.proxyRoot!.visible).toBe(true);
+    expect(ring.visible).toBe(false);expect(visual.proxyRoot!.visible).toBe(true);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
     state('absent','inactive');frames();expect(avatar.root.visible).toBe(false);expect(visual.proxyRoot!.visible).toBe(false);
     state('present','active');frames();expect(mesh.opacity).toBeGreaterThan(.99);expect(ring.visible).toBe(true);
     frames(seats[3]!);const seat=seats[3]!;
     const expected=new THREE.Vector3(p.offsetX,p.offsetY,p.offsetZ).applyAxisAngle(new THREE.Vector3(0,1,0),seat.baseYawRad).add(new THREE.Vector3().fromArray(seat.faceAnchor));
     expect(avatar.root.position.distanceTo(expected)).toBeLessThan(1e-10);expect(avatar.root.rotation.y).toBe(seat.baseYawRad);
-    frames(seat,false);expect(ring.visible).toBe(false);
+    frames(seat,false);expect(ring.visible).toBe(false);expect(fillGaussianSpeechRanges(mapping,ranges)).toBe(0);
     expect(visual.model.children).toContain(mesh);expect(mesh.packedSplats).toBe(shared.packed);expect(loads).toBe(1);
   }finally{visual.dispose();cache.dispose();geometry.dispose();material.dispose();}
 });

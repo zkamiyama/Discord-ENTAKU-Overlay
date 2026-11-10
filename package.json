@@ -29,7 +29,8 @@
     "test:render": "bun run build:web && playwright test e2e/render-regressions.spec.ts e2e/post-effects.spec.ts e2e/studio-materials.spec.ts e2e/exposure.spec.ts e2e/split-screen.spec.ts e2e/gaussian-render.spec.ts",
     "fixtures:gaussian": "bun run scripts/generate-gaussian-fixtures.ts",
     "test:gaussian": "bun test tests/unit/gaussian-*.test.ts tests/integration/gaussian-*.test.ts",
-    "test:gaussian:browser": "bun run build:web && playwright test e2e/gaussian-*.spec.ts"
+    "test:gaussian:browser": "bun run build:web && playwright test e2e/gaussian-*.spec.ts",
+    "preview:gaussian-glow": "bun run scripts/render-gaussian-fresnel.ts"
   },
   "dependencies": {
     "@sparkjsdev/spark": "2.4.0",

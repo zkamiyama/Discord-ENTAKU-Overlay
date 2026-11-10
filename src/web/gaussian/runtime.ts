@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { SparkRenderer } from '@sparkjsdev/spark';
 import { GAUSSIAN_COLOR_LAYER, installGaussianRenderHook } from '../studio/gaussian-layers.ts';
 import { GaussianAssetCache } from './assets.ts';
-import { prepareGaussianColor } from './color-space.ts';
+import { installGaussianSpeechGlow } from './speech-glow.ts';
 
 /** One draw node per scene, one sorter/LoD selection per camera. Source splats
  * are shared; view accumulators, ordering and LoD index textures are not. */
 export class GaussianRuntime {
   readonly assets: GaussianAssetCache;
   private drawNode?: SparkRenderer;
+  private renderingView?: SparkRenderer;
   private readonly views = new Map<THREE.Camera, SparkRenderer>();
   private readonly activeCameras = new Set<THREE.Camera>();
   private readonly uninstall: () => void;
@@ -43,7 +44,7 @@ export class GaussianRuntime {
     // Standard traversal stops before expanding a node would exceed the view
     // budget. Keep that contract explicit when dividing one total across views.
     const view = new SparkRenderer({ renderer: this.renderer, lodSplatCount: Math.floor(this.totalBudget / this.viewCount), enableLod: true, enableDriveLod: true, lodTraverseMode: 'standard', lodRaycast: 0, depthTest: true, depthWrite: false });
-    prepareGaussianColor(view.material);
+    installGaussianSpeechGlow(view,()=>this.renderingView??view);
     view.material.toneMapped = false;
     view.layers.set(1); view.layers.enable(GAUSSIAN_COLOR_LAYER);
     view.userData.entakuGaussianRenderer = true;
@@ -64,7 +65,8 @@ export class GaussianRuntime {
     const target = this.renderer.getRenderTarget();
     if (target) view.renderSize.set(target.width, target.height);
     else this.renderer.getDrawingBufferSize(view.renderSize);
-    view.render(this.scene, camera);
+    const previous=this.renderingView;this.renderingView=view;
+    try{view.render(this.scene,camera);}finally{this.renderingView=previous;}
   }
   diagnostics() {
     return {

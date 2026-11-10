@@ -7,6 +7,7 @@ import { GaussianRuntime } from './runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from './assets.ts';
 import type { ResourceLease } from './resource-cache.ts';
 import { gaussianLocalTransform } from './transform.ts';
+import {setGaussianSpeechGlow,clearGaussianSpeechGlow} from './speech-glow.ts';
 export type { GaussianLoadStatus } from './assets.ts';
 
 export class GaussianAvatarVisual {
@@ -80,8 +81,8 @@ export class GaussianAvatarVisual {
     this.ring.scale.setScalar(Math.max(.5, (face.max[1] - face.min[1]) * this.profile.scale / .28));
     this.ring.position.z = Math.max(0, face.max[2] - this.profile.manifest.faceAnchor[2]) * this.profile.scale + .025;
   }
-  update(opacity: number, speaking: number): void {
-    if (this.mesh) this.mesh.opacity = opacity;
+  update(opacity: number, speaking: number, glowScale=4): void {
+    if (this.mesh) {this.mesh.opacity = opacity;setGaussianSpeechGlow(this.mesh,opacity>.005?speaking:0,glowScale);}
     this.ring.visible = !!this.mesh && speaking > .001;
     this.ring.material.opacity = Math.max(0, Math.min(1, speaking));
     // Shadows and SSR geometry disappear at the same visibility threshold as the avatar.
@@ -89,6 +90,7 @@ export class GaussianAvatarVisual {
   }
   private clearAsset(): void {
     if (this.mesh) {
+      clearGaussianSpeechGlow(this.mesh);
       this.mesh.removeFromParent();
       // SplatMesh.dispose owns its data by default. Instances only borrow it.
       this.mesh.packedSplats = undefined; this.mesh.splats = undefined;

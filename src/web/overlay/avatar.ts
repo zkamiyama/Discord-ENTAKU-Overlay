@@ -110,7 +110,7 @@ export class Avatar {
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
     this.outline.material.uniforms.strength!.value=intensity;const glowScale=this.context.state()?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,this.context.state()?.studio.tableAnchor.position[1]??0,glowScale);
-    this.gaussian?.update(this.opacity,intensity);
+    this.gaussian?.update(this.opacity,intensity,glowScale);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
   }
   faceCamera(position:THREE.Vector3):void{this.root.rotation.y=this.profile&&isGaussianProfile(this.profile)?this.baseYaw:avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
