@@ -7,7 +7,9 @@ import {AvatarPreview} from './avatar-preview.ts';
 import { avatarBounds, validateProfile, isGaussianProfile, type ImageAvatarProfile, type FaceRect } from '../../assets/avatar-profile.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import { StudioClient } from '../shared/client.ts';
+import {SETTINGS_ERROR_MESSAGES} from './settings-errors.ts';
 const messages: Record<string,string> = {
+  ...SETTINGS_ERROR_MESSAGES,
   IMAGE_TOO_LARGE:'画像は20MiB以下にしてください。', IMAGE_DIMENSIONS_REJECTED:'画像の縦横は4096px以下にしてください。',
   IMAGE_FORMAT_REJECTED:'PNGまたは静止WebPを選んでください。', ANIMATED_IMAGE_REJECTED:'アニメーション画像には対応していません。',
   INVALID_IMAGE:'画像の形式が正しくありません。別の画像を書き出してください。', INVALID_FACE_RECT:'顔の矩形を画像の中に指定してください。',
@@ -15,7 +17,6 @@ const messages: Record<string,string> = {
   AVATAR_TOO_WIDE:'顔位置を基準とした左右の占有幅が2.8mを超えます。余白・倍率・横位置を調整してください。',
   AVATAR_TOO_TALL:'画像が高すぎます。余白・倍率・縦位置を調整してください。',
   REVISION_CONFLICT:'編集中に別の設定操作がありました。閉じて開き直すと現在の設定を取得します。',
-  AVATAR_SETTINGS_WRITE_FAILED:'設定を保存できませんでした。保存先を確認してください。以前の設定は保持しています。',
   ASSET_NOT_FOUND:'保存済みの画像を読み込めません。画像を選び直してください。', ASSET_STORE_FULL:'素材の保存上限に達しました。', EMPTY_AVATAR_IMAGE:'不透明な部分のある画像を選んでください。',
 };
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;

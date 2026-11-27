@@ -48,7 +48,7 @@ test('target pixel viewport and scissor survive nested passes without overwritin
  renderer.setRenderTarget(b);const nested=saveRenderState(typed,scene);
  renderer.setRenderTarget(null);renderer.setViewport(new THREE.Vector4(0,0,999,999));renderer.setScissorTest(true);
  nested();expect(currentViewport.toArray()).toEqual([0,0,64,64]);expect(currentTest).toBe(false);
- restore();expect(target).toBe(a);expect(currentViewport.toArray()).toEqual([12,18,240,300]);
+ restore();expect(typed.getRenderTarget()).toBe(a);expect(currentViewport.toArray()).toEqual([12,18,240,300]);
  expect(currentScissor.toArray()).toEqual([10,20,200,220]);expect(currentTest).toBe(true);
  expect(logicalViewport.toArray()).toEqual([0,0,320,180]);expect(logicalScissor.toArray()).toEqual([4,5,200,100]);
  renderer.setRenderTarget(null);expect(currentViewport.toArray()).toEqual([0,0,640,360]);expect(currentScissor.toArray()).toEqual([8,10,400,200]);expect(currentTest).toBe(false);

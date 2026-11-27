@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { zipSync } from 'fflate';
 import { StudioStore, unpackStudioZip } from '../../src/studio/store.ts';
 import { DEFAULT_STUDIO_SCENE } from '../../src/studio/manifest.ts';
+import { SettingsStore } from '../../src/storage/settings-store.ts';
 import { resolveStudioReference } from '../../src/studio/gltf.ts';
 const json=(v:unknown)=>new TextEncoder().encode(JSON.stringify(v));
 const files=()=>[
@@ -14,14 +15,14 @@ const files=()=>[
 test('bundles collect relative dependencies and survive disk restart without using asset paths as filesystem paths',async()=>{
  const dir=await mkdtemp(join(tmpdir(),'entaku-studio-'));
  try{
-  const store=new StudioStore(dir);await store.initialize();
+  const store=new StudioStore(dir),settings=new SettingsStore(dir);await store.initialize();await settings.initialize();
   const bundle=await store.importFiles(files());
   expect(bundle.files).toHaveLength(2);
   expect((await store.importFiles(files())).bundleId).toBe(bundle.bundleId);
   const scene=structuredClone(DEFAULT_STUDIO_SCENE);
   scene.objects.push({id:'room',kind:'model',bundleId:bundle.bundleId,transform:{position:[0,0,0],yawDeg:0,scale:[1,1,1]}});
-  const saved=await store.save(scene);expect(saved.revision).toBe(1);
-  const restored=new StudioStore(dir);expect(await restored.initialize()).toEqual(saved);
+  const saved=await store.validateDraft({...scene,revision:1});settings.commit({...settings.snapshot(),studio:saved});
+  const restored=new StudioStore(dir);await restored.initialize();expect((await new SettingsStore(dir).initialize()).studio).toEqual(saved);
   expect(await restored.list()).toHaveLength(1);
   expect((await restored.file(bundle.bundleId,'shared/mesh.bin')).bytes).toEqual(new Uint8Array(12));
   await expect(restored.file(bundle.bundleId,'../scene.json')).rejects.toThrow('STUDIO_FILE_NOT_FOUND');

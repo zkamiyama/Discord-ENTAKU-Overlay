@@ -3,6 +3,8 @@ import {StateReceiver} from '../../src/contracts/state-stream.ts';
 import { AppEngine } from '../../src/domain/engine.ts';
 import { startServer } from '../../src/server/app.ts';
 import { demoEvents } from '../../src/replay/demo.ts';
+import {StudioStore} from '../../src/studio/store.ts';
+import {SettingsStore} from '../../src/storage/settings-store.ts';
 // DOM typings omit Bun's documented client-header extension. This test runs in Bun.
 const BunWebSocket=WebSocket as unknown as {new(url:string,options:{headers:Record<string,string>}):WebSocket};
 function setup() {
@@ -85,3 +87,39 @@ test('server shutdown is idempotent and retired publishers cannot emit new work'
  const stopping=app.stop();expect(app.stop()).toBe(stopping);
  await stopping;expect(()=>app.broadcast()).not.toThrow();expect(app.stop()).toBe(stopping);
 });
+
+test('a native server stop failure still drains the already running settings transaction',async()=>{
+ const engine=new AppEngine({source:'demo',serverEpoch:'stop-failure'}),studios=new StudioStore();
+ for(const event of demoEvents())engine.apply(event);
+ let release!:()=>void,entered!:()=>void;
+ const gate=new Promise<void>(resolve=>{release=resolve;}),started=new Promise<void>(resolve=>{entered=resolve;});
+ const validate=studios.validateDraft.bind(studios);
+ studios.validateDraft=async input=>{entered();await gate;return validate(input);};
+ const app=startServer({engine,studioStore:studios,assets:{},port:0,now:()=>100}),origin=`http://127.0.0.1:${app.server.port}`;
+ const nativeStop=app.server.stop.bind(app.server);
+ app.server.stop=async force=>{await nativeStop(force);throw new Error('INJECTED_STOP_FAILURE');};
+ const request=fetch(origin+'/api/commands',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({type:'studio-reset',requestId:'drain',expectedRevision:0})}).catch(error=>error);
+ try{
+  await started;
+  let finished=false;const stopping=app.stop().catch(error=>error);void stopping.then(()=>{finished=true;});
+  await Bun.sleep(0);expect(finished).toBe(false);
+  release();expect(await stopping).toMatchObject({message:'INJECTED_STOP_FAILURE'});
+  expect(engine.currentRevision).toBe(1);await request;
+ }finally{release();await nativeStop(true);}
+});
+
+for(const [code,status] of [['SETTINGS_CONFLICT',409],['SETTINGS_WRITE_FAILED',500]] as const){
+ test(`HTTP ${code} reports ${status} and preserves the previous runtime generation`,async()=>{
+  const engine=new AppEngine({source:'demo',serverEpoch:'settings-error'}),store=new SettingsStore();
+  for(const event of demoEvents())engine.apply(event);
+  store.commit=()=>{throw new Error(code);};
+  const app=startServer({engine,settingsStore:store,assets:{},port:0,now:()=>100}),origin=`http://127.0.0.1:${app.server.port}`;
+  const before=engine.snapshot();
+  try{
+   const response=await fetch(origin+'/api/commands',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},
+    body:JSON.stringify({type:'studio-set',scene:{...before.studio,tableAnchor:{position:[1,0,0],yawDeg:20}},requestId:'settings-error',expectedRevision:before.revision})});
+   expect(response.status).toBe(status);expect(await response.json()).toEqual({error:code});
+   expect(engine.currentRevision).toBe(before.revision);expect(engine.snapshot().studio).toEqual(before.studio);expect(store.generation).toBe(0);
+  }finally{await app.stop();}
+ });
+}

@@ -143,6 +143,7 @@ export class AppEngine {
       this.layoutHoldUntil=this.now+TABLE.growthDurationMs+500;this.layoutHoldReason='LAYOUT_GROWTH';
       this.forceWide('LAYOUT_GROWTH');
     }
+    this.membership.pruneAbsent(new Set(this.allocator.snapshot().reservations.map(r=>r.userId)));
     this.membershipDue=null;
   }
   private byUser(): Map<string, SeatTransform> {
@@ -152,8 +153,9 @@ export class AppEngine {
     return this.cameraContext.geometry(()=>this.allocator.snapshot(),this.layout,this.membership.participants,this.profiles).extents;
   }
   /** Roll back synchronous settings failures, including camera/layout planning.
-   * Never span an await: provider events must not be restored from an old snapshot. */
-  private settingsTransaction(change: () => void): void {
+   * The optional commit runs last and must be synchronous. Never span an await:
+   * provider events must not be restored from an old snapshot. */
+  private settingsTransaction(change: () => void, commit?: () => void): void {
     const allocators = new Map<SeatAllocator, SeatAllocator>();
     const copyAllocator = (a: SeatAllocator): SeatAllocator => {
       if (!allocators.has(a)) allocators.set(a, a.clone());
@@ -168,10 +170,10 @@ export class AppEngine {
       allocators:new Map([...this.allocators].map(([id,a]) => [id,copyAllocator(a)])),
       allocator:copyAllocator(this.allocator),
     };
-    try {change();} catch (error) {Object.assign(this,before);this.cameraContext.invalidate();throw error;}
+    try {change();commit?.();} catch (error) {Object.assign(this,before);this.cameraContext.invalidate();throw error;}
   }
-  setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
-    this.settingsTransaction(() => this.replaceAvatarProfiles(profiles, expectedRevision, now));
+  setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number, commit?: () => void): void {
+    this.settingsTransaction(() => this.replaceAvatarProfiles(profiles, expectedRevision, now),commit);
   }
   private replaceAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
@@ -184,8 +186,8 @@ export class AppEngine {
   private configureDirection():void {
     const d=this.studio.direction??DEFAULT_DIRECTION;this.membership.tracker.configure(d);this.director.configure(d);
   }
-  setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
-    this.settingsTransaction(() => this.replaceStudioScene(scene, expectedRevision, now));
+  setStudioScene(scene: StudioScene, expectedRevision: number, now: number, commit?: () => void): void {
+    this.settingsTransaction(() => this.replaceStudioScene(scene, expectedRevision, now),commit);
   }
   private replaceStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
@@ -211,8 +213,8 @@ export class AppEngine {
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);
   }
-  applyPreset(input:ParameterPreset,expectedRevision:number,now:number):void {
-    this.settingsTransaction(() => this.replacePreset(input, expectedRevision, now));
+  applyPreset(input:ParameterPreset,expectedRevision:number,now:number,commit?:()=>void):void {
+    this.settingsTransaction(() => this.replacePreset(input, expectedRevision, now),commit);
   }
   private replacePreset(input:ParameterPreset,expectedRevision:number,now:number):void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');

@@ -38,4 +38,11 @@ export class MembershipState {
   else if(!p&&this.pending.size<1024)this.pending.set(id,{state,expires:now+5000});
  }
  expire(now:number):void {for(const [id,item] of this.pending)if(item.expires<now)this.pending.delete(id);}
+ /** Only a seat reservation needs an absent participant's display metadata.
+  * Unassigned departures and explicitly released seats have no live visual. */
+ pruneAbsent(reserved:ReadonlySet<string>):void {
+  for(const [id,person] of this.participants)if(person.presence==='absent'&&!reserved.has(id)){
+   this.participants.delete(id);this.pending.delete(id);
+  }
+ }
 }

@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, rm, mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppEngine } from '../../src/domain/engine.ts';
-import { SessionStore } from '../../src/domain/session-store.ts';
+import { SettingsStore } from '../../src/storage/settings-store.ts';
 import { newSession } from '../../src/domain/seat-allocator.ts';
 import { demoParticipant } from '../../src/replay/demo.ts';
 import { startServer } from '../../src/server/app.ts';
@@ -17,7 +18,7 @@ const ready = (at: number): ProviderEvent => ({ type: 'connection', status: 'rea
 test('100 leave/return cycles and a persisted restart retain seats independently per channel', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'entaku-lifecycle-'));
   try {
-    const store = new SessionStore(dir);
+    const store = new SettingsStore(dir);await store.initialize();
     let engine = new AppEngine({ source: 'replay', serverEpoch: 'a', utcNow: () => utc });
     const users = Array.from({ length: 16 }, (_, i) => String(i + 1));
     engine.apply(snapshot(users, '200', 0)); engine.apply(ready(0)); engine.tick(2000);
@@ -38,8 +39,9 @@ test('100 leave/return cycles and a persisted restart retain seats independently
     engine.apply(snapshot(users, '200', 206000));
     expect(engine.snapshot().session.reservations).toEqual(assigned);
     engine.apply({ type: 'speaking', userId: '1', state: 'active', sourceGeneration: 1, receivedAtMs: 206001 });
-    for (const session of engine.sessions()) await store.save(session);
-    engine = new AppEngine({ source: 'replay', serverEpoch: 'b', sessions: await store.loadAll() });
+    for (const session of engine.sessions()) store.saveSession('ipc',session,store.generation);
+    const restarted=new SettingsStore(dir);await restarted.initialize();
+    engine = new AppEngine({ source: 'replay', serverEpoch: 'b', sessions: restarted.loadSessions('ipc') });
     engine.apply(snapshot(users, '200', 0)); engine.apply(ready(0));
     expect(engine.snapshot().session.reservations).toEqual(assigned);
     expect(engine.snapshot().participants.every(p => p.speaking === 'unknown')).toBe(true);
@@ -48,19 +50,19 @@ test('100 leave/return cycles and a persisted restart retain seats independently
     expect(engine.snapshot().session.capacity).toBe(4);
   } finally { await rm(dir, { recursive: true, force: true, maxRetries: 5 }); }
 });
-test('failed backup leaves the primary session intact and a later save recovers', async () => {
+test('a conflicting SQLite writer leaves the previous session intact and a later save recovers', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'entaku-save-failure-'));
   try {
-    const store = new SessionStore(dir), session = newSession('200', 'intact');
-    await store.save(session);
-    // A directory at the backup path fails deterministically on Windows and Linux.
-    await mkdir(join(dir, '200.json.bak'));
-    await expect(store.save({ ...session, revision: 1 })).rejects.toThrow();
-    expect(JSON.parse(await readFile(join(dir, '200.json'), 'utf8')).revision).toBe(0);
-    expect((await readdir(dir)).filter(p => p.endsWith('.tmp'))).toEqual([]);
-    await rm(join(dir, '200.json.bak'), { recursive: true });
-    await store.save({ ...session, revision: 1 });
-    expect((await store.loadAll())[0]?.revision).toBe(1);
+    const store = new SettingsStore(dir), session = newSession('200', 'intact');await store.initialize();
+    store.saveSession('ipc',session,store.generation);
+    const other=new Database(join(dir,'settings.sqlite'),{create:false});
+    try{
+      other.run('BEGIN IMMEDIATE');
+      expect(()=>store.saveSession('ipc',{...session,revision:1},store.generation)).toThrow('SESSION_WRITE_FAILED');
+    }finally{other.run('ROLLBACK');other.close();}
+    const previous=new SettingsStore(dir);await previous.initialize();expect(previous.loadSessions('ipc')).toEqual([session]);
+    expect(store.saveSession('ipc',{...session,revision:1},store.generation)).toBe(true);
+    const restarted=new SettingsStore(dir);await restarted.initialize();expect(restarted.loadSessions('ipc')[0]?.revision).toBe(1);
   } finally { await rm(dir, { recursive: true, force: true, maxRetries: 5 }); }
 });
 test('a new demo guest does not reuse a restored reserved Discord ID', async () => {

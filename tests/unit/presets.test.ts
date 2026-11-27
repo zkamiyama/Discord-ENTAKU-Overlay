@@ -25,7 +25,6 @@ test('file-backed preset list reflects external edits; bad JSON is isolated; cre
  await writeFile(join(dir,'presets','外部.json'),JSON.stringify({...p,theme:'dark'}));await writeFile(join(dir,'presets','壊れた.json'),'{');await writeFile(join(dir,'presets','大文字.JSON'),JSON.stringify(p));
  expect(await store.list()).toContainEqual({name:'外部.json',valid:true});expect(await store.list()).toContainEqual({name:'大文字.JSON',valid:true});expect((await store.list()).find(p=>p.name==='壊れた.json')?.valid).toBe(false);
  expect((await store.read('外部.json')).theme).toBe('dark');expect((await readdir(join(dir,'presets'))).filter(n=>n.endsWith('.tmp'))).toEqual([]);
- await store.preferences(p);expect(await new PresetStore(dir).preferences()).toEqual(p);await store.preferences(null);expect(await store.preferences()).toBeNull();
  }finally{await rm(dir,{recursive:true,force:true});}
 });
 test('unsafe filenames and missing assets are never redirected outside the preset folder',()=>{

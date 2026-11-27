@@ -1,4 +1,3 @@
-import {writeAtomicJson} from '../storage/atomic-json.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, lstat, readdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -26,24 +25,12 @@ async function readBounded(path: string, maximum: number): Promise<Buffer> {
 export class AvatarStore {
   private memory = new Map<string, Uint8Array>();
   private metadata = new Map<string, StoredImage>();
-  private profiles: AvatarProfile[] = [];
   private imageBytes = 0;
   readonly gaussian: GaussianStore;
   constructor(private directory: string | null = null) { this.gaussian=new GaussianStore(directory); }
-  async initialize(): Promise<AvatarProfile[]> {
-    if (!this.directory) return [];
-    await mkdir(join(this.directory, 'assets', 'avatars'), { recursive: true, mode: 0o700 });
-    try {
-      const payload: unknown = JSON.parse((await readBounded(join(this.directory, 'avatars.json'), 2 * 1024 * 1024)).toString('utf8'));
-      const value = payload as { schemaVersion?: number; profiles?: unknown[] };
-      if (!value || ![1,2].includes(value.schemaVersion??0) || !Array.isArray(value.profiles) || value.profiles.length > 256) throw new Error();
-      const profiles = value.profiles.map(validateProfile);
-      if (new Set(profiles.map(p => p.userId)).size !== profiles.length) throw new Error();
-      this.profiles = profiles;
-    } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('AVATAR_SETTINGS_READ_FAILED'); }
-    return this.snapshot();
+  async initialize(): Promise<void> {
+    if (this.directory) await mkdir(join(this.directory, 'assets', 'avatars'), { recursive: true, mode: 0o700 });
   }
-  snapshot(): AvatarProfile[] { return structuredClone(this.profiles); }
   async importImage(input: Uint8Array): Promise<StoredImage> {
     const info = inspectImage(input), assetId = createHash('sha256').update(input).digest('hex');
     const result = { ...info, assetId, byteLength: input.byteLength };
@@ -94,13 +81,12 @@ export class AvatarStore {
       if (splats > GAUSSIAN_LIMITS.activeSplats) throw new Error('GAUSSIAN_ACTIVE_SPLAT_LIMIT');
     }
   }
-  async saveProfiles(profiles: readonly AvatarProfile[]): Promise<void> {
+  async validateProfiles(profiles: readonly AvatarProfile[]): Promise<AvatarProfile[]> {
     if (profiles.length > 256) throw new Error('TOO_MANY_AVATAR_PROFILES');
     const clean = profiles.map(validateProfile);
     if (new Set(clean.map(p => p.userId)).size !== clean.length) throw new Error('INVALID_AVATAR_PROFILE');
     await this.validateGaussianBudget(clean);
     for(const profile of clean)if(isGaussianProfile(profile))await this.gaussian.validateProfileAssets(profile);
-    if (this.directory) await writeAtomicJson(join(this.directory,'avatars.json'), {schemaVersion:2,profiles:clean}, 'AVATAR_SETTINGS_WRITE_FAILED', true);
-    this.profiles = clean;
+    return clean;
   }
 }

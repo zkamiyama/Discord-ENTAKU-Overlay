@@ -7,6 +7,7 @@ import {statusRoutes} from './routes/status.ts';
 import {assetRoutes} from './routes/assets.ts';
 import {commandRoute} from './routes/commands.ts';
 import {SettingsService} from './settings-service.ts';
+import {SettingsStore} from '../storage/settings-store.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {PresetStore} from '../presets/store.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
@@ -31,6 +32,7 @@ export interface ServerOptions {
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
   presets?: PresetStore;
+  settingsStore?: SettingsStore;
   replay?:{status:()=>ReplayStatus;control:(command:ReplayControl)=>Promise<void>};
 }
 export function startServer(options: ServerOptions) {
@@ -49,8 +51,9 @@ export function startServer(options: ServerOptions) {
   const studioStore=options.studioStore??new StudioStore();
   const presets=options.presets??new PresetStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
-  const settings=new SettingsService(engine,studioStore,customAssets,presets,now);
-  // The single writer protects cross-store transactions; bounded admission also
+  const settingsStore=options.settingsStore??new SettingsStore(null,{studio:engine.snapshot().studio,avatarProfiles:engine.avatarProfiles(),preferences:null});
+  const settings=new SettingsService(engine,settingsStore,studioStore,customAssets,presets,now);
+  // The single writer protects validation and settings transactions; bounded admission also
   // protects the process from retaining unlimited uploaded assets or commands.
   const mutations=new WorkQueue(8);
   let stopping=false,stopped:Promise<void>|undefined;
@@ -161,7 +164,7 @@ export function startServer(options: ServerOptions) {
         stopping=true;offEvents();offChat();clearInterval(timer);
         const drained=mutations.close();
         for(const socket of clients)closeSocket(socket,1001,'SHUTDOWN');
-        await server.stop(true);await drained;
+        try{await server.stop(true);}finally{await drained;}
       })();
     },
   };

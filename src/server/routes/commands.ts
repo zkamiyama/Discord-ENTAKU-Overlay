@@ -75,7 +75,8 @@ export function commandRoute(context:RouteContext):HttpRoute {
           replies.set(c.requestId, { digest, result }); return json(result);
         } catch (error) {
           const code = error instanceof Error && (/^(STUDIO|PRESET|SETTINGS|GAUSSIAN)_[A-Z0-9_]+$/.test(error.message) || assetErrors.has(error.message) || ['REVISION_CONFLICT','INVALID_COMMAND','TARGET_NOT_PRESENT','CANNOT_RELEASE_PRESENT_USER','RESERVATION_NOT_FOUND','INVALID_SEAT_TARGET','NO_CHANNEL','MEMBERSHIP_UNCONFIRMED','INVALID_MODERATORS','CANNOT_RECORD_REPLAY','RECORDING_ALREADY_ACTIVE','INVALID_REPLAY_TIME','INVALID_REPLAY_RATE'].includes(error.message)) ? error.message : 'COMMAND_REJECTED';
-          return json({ error: code }, code==='REVISION_CONFLICT'?409:422);
+          const status=/_CONFLICT$|_CONTEXT_CHANGED$/.test(code)?409:/_WRITE_FAILED$/.test(code)?500:422;
+          return json({ error: code }, status);
         }
         },request.signal);
       }

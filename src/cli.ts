@@ -9,7 +9,8 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { parseOptions, HELP } from './cli-options.ts';
 import { AppEngine } from './domain/engine.ts';
-import { SessionStore } from './domain/session-store.ts';
+import { SettingsStore } from './storage/settings-store.ts';
+import { SessionWriter } from './storage/session-writer.ts';
 import { IpcVoiceProvider } from './discord/ipc-voice-provider.ts';
 import { StreamKitCompatAuth } from './discord/auth-provider.ts';
 import { discover, ipcCandidates } from './discord/discovery.ts';
@@ -37,15 +38,13 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   }
   const assets=embeddedAssets??JSON.parse(await readFile(resolve('.generated/web-assets.json'),'utf8')) as WebAssets;
   const dataDir=resolve(options.dataDir??(compiled?join(dirname(process.execPath),'data'):join(process.cwd(),'data')));
-  const store=new SessionStore(join(dataDir,'sessions',options.mode));
   const replay=options.replayPath?await (async()=>{if((await stat(options.replayPath!)).size>16*1024*1024)throw new Error('REPLAY_TOO_LARGE');return parseReplay(await readFile(options.replayPath!,'utf8'));})():null;
-  const sessions=replay?.session?[replay.session]:options.safeMode||options.mode==='replay'?[]:await store.loadAll();
-  const avatarStore=new AvatarStore(options.safeMode||options.mode==='replay'?null:dataDir);
-  const avatarProfiles=await avatarStore.initialize();
-  const studioStore=new StudioStore(options.safeMode||options.mode==='replay'?null:dataDir);
-  const studio=await studioStore.initialize();
-  const presets=new PresetStore(options.safeMode||options.mode==='replay'?null:dataDir);
-  const preferences=await presets.preferences();await presets.list();
+  const writableDirectory=options.safeMode||options.mode==='replay'?null:dataDir;
+  const settingsStore=new SettingsStore(writableDirectory);
+  const {studio,avatarProfiles,preferences}=await settingsStore.initialize();
+  const sessions=replay?.session?[replay.session]:options.mode==='replay'?[]:settingsStore.loadSessions(options.mode);
+  const avatarStore=new AvatarStore(writableDirectory),studioStore=new StudioStore(writableDirectory),presets=new PresetStore(writableDirectory);
+  await Promise.all([avatarStore.initialize(),studioStore.initialize(),presets.list()]);
   const vcChat=new VcChatFeed(options.mode==='ipc'?'connecting':'unavailable');
   const start=performance.now();
   const engine=new AppEngine({source:options.mode,serverEpoch:randomUUID(),sessions,avatarProfiles,studio,seatingDefaults:preferences?.seating,autoCamera:preferences?.autoCamera,
@@ -55,21 +54,18 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   const now=()=>player?player.elapsedMs:performance.now()-start;
   if(options.mode==='demo')for(const event of demoEvents())engine.apply(event);
   if(player)player.advanceTo(0);
-  let persistChain=Promise.resolve(),storageFailed=false;
-  const saved=new Map(sessions.map(s=>[s.channelId,`${s.sessionId}:${s.revision}`]));
+  const sessionWriter=new SessionWriter((session,generation)=>options.mode==='replay'?false:settingsStore.saveSession(options.mode,session,generation),
+    {sessions,generation:settingsStore.generation},()=>console.error('SESSION_WRITE_FAILED: reserved seats could not be saved; the latest state remains queued for retry.'));
   const persist=():void=>{
     if(options.safeMode||options.mode==='replay')return;
-    for(const session of engine.sessions()){
-      const signature=`${session.sessionId}:${session.revision}`;if(saved.get(session.channelId)===signature)continue;saved.set(session.channelId,signature);
-      persistChain=persistChain.then(()=>store.save(session)).catch(()=>{saved.delete(session.channelId);storageFailed=true;console.error('SESSION_WRITE_FAILED: reserved seats could not be saved.');});
-    }
+    sessionWriter.offer(engine.sessions(),settingsStore.generation);
   };
   let provider:IpcVoiceProvider|null=null,retrying=false,stopping=false;
   const retry=()=>{
     if(!provider||retrying||stopping)return;retrying=true;
     void provider.stop().then(()=>{if(!stopping)provider?.start();}).catch(()=>console.error('RETRY_FAILED')).finally(()=>{retrying=false;});
   };
-  const app=startServer({engine,assets,avatarStore,studioStore,presets,vcChat,port:options.port,now,onChange:persist,
+  const app=startServer({engine,assets,avatarStore,studioStore,presets,settingsStore,vcChat,port:options.port,now,onChange:persist,
     ...(player?{tick:()=>{
       const time=performance.now(),elapsed=time-replayTick;replayTick=time;
       if(!replayPaused&&!replaySeeking)player.advanceTo(Math.min(player.replay.durationMs,player.elapsedMs+elapsed*replayRate));
@@ -94,10 +90,14 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     const shutdown=()=>{
       if(stopping)return;stopping=true;clearInterval(persistenceTimer);
       void (async()=>{
-        await provider?.stop();await app.stop();persist();await persistChain;
-        process.off('SIGINT',shutdown);process.off('SIGTERM',shutdown);
-        if(storageFailed)process.exitCode=1;resolveStopped();
-      })().catch(()=>{console.error('SHUTDOWN_FAILED');process.exitCode=1;resolveStopped();});
+        const stopped=await Promise.allSettled([Promise.resolve().then(()=>provider?.stop()),Promise.resolve().then(()=>app.stop())]);
+        let failed=stopped.some(result=>result.status==='rejected');
+        try{persist();}catch{failed=true;}
+        try{await sessionWriter.flush();}catch{failed=true;}
+        if(failed){console.error('SHUTDOWN_FAILED');process.exitCode=1;}
+      })().catch(()=>{console.error('SHUTDOWN_FAILED');process.exitCode=1;}).finally(()=>{
+        process.off('SIGINT',shutdown);process.off('SIGTERM',shutdown);resolveStopped();
+      });
     };
     process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
   });

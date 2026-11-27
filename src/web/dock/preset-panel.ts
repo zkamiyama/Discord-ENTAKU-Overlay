@@ -1,10 +1,11 @@
+import {SETTINGS_ERROR_MESSAGES} from './settings-errors.ts';
 import {pollVisible} from './visible-poll.ts';
 import {capturePreset,type Theme} from '../../presets/schema.ts';
 import type {StudioClient} from '../shared/client.ts';
 import type {AppSnapshot} from '../../contracts/domain.ts';
 import type {PresetEntry} from '../../presets/store.ts';
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
-const messages:Record<string,string>={PRESET_EXISTS:'同名のファイルがあります。別の名前にしてください。',PRESET_NAME_INVALID:'ファイル名に使用できない文字があります。',PRESET_INVALID:'JSONの形式または設定値が正しくありません。',PRESET_WRITE_FAILED:'プリセットを保存できませんでした。',REVISION_CONFLICT:'別の操作で設定が変わりました。もう一度操作してください。',STUDIO_BUNDLE_NOT_FOUND:'プリセットのスタジオ素材が見つかりません。',ASSET_NOT_FOUND:'プリセットの人物画像が見つかりません。'};
+const messages:Record<string,string>={...SETTINGS_ERROR_MESSAGES,PRESET_EXISTS:'同名のファイルがあります。別の名前にしてください。',PRESET_NAME_INVALID:'ファイル名に使用できない文字があります。',PRESET_INVALID:'JSONの形式または設定値が正しくありません。',PRESET_WRITE_FAILED:'プリセットを保存できませんでした。',REVISION_CONFLICT:'別の操作で設定が変わりました。もう一度操作してください。',STUDIO_BUNDLE_NOT_FOUND:'プリセットのスタジオ素材が見つかりません。',ASSET_NOT_FOUND:'プリセットの人物画像が見つかりません。'};
 export class PresetPanel {
  private busy=false;private listing=false;private name='';private signature='';private listKey='';private stateKey='';private dirtyKey='';private dirty=false;
  private select=get<HTMLSelectElement>('preset-select');private dialog=get<HTMLDialogElement>('preset-dialog');

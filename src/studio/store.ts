@@ -1,11 +1,10 @@
-import {writeAtomicJson} from '../storage/atomic-json.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, rm, lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {selectStudioEntry} from './archive.ts';
 export {unpackStudioZip,selectStudioEntry} from './archive.ts';
 import { inspectGltfEntry } from './gltf.ts';
-import { DEFAULT_STUDIO_SCENE, MAX_GLB_BYTES, MAX_STUDIO_UNPACKED_BYTES, safeStudioPath, validateStudioScene, type StudioScene } from './manifest.ts';
+import { MAX_GLB_BYTES, MAX_STUDIO_UNPACKED_BYTES, safeStudioPath, validateStudioScene, type StudioScene } from './manifest.ts';
 export interface StudioFile { path: string; bytes: Uint8Array }
 export interface BundleFile { path: string; hash: string; byteLength: number; mime: string }
 export interface StudioBundle { schemaVersion: 1; bundleId: string; entry: string; files: BundleFile[]; byteLength: number }
@@ -19,21 +18,14 @@ async function bounded(path: string, maximum: number): Promise<Buffer> {
   if (bytes.byteLength !== info.size || bytes.byteLength > maximum) throw new Error('STUDIO_FILE_REJECTED');
   return bytes;
 }
-/** Immutable bundles; only scene.json is editable. null is a test/safe-mode memory store. */
+/** Immutable bundles and asset validation. Editable settings belong to SettingsStore. */
 export class StudioStore {
-  private scene: StudioScene = structuredClone(DEFAULT_STUDIO_SCENE);
   private bundles = new Map<string,StudioBundle>();
   private data = new Map<string,Uint8Array>();
   constructor(private directory: string | null = null) {}
-  async initialize(): Promise<StudioScene> {
-    if (this.directory) {
-      await mkdir(join(this.directory,'assets','studios'),{recursive:true,mode:0o700});
-      try { this.scene = validateStudioScene(JSON.parse((await bounded(join(this.directory,'scene.json'),1024*1024)).toString('utf8'))); }
-      catch(e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('STUDIO_SETTINGS_READ_FAILED'); }
-    }
-    return this.snapshot();
+  async initialize(): Promise<void> {
+    if (this.directory) await mkdir(join(this.directory,'assets','studios'),{recursive:true,mode:0o700});
   }
-  snapshot(): StudioScene { return structuredClone(this.scene); }
   async importFiles(input: readonly StudioFile[], requested?: string): Promise<StudioBundle> {
     if (!input.length || input.length > 256) throw new Error('STUDIO_FILE_LIMIT');
     const files = new Map<string,Uint8Array>(); let total=0;
@@ -102,18 +94,5 @@ export class StudioStore {
     const scene=validateStudioScene(input);
     for (const o of scene.objects) if(o.kind==='model')await this.bundle(o.bundleId);
     return scene;
-  }
-  private async persistScene(clean: StudioScene): Promise<void> {
-    if(this.directory)await writeAtomicJson(join(this.directory,'scene.json'),clean,'STUDIO_SETTINGS_WRITE_FAILED',true);
-  }
-  /** Compensating restore preserves the old revision instead of creating a new edit. */
-  async restore(input: StudioScene): Promise<void> {
-    const clean=validateStudioScene(input);await this.persistScene(clean);this.scene=clean;
-  }
-  async save(input: unknown): Promise<StudioScene> {
-    const clean=await this.validateDraft(input);
-    clean.revision=this.scene.revision+1;
-    await this.persistScene(clean);
-    this.scene=clean; return this.snapshot();
   }
 }

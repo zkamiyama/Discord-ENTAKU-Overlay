@@ -3,10 +3,9 @@ import { DIRECTOR } from './defaults.ts';
 import type { SpeakingState } from '../contracts/domain.ts';
 export interface SpeechInterval { start: number; end: number }
 type Segment = SpeechInterval;
-interface Episode { userId: string; start: number; activeMs: number; order: number }
 interface Track {
   state: SpeakingState; startedAt: number; stoppedAt: number;
-  episodeStart: number; accumulated: number; order: number; segments: Segment[];
+  episodeStart: number; accumulated: number; segments: Segment[];
   turnStart: number; turnSpeechMs: number; turnQualified: boolean;
 }
 export interface SpeechStats {
@@ -27,8 +26,6 @@ export class SpeakerTracker {
   configure(settings:DirectionSettings):void{this.timing=directionTiming(settings);this.invalidate();}
   get windowMs():number{return this.timing.leadershipWindowMs;}
   private tracks = new Map<string, Track>();
-  private history: Episode[] = [];
-  private order = 0;
   private lastMs = 0;
   private check(now: number): void {
     if (!Number.isFinite(now) || now < this.lastMs) throw new Error('NON_MONOTONIC_TIME');
@@ -36,18 +33,17 @@ export class SpeakerTracker {
   }
   update(userId: string, state: SpeakingState, now: number): void {
     this.check(now);this.invalidate();
-    if (state === 'unknown') { this.tracks.delete(userId); this.history = this.history.filter(e => e.userId !== userId); return; }
+    if (state === 'unknown') { this.tracks.delete(userId); return; }
     let t = this.tracks.get(userId);
     if (!t) {
-      t = { state: 'unknown', startedAt: now, stoppedAt: -Infinity, episodeStart: now, accumulated: 0, order: this.order++, segments: [], turnStart: now, turnSpeechMs: 0, turnQualified: false };
+      t = { state: 'unknown', startedAt: now, stoppedAt: -Infinity, episodeStart: now, accumulated: 0, segments: [], turnStart: now, turnSpeechMs: 0, turnQualified: false };
       this.tracks.set(userId, t);
     }
     if (t.state === state) return;
     if (state === 'active') {
       if(now-t.stoppedAt>=this.timing.endConfirmMs){t.turnStart=now;t.turnSpeechMs=0;t.turnQualified=false;}
       if (now - t.stoppedAt > DIRECTOR.gapToleranceMs) {
-        if (t.accumulated >= 250) this.history.push({ userId, start: t.episodeStart, activeMs: t.accumulated, order: t.order });
-        t.episodeStart = now; t.accumulated = 0; t.order = this.order++;
+        t.episodeStart = now; t.accumulated = 0;
       }
       t.startedAt = now;
     } else {
@@ -61,7 +57,7 @@ export class SpeakerTracker {
       t.stoppedAt = now;
     }
     t.state = state;
-    this.prune(now);
+    this.prune(t,now);
   }
   stats(userId: string, now: number): SpeechStats {
     this.check(now);this.cacheAt(now);
@@ -71,6 +67,7 @@ export class SpeakerTracker {
   private computeStats(userId:string,now:number):SpeechStats {
     const t = this.tracks.get(userId);
     if (!t) return { userId, state: 'unknown', activeMs: 0, ratio: 0, qualified: false, recentMs: 0, windowMs: 0, stoppedForMs: Infinity, episodeStart: now };
+    this.prune(t,now);
     const activeMs = t.accumulated + (t.state === 'active' ? now - t.startedAt : 0);
     const duration = now - t.episodeStart;
     const ratio = duration > 0 ? activeMs / duration : 0;
@@ -95,24 +92,22 @@ export class SpeakerTracker {
       stoppedForMs:raw.state==='inactive'&&hasSpeech?Math.max(0,raw.stoppedForMs-this.timing.endConfirmMs):raw.stoppedForMs,
       ...(pending?{endPendingUntilMs:t.stoppedAt+this.timing.endConfirmMs}:{})};
   }
-  episodes(now: number, windowMs: number): Episode[] {
-    this.check(now); this.prune(now);
-    const current = [...this.tracks.entries()].map(([userId, t]) => ({ userId, start: t.episodeStart, activeMs: t.accumulated + (t.state === 'active' ? now - t.startedAt : 0), order: t.order }));
-    return [...this.history, ...current].filter(e => e.start >= now - windowMs && e.activeMs >= 250).sort((a, b) => a.start - b.start || a.order - b.order);
-  }
   /** Exact half-open speaking intervals; pauses never count as speech. */
   intervals(userId:string,now:number,windowMs=this.timing.leadershipWindowMs):SpeechInterval[]{
     this.check(now);this.cacheAt(now);
     const key=userId+':'+windowMs,cached=this.intervalsCache.get(key);if(cached)return cached.map(i=>({...i}));
-    this.prune(now);
     const track=this.tracks.get(userId);if(!track)return [];
+    this.prune(track,now);
     const segments=[...track.segments,...(track.state==='active'?[{start:track.startedAt,end:now}]:[])];
     const result=segments.map(s=>({start:Math.max(now-windowMs,s.start),end:Math.min(now,s.end)})).filter(s=>s.end>s.start);
     this.intervalsCache.set(key,result);return result.map(i=>({...i}));
   }
-  clear(): void { this.invalidate();this.tracks.clear(); this.history = []; }
-  private prune(now: number): void {
-    this.history = this.history.filter(e => e.start >= now - 10000).slice(-1024);
-    for (const t of this.tracks.values()) t.segments = t.segments.filter(s => s.end >= now - 30000).slice(-512);
+  clear(): void { this.invalidate();this.tracks.clear(); }
+  private prune(track:Track,now: number): void {
+    // Segments are chronological. Inspect only this speaker; repeated reads
+    // within the window neither scan other speakers nor allocate new arrays.
+    let first=Math.max(0,track.segments.length-512);
+    while(first<track.segments.length&&track.segments[first]!.end<now-30000)first++;
+    if(first)track.segments=track.segments.slice(first);
   }
 }
