@@ -1,30 +1,38 @@
 import {expect,test} from 'bun:test';
+import {StatePublisher} from '../../src/contracts/state-stream.ts';
+import {AppEngine} from '../../src/domain/engine.ts';
 import {StudioClient} from '../../src/web/shared/client.ts';
 
 class FakeSocket {
   readyState=1;
   onmessage: WebSocket['onmessage']=null;
   onclose: WebSocket['onclose']=null;
+  onerror:WebSocket['onerror']=null;
   sent:string[]=[];
-  close():void {this.readyState=3;this.end(1000);}
+  constructor(private readonly closes=true){}
+  close():void {this.readyState=3;if(this.closes)this.end(1000);}
   send(value:string):void {this.sent.push(value);}
   receive(value:unknown):void {this.onmessage?.call(this as unknown as WebSocket,{data:JSON.stringify(value)} as MessageEvent);}
   end(code=1006):void {this.onclose?.call(this as unknown as WebSocket,{code} as CloseEvent);}
 }
-function fixture(){
+function fixture(staleMs=10_000,closes=true){
   const sockets:FakeSocket[]=[];
-  const client=new StudioClient(()=>{const s=new FakeSocket();sockets.push(s);return s as unknown as WebSocket;},()=> 'ws://127.0.0.1/test',5);
+  const client=new StudioClient(()=>{const s=new FakeSocket(closes);sockets.push(s);return s as unknown as WebSocket;},()=> 'ws://127.0.0.1/test',5,staleMs);
   return {client,sockets};
+}
+function synchronize(socket:FakeSocket):void{
+ socket.receive({type:'hello'});
+ socket.receive(JSON.parse(new StatePublisher().publish(new AppEngine({source:'demo',serverEpoch:'test'}).snapshot()).full()));
 }
 test('late events from a replaced WebSocket cannot reset state or create reconnects',async()=>{
   const {client,sockets}=fixture();
   try{
-    client.connect();const first=sockets[0]!;first.receive({type:'hello'});expect(client.connected).toBe(true);
+    client.connect();const first=sockets[0]!;synchronize(first);expect(client.connected).toBe(true);
     const delayedClose=first.onclose!,delayedMessage=first.onmessage!;
-    client.connect();const second=sockets[1]!;second.receive({type:'hello'});
+    client.connect();const second=sockets[1]!;synchronize(second);const expected=client.state;
     delayedClose.call(first as unknown as WebSocket,{code:1006} as CloseEvent);
     delayedMessage.call(first as unknown as WebSocket,{data:JSON.stringify({type:'snapshot',state:{protocolVersion:1,serverEpoch:'old'}})} as MessageEvent);
-    await Bun.sleep(20);expect(client.connected).toBe(true);expect(client.state).toBeNull();expect(sockets).toHaveLength(2);
+    await Bun.sleep(20);expect(client.connected).toBe(true);expect(client.state).toBe(expected);expect(sockets).toHaveLength(2);
   }finally{client.disconnect();}
 });
 test('disconnect cancels scheduled reconnect and fresh connection restores chat subscription',async()=>{
@@ -42,4 +50,117 @@ test('a current connection retries once and policy closes never reconnect',async
     for(let i=0;i<40&&sockets.length<2;i++)await Bun.sleep(5);
     expect(sockets).toHaveLength(2);sockets[1]!.end(1008);await Bun.sleep(20);expect(sockets).toHaveLength(2);
   }finally{client.disconnect();}
+});
+
+test('a socket without hello times out and reconnects, then accepts a new hello',async()=>{
+  const {client,sockets}=fixture(25);
+  try{
+    client.connect();
+    // Non-hello messages cannot keep the handshake alive forever.
+    sockets[0]!.receive({type:'pong',clientTime:0,serverTime:0});
+    for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
+    expect(sockets.length).toBeGreaterThanOrEqual(2);
+    synchronize(sockets.at(-1)!);
+    expect(client.connected).toBe(true);
+  }finally{client.disconnect();}
+});
+test('an established socket also reconnects after becoming silent',async()=>{
+  const {client,sockets}=fixture(25);
+  try{
+    client.connect();synchronize(sockets[0]!);
+    expect(client.connected).toBe(true);
+    for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
+    expect(sockets.length).toBeGreaterThanOrEqual(2);expect(client.connected).toBe(false);
+  }finally{client.disconnect();}
+});
+
+test('a delta gap disables commands, requests one full resync and recovers',async()=>{
+ const {client,sockets}=fixture();
+ const sender=new StatePublisher(),state=new AppEngine({source:'demo',serverEpoch:'test'}).snapshot();
+ try{
+  client.connect();const socket=sockets[0]!;socket.receive({type:'hello'});
+  socket.receive(JSON.parse(sender.publish(state).full()));
+  sender.publish({...state,serverNowMs:100});
+  const later=sender.publish({...state,serverNowMs:200});
+  socket.receive(JSON.parse(later.delta!));socket.receive(JSON.parse(later.delta!));
+  expect(client.connected).toBe(false);
+  await expect(client.command({type:'wide'})).rejects.toThrow('サーバーとの接続を確認してください');
+  expect(client.state?.serverNowMs).toBe(state.serverNowMs);
+  expect(socket.sent.filter(s=>s.includes('"type":"resync"'))).toHaveLength(1);
+  socket.receive(JSON.parse(later.full()));expect(client.state?.serverNowMs).toBe(200);expect(client.connected).toBe(true);
+  const newest=sender.publish({...state,serverNowMs:300});socket.receive(JSON.parse(newest.delta!));
+  expect(client.state?.serverNowMs).toBe(300);
+ }finally{client.disconnect();}
+});
+
+test('hello alone and snapshots arriving before hello cannot enable commands',async()=>{
+ const {client,sockets}=fixture();
+ const packet=JSON.parse(new StatePublisher().publish(new AppEngine({source:'demo',serverEpoch:'test'}).snapshot()).full());
+ try{
+  client.connect();const socket=sockets[0]!;
+  socket.receive(packet);expect(client.state).toBeNull();expect(client.connected).toBe(false);
+  socket.receive({type:'hello'});expect(client.connected).toBe(false);
+  await expect(client.command({type:'wide'})).rejects.toThrow('サーバーとの接続を確認してください');
+  socket.receive(packet);expect(client.connected).toBe(true);
+ }finally{client.disconnect();}
+});
+
+test('watchdog reconnects even when an unresponsive socket never emits close',async()=>{
+ const {client,sockets}=fixture(20,false);
+ try{
+  client.connect();synchronize(sockets[0]!);
+  const old=sockets[0]!,delayed=old.onclose!;
+  for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
+  expect(sockets).toHaveLength(2);expect(client.connected).toBe(false);
+  synchronize(sockets[1]!);delayed.call(old as unknown as WebSocket,{code:1008} as CloseEvent);
+  expect(client.connected).toBe(true);expect(old.onmessage).toBeNull();expect(old.onclose).toBeNull();
+ }finally{client.disconnect();}
+});
+
+test('duplicate full snapshots preserve scene identity and playback clock origin',async()=>{
+ const {client,sockets}=fixture();let updates=0;
+ const sender=new StatePublisher(),state=new AppEngine({source:'replay',serverEpoch:'test'}).snapshot();
+ const packet=JSON.parse(sender.publish({...state,serverNowMs:500,clockRate:1}).full());
+ try{
+  client.onState=()=>updates++;client.connect();const socket=sockets[0]!;socket.receive({type:'hello'});socket.receive(packet);
+  const before=client.state;await Bun.sleep(15);const clock=client.now();
+  client.resync();expect(client.connected).toBe(false);socket.receive(packet);
+  expect(client.connected).toBe(true);expect(client.state).toBe(before);expect(updates).toBe(1);expect(client.now()).toBeGreaterThanOrEqual(clock);
+ }finally{client.disconnect();}
+});
+
+test('a command reply from a replaced connection cannot be reported as success',async()=>{
+ const {client,sockets}=fixture(),original=globalThis.fetch;
+ let resolve!:(value:Response)=>void,signal:AbortSignal|undefined;
+ globalThis.fetch=((_input:unknown,init?:RequestInit)=>{signal=init?.signal??undefined;return new Promise<Response>(r=>{resolve=r;});}) as typeof fetch;
+ try{
+  client.connect();synchronize(sockets[0]!);const result=client.command({type:'wide'});
+  client.connect();synchronize(sockets[1]!);expect(signal?.aborted).toBe(true);
+  resolve(Response.json({ok:true}));await expect(result).rejects.toThrow('操作結果は再同期後の状態で確認してください');
+  expect(sockets[1]!.sent.filter(value=>value.includes('resync'))).toHaveLength(0);
+ }finally{globalThis.fetch=original;client.disconnect();}
+});
+
+test('malformed and unmatched pongs cannot corrupt the renderer clock',()=>{
+ const {client,sockets}=fixture();
+ try{
+  client.connect();synchronize(sockets[0]!);const socket=sockets[0]!,before=client.now();
+  socket.receive({type:'pong',clientTime:0,serverTime:'not-a-time'});
+  socket.receive({type:'pong',clientTime:0,serverTime:-1e100});
+  expect(Number.isFinite(client.now())).toBe(true);expect(client.now()).toBeGreaterThanOrEqual(before);
+ }finally{client.disconnect();}
+});
+
+test('cancelling image decoding closes a late bitmap instead of publishing it',async()=>{
+ const {client}=fixture(),originalFetch=globalThis.fetch,originalDecode=globalThis.createImageBitmap,abort=new AbortController();
+ let resolve!:(bitmap:ImageBitmap)=>void,fetchSignal:AbortSignal|undefined,closed=0;
+ globalThis.fetch=(async(_input:unknown,init?:RequestInit)=>{fetchSignal=init?.signal??undefined;return new Response(new Uint8Array([1]),{headers:{'Content-Type':'image/png'}});}) as typeof fetch;
+ globalThis.createImageBitmap=(()=>new Promise<ImageBitmap>(done=>{resolve=done;})) as typeof createImageBitmap;
+ try{
+  const result=client.customImage('asset',abort.signal).catch(error=>error as Error);
+  for(let i=0;i<10&&!resolve;i++)await Bun.sleep(1);
+  expect(fetchSignal).toBe(abort.signal);expect(resolve).toBeFunction();
+  abort.abort(Error('superseded'));resolve({close(){closed++;}} as ImageBitmap);
+  expect(await result).toEqual(Error('superseded'));expect(closed).toBe(1);
+ }finally{globalThis.fetch=originalFetch;globalThis.createImageBitmap=originalDecode;client.disconnect();}
 });

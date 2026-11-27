@@ -81,6 +81,11 @@ for(const withProxy of [true,false])test(`repeated ${withProxy?'proxy':'native'}
  await expect(overlay.locator('#scene')).toHaveAttribute('data-gaussian-instances','0');
  let sourceRequests=0;overlay.on('request',r=>{if(r.url().includes(`/api/gaussian-assets/${a.assetId}/file?`))sourceRequests++;});
  const initial={dock:await resources(page),overlay:await resources(overlay)},cycles:any[]=[];
+ // Keep both variants and retain evidence even if a later assertion fails.
+ const evidencePath='.work/gaussian/resource-lifetimes-'+(withProxy?'proxy':'native')+'.json';
+ mkdirSync('.work/gaussian',{recursive:true});
+ const saveEvidence=()=>writeFileSync(evidencePath,JSON.stringify({initial,cycles,measurement:'Public Worker lifecycle + WebGL handle counts + Three renderer.info; not GPU memory bytes'},null,2));
+ saveEvidence();
  for(let cycle=0;cycle<3;cycle++){
   await command(page,{type:'avatar-set',profile:profile(a,'101')});await command(page,{type:'avatar-set',profile:profile(a,'102')});await ready(overlay,2,a.splatCount);
   const shared=await diagnostics(overlay),requestsBefore=sourceRequests;expect(shared.assets[0].references).toBe(2);if(!withProxy)expect(shared.nativeSurfaces.instances).toBe(2);
@@ -129,6 +134,7 @@ for(const withProxy of [true,false])test(`repeated ${withProxy?'proxy':'native'}
   const cleared=await diagnostics(overlay),overlayResources=await resources(overlay);
   expect(cleared.instances).toBe(0);expect(cleared.assets).toEqual([]);expect(cleared.views).toEqual([]);expect(cleared.nativeSurfaces.instances).toBe(0);
   cycles.push({cycle,shared,splitDiagnostics,splitResources,singleDiagnostics,singleResources,survivor,swapped,editorOpen,editorClosed,cleared,overlayResources});
+  saveEvidence();
   if(cycle>0){
    const warm=cycles[0];
    for(const [current,first] of [[splitResources,warm.splitResources],[singleResources,warm.singleResources]]){
@@ -147,6 +153,6 @@ for(const withProxy of [true,false])test(`repeated ${withProxy?'proxy':'native'}
    expect(cleared.rendererMemory.programs).toBeLessThanOrEqual(warm.cleared.rendererMemory.programs+2);
   }
  }
- mkdirSync('.work/gaussian',{recursive:true});writeFileSync('.work/gaussian/resource-lifetimes.json',JSON.stringify({initial,cycles,measurement:'Public Worker lifecycle + WebGL handle counts + Three renderer.info; not GPU memory bytes'},null,2));
+ saveEvidence();
  expect(errors).toEqual([]);
 });

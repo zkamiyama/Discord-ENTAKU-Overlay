@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {SSRPass} from 'three/addons/postprocessing/SSRPass.js';
 import {BokehShader} from 'three/addons/shaders/BokehShader.js';
+import type {GTAOPass} from 'three/addons/postprocessing/GTAOPass.js';
 import type {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 type ReflectionInternals=SSRPass&{
@@ -70,6 +71,12 @@ export function disposeReflectionPass(pass: SSRPass): void {
   // r187 SSRPass.dispose does not own ssrMaterial; the adapter owns that cleanup.
   pass.ssrMaterial.dispose();
   pass.dispose();
+}
+/** r187 GTAOPass.dispose omits two materials allocated by its constructor.
+ * Keep this upstream ownership correction in the same adapter as SSR. */
+export function disposeAmbientOcclusionPass(pass:GTAOPass):void {
+  const owned=pass as GTAOPass&{gtaoMaterial?:THREE.Material;blendMaterial?:THREE.Material};
+  owned.gtaoMaterial?.dispose();owned.blendMaterial?.dispose();pass.dispose();
 }
 export function createFocusMaterial(): THREE.ShaderMaterial {
   let source = replaceShaderOnce(BokehShader.fragmentShader,'float factor = ( focus + viewZ );','float delta = focus + viewZ; float factor = sign(delta) * max(0., abs(delta) - sharpRange);','THREE_BOKEH_SHADER_CHANGED');

@@ -1,6 +1,7 @@
 import { copyFile, chmod, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type {AppSnapshot} from '../src/contracts/domain.ts';
 const directory=await mkdtemp(join(tmpdir(),'entaku-standalone-'));
 const executable=join(directory,process.platform==='win32'?'ENTAKU-Overlay.exe':'entaku-overlay');
 const env={...process.env,PATH:''}; // No Bun, Node, package manager or browser is on the child PATH.
@@ -10,6 +11,27 @@ async function run(args:string[]):Promise<string>{
   const timeout=setTimeout(()=>child.kill(),10000);
   try{const out=await new Response(child.stdout).text();const code=await child.exited;if(code!==0)throw new Error('COMPILED_COMMAND_FAILED');return out;}
   finally{clearTimeout(timeout);child.kill();await child.exited;}
+}
+async function snapshot(origin:string):Promise<AppSnapshot>{
+  const LocalWebSocket=WebSocket as unknown as {new(url:string,options:{headers:Record<string,string>}):WebSocket};
+  const socket=new LocalWebSocket(origin.replace('http:','ws:')+'/ws',{headers:{Origin:origin}});
+  try{return await new Promise<AppSnapshot>((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('COMPILED_STATE_TIMEOUT')),5000);
+    socket.onerror=()=>{clearTimeout(timer);reject(new Error('COMPILED_STATE_FAILED'));};
+    socket.onclose=()=>{clearTimeout(timer);reject(new Error('COMPILED_STATE_CLOSED'));};
+    socket.onmessage=event=>{const packet=JSON.parse(String(event.data));if(packet.type==='snapshot'){clearTimeout(timer);resolve(packet.state);}};
+  });}finally{socket.onmessage=socket.onclose=socket.onerror=null;socket.close();}
+}
+async function persistentStartup():Promise<string>{
+  const child=Bun.spawn([executable,'--demo','--no-open','--port','0'],{cwd:directory,env,stdout:'pipe',stderr:'ignore'});server=child;
+  const timer=setTimeout(()=>child.kill(),15000),reader=child.stdout.getReader();let text='';
+  try{
+    for(;;){
+      const {value,done}=await reader.read();if(done)throw new Error('COMPILED_PERSISTENT_START_FAILED');
+      text+=new TextDecoder().decode(value);const origin=/Overlay: (http:\/\/127\.0\.0\.1:\d+)\/overlay(?:\s|$)/.exec(text)?.[1];
+      if(origin)return origin;
+    }
+  }finally{clearTimeout(timer);reader.releaseLock();}
 }
 try{
   await copyFile(resolve(process.platform==='win32'?'dist/ENTAKU-Overlay.exe':'dist/entaku-overlay'),executable);
@@ -36,10 +58,27 @@ try{
     await health.arrayBuffer();await overlay.arrayBuffer();
     if(await Bun.file(join(directory,'data','access-keys.json')).exists())throw new Error('OBSOLETE_ACCESS_KEYS_CREATED');
   }finally{clearTimeout(timer);reader.releaseLock();child.kill();await child.exited;server=null;}
+  if(await Bun.file(join(directory,'data','settings.sqlite')).exists())throw new Error('SAFE_MODE_WROTE_SETTINGS');
+  // Exercise bundled bun:sqlite with PATH empty, including initial publication
+  // and restart. The safe-mode HTTP smoke alone would never open the database.
+  let sessionId='';
+  for(let attempt=0;attempt<2;attempt++){
+    const origin=await persistentStartup(),state=await snapshot(origin);
+    if(attempt===0){
+      sessionId=state.session.sessionId;
+      const scene={...state.studio,post:{...state.studio.post,speechGlowScale:6}};
+      const response=await fetch(origin+'/api/commands',{method:'POST',signal:AbortSignal.timeout(5000),
+        headers:{Origin:origin,'Content-Type':'application/json'},
+        body:JSON.stringify({type:'studio-set',scene,expectedRevision:state.revision,requestId:'standalone-persistence'})});
+      if(!response.ok)throw new Error('COMPILED_SETTINGS_WRITE_FAILED');await response.arrayBuffer();
+    }else if(state.studio.post?.speechGlowScale!==6||state.session.sessionId!==sessionId)throw new Error('COMPILED_SETTINGS_RESTART_FAILED');
+    const running=server!;running.kill();await running.exited;server=null;
+  }
+  if(!await Bun.file(join(directory,'data','settings.sqlite')).exists())throw new Error('COMPILED_DATABASE_MISSING');
 }finally{
   if(server){server.kill();await server.exited;}
   // Windows may retain executable/directory handles briefly after process exit.
   // Retry only the documented transient rm errors; never hide a persistent failure.
   await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:100});
 }
-console.log(`Standalone smoke passed: ${process.platform}, PATH empty, copied executable only, HTTP + embedded assets, temporary directory removed, no Discord authorization.`);
+console.log(`Standalone smoke passed: ${process.platform}, PATH empty, copied executable only, HTTP + embedded assets + SQLite settings/session restart, temporary directory removed, no Discord authorization.`);

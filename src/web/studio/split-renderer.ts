@@ -1,3 +1,4 @@
+import type {SceneEffectsIndex} from './scene-effects-index.ts';
 import {saveRenderState} from './render-state.ts';
 import * as THREE from 'three';
 import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
@@ -11,14 +12,14 @@ export class SplitRenderer {
  private targets:THREE.WebGLRenderTarget[]=[];private effects:QualityRenderer[]=[];
  private cameras=[new THREE.PerspectiveCamera(),new THREE.PerspectiveCamera()];
  private composite?:FullScreenQuad;private supportedSamples?:number[];
- constructor(private renderer:THREE.WebGLRenderer){}
+ constructor(private renderer:THREE.WebGLRenderer,private index?:SceneEffectsIndex){}
  get supported():boolean{return this.renderer.extensions.has('EXT_color_buffer_float');}
- render(scene:THREE.Scene,panels:readonly [SplitPanel,SplitPanel],quality:QualitySettings,post:PostSettings,source:string,prepare:(panel:SplitPanel,camera:THREE.PerspectiveCamera)=>FocusBand):{qualityStatus:QualityStatus;msaaSamples:number;shadowLights:number}{
+ render(scene:THREE.Scene,panels:readonly [SplitPanel,SplitPanel],quality:QualitySettings,post:PostSettings,source:string,prepare:(panel:SplitPanel,camera:THREE.PerspectiveCamera)=>FocusBand,recoverySource=source):{qualityStatus:QualityStatus;msaaSamples:number;shadowLights:number}{
   const renderer=this.renderer,size=renderer.getDrawingBufferSize(new THREE.Vector2());
   const old=renderer.getRenderTarget(),restore=saveRenderState(renderer,scene);
   if(!this.targets.length){
    this.targets=[0,1].map(()=>new THREE.WebGLRenderTarget(1,1,{depthBuffer:true,stencilBuffer:false,generateMipmaps:false}));
-   this.effects=[new QualityRenderer(renderer),new QualityRenderer(renderer)];
+   this.effects=[new QualityRenderer(renderer,1,this.index),new QualityRenderer(renderer,1,this.index)];
    this.composite=new FullScreenQuad(new THREE.ShaderMaterial({
     uniforms:{left:{value:null},right:{value:null},seam:{value:0}},toneMapped:false,depthTest:false,depthWrite:false,blending:THREE.NoBlending,
     vertexShader:'varying vec2 v;void main(){v=uv;gl_Position=vec4(position.xy,0.,1.);}',
@@ -36,7 +37,7 @@ export class SplitRenderer {
     camera.aspect=width/size.y;camera.layers.enable(1);
     const focus=prepare(panels[i]!,camera);camera.updateProjectionMatrix();
     renderer.setRenderTarget(target);renderer.setScissorTest(false);renderer.autoClear=true;renderer.clear();
-    this.effects[i]!.render(scene,camera,quality,source,post,focus,true);
+    this.effects[i]!.render(scene,camera,quality,source,post,focus,true,recoverySource);
    }
    renderer.setRenderTarget(old);renderer.setScissorTest(false);renderer.autoClear=false;renderer.clear();
    const uniforms=(this.composite!.material as THREE.ShaderMaterial).uniforms;uniforms.left!.value=this.targets[0]!.texture;uniforms.right!.value=this.targets[1]!.texture;uniforms.seam!.value=1/Math.max(1,size.x);this.composite!.render(renderer);

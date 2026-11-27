@@ -2,12 +2,13 @@ import { expect, test } from 'bun:test';
 import { AppEngine } from '../../src/domain/engine.ts';
 import { startServer } from '../../src/server/app.ts';
 import { AvatarStore } from '../../src/assets/store.ts';
+import { SettingsStore } from '../../src/storage/settings-store.ts';
 import { demoEvents } from '../../src/replay/demo.ts';
 import { png } from '../helpers/png.ts';
-function start(store = new AvatarStore()) {
+function start(store = new AvatarStore(), settingsStore = new SettingsStore()) {
   const engine = new AppEngine({ source: 'demo', serverEpoch: 'test' });
   for (const event of demoEvents()) engine.apply(event);
-  const app = startServer({ engine, avatarStore: store, assets: {}, port: 0, now: () => 100 });
+  const app = startServer({ engine, settingsStore, avatarStore: store, assets: {}, port: 0, now: () => 100 });
   const origin = `http://127.0.0.1:${app.server.port}`;
   const command = (body: Record<string,unknown>) => fetch(origin + '/api/commands', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { app, engine, origin, command };
@@ -41,13 +42,13 @@ test('asset API keeps drafts out of program and serializes conflicting edits wit
   } finally { await app.stop(); }
 });
 test('failed profile save cannot change program state or edit revision', async () => {
-  class FailingStore extends AvatarStore { override async saveProfiles(): Promise<void> { throw new Error('AVATAR_SETTINGS_WRITE_FAILED'); } }
-  const { app, engine, origin, command } = start(new FailingStore());
+  class FailingStore extends SettingsStore { override commit(): void { throw new Error('SETTINGS_WRITE_FAILED'); } }
+  const { app, engine, origin, command } = start(new AvatarStore(),new FailingStore());
   try {
     const response = await fetch(origin + '/api/assets', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'image/png' }, body: new Uint8Array(png()) });
     const { assetId } = await response.json();
     const result = await command({ type: 'avatar-set', profile: { userId: '1', assetId, faceRect: [.25, .1, .5, .25], scale: 1, offsetX: 0, offsetY: 0 }, expectedRevision: 0, requestId: 'save-fails' });
-    expect(result.status).toBe(422); expect((await result.json()).error).toBe('AVATAR_SETTINGS_WRITE_FAILED');
+    expect(result.status).toBe(500); expect((await result.json()).error).toBe('SETTINGS_WRITE_FAILED');
     expect(engine.snapshot().revision).toBe(0); expect(engine.snapshot().avatarProfiles).toEqual([]);
   } finally { await app.stop(); }
 });

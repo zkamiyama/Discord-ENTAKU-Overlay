@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import * as THREE from 'three';
 import {EffectTargets} from '../../src/web/studio/effect-targets.ts';
-import {RenderRecovery} from '../../src/web/studio/render-recovery.ts';
+import {RetryBudget} from '../../src/web/shared/retry-budget.ts';
 import {createFocusMaterial,replaceShaderOnce} from '../../src/web/studio/addon-adapters.ts';
 
 test('targets allocate lazily, resize once and are released exactly once',()=>{
@@ -14,7 +14,7 @@ test('targets allocate lazily, resize once and are released exactly once',()=>{
   pool.dispose();pool.dispose();expect(releases).toBe(1);expect(pool.has('world')).toBe(false);
 });
 test('render recovery retries at bounded deadlines and renews only for a new configuration',()=>{
-  let now=0;const r=new RenderRecovery(()=>now);expect(r.canAttempt('a')).toBe(true);
+  let now=0;const r=new RetryBudget(()=>now);expect(r.canAttempt('a')).toBe(true);
   r.failed();now=499;expect(r.canAttempt('a')).toBe(false);now=500;expect(r.canAttempt('a')).toBe(true);
   r.failed();now=2499;expect(r.canAttempt('a')).toBe(false);now=2500;expect(r.canAttempt('a')).toBe(true);
   r.failed();now=100000;expect(r.canAttempt('a')).toBe(false);expect(r.canAttempt('b')).toBe(true);

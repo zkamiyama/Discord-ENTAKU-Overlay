@@ -1,10 +1,11 @@
+import {STATE_PROTOCOL} from '../../contracts/state-stream.ts';
 import {VERSION} from '../../version.ts';
 import {json,headers} from '../http.ts';
 import type {RouteContext,HttpRoute} from './context.ts';
 export function statusRoutes(context:RouteContext):HttpRoute {
  const {vcChat,diagnostic,recording,presets,now}=context;
  return async(request,url)=>{
-      if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: 1 });
+      if (request.method === 'GET' && url.pathname === '/api/health') return json({ application: 'Discord ENTAKU Overlay', version: VERSION, protocolVersion: STATE_PROTOCOL });
       if(request.method==='GET'&&url.pathname==='/api/vc-chat')return json(vcChat.snapshot());
       if(request.method==='GET'&&url.pathname==='/api/diagnostics'){
         return json(diagnostic());

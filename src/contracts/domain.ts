@@ -39,7 +39,7 @@ export interface CameraPlan {
   studioHidden?: boolean; safetyReason?: string; composition?: 'SPLIT' | 'WIDE' | 'SINGLE_OTS' | 'SINGLE_CLEAN' | 'TWO_SHOT' | 'MODERATOR_SINGLE' | 'MODERATOR_TWO'; foregroundUserId?: string; visibilityReason?: string;
 }
 export interface AppSnapshot {
-  protocolVersion: 1; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;
+  protocolVersion: 2; serverEpoch: string; seq: number; revision: number; serverNowMs: number; clockRate?: number;
   connection: ConnectionStatus; errorCode?: string; channel: Channel | null;
   studio: StudioScene;
   speech:Array<{userId:string;activeMs:number;ratio:number;qualified:boolean;speechWindowMs?:number;speechMs10s?:number}>;

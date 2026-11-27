@@ -1,6 +1,6 @@
 # 3DGSキャラクターパッケージ仕様
 
-ENTAKUの3DGSキャラクターは、`manifest.json` と素材をまとめた1個のZIPで持ち運びます。manifestにはキャラクターの座標、顔、体、画角の範囲を保存します。Discordの参加者IDは含めず、参加者への割り当てはローカルの `avatars.json` に保存します。
+ENTAKUの3DGSキャラクターは `manifest.json` と素材をまとめた1個のZIPで持ち運びます。manifestにはキャラクターの座標、顔、体、画角の範囲を保存します。Discordの参加者IDは含めず、参加者への割り当てはローカルの `data/settings.sqlite` に保存します。
 
 この文書は現在のインポーター、保存処理、座標変換の仕様です。Dockでの操作は [3DGSアバターの利用手順](gaussian-avatars.md) を参照してください。描画や実機の検証結果とは区別して扱ってください。
 
@@ -248,13 +248,13 @@ ZIPは宣言サイズだけでなく、実際に展開したバイト数も検�
 
 参加者割り当ては素材とは別に保存します。インポートだけでは現在の割り当てを変更しません。manifestや配置を編集しても元の素材は変更せず、書き出したZIPを再インポートすると編集内容に対応した `assetId` になります。
 
-割り当て変更は検証とファイル保存後にruntimeへ反映します。プリセット適用時も必要な素材と元データ合計を先に検査します。設定の保存失敗時は以前の設定へ戻す処理を行います。これはプロセス内の補償処理で、複数ファイルをまとめたクラッシュ復旧トランザクションではありません。補償自体の失敗は `SETTINGS_ROLLBACK_FAILED` または `PRESET_ROLLBACK_FAILED` として返します。
+割り当て変更は必要な素材と元データ合計を検証し、設定と現在の通話の座席を `data/settings.sqlite` の同じトランザクションで保存します。プリセット適用時もスタジオ、人物、現在の座席をまとめて保存します。DBの保存に失敗した場合はDBの更新を取り消し、runtimeも変更前へ戻します。保存が確定してから変更を配信し、成功応答を返します。確定順序と障害時の保証範囲は [ADR 0027](adr/0027-durable-settings-and-command-transactions.md) を参照してください。
 
-起動時のプロフィール読み込みは、欠損素材があっても表示側で代替表示できるよう素材の存在検査を行いません。元データ合計の検査は設定更新・プリセット適用時に行います。`avatars.json` を手で編集して上限を回避する運用には対応しません。
+起動時のプロフィール読み込みは、欠損素材があっても表示側で代替表示できるよう素材の存在検査を行いません。元データ合計の検査は設定更新・プリセット適用時に行います。移行後に旧 `avatars.json` を編集しても現在の割り当てには反映されません。割り当てはDockまたは設定APIから更新してください。保存データを直接書き換えて上限を回避する運用には対応しません。
 
 現在のHTTP APIにはパッケージ削除操作はなく、割り当て解除でも素材の保存容量は減りません。利用中の素材ディレクトリーを手で削除すると、その素材を参照する割り当てやプリセットが読み込めなくなります。
 
-設定処理は [store.ts](../src/assets/store.ts) と [settings-service.ts](../src/server/settings-service.ts) にあります。
+設定の検証は [store.ts](../src/assets/store.ts)、変更と保存の調整は [settings-service.ts](../src/server/settings-service.ts)、DBへの保存は [settings-store.ts](../src/storage/settings-store.ts) にあります。
 
 ## HTTP API
 
@@ -294,7 +294,7 @@ interface StoredGaussianAsset {
 
 ### エラー
 
-APIはJSONの `{ "error": "コード" }` を返します。Originの拒否は `403`、容量やZIPエントリー数の超過はimportで `413`、内容や割り当ての検証失敗はPOSTで `422` です。GETで素材を取得できない場合は `404`、一覧を読み出せない場合は `500` です。revisionが競合したコマンドは `409` になります。
+APIはJSONの `{ "error": "コード" }` を返します。Originの拒否は `403`、容量やZIPエントリー数の超過はimportで `413`、内容や割り当ての検証失敗はPOSTで `422` です。GETで素材を取得できない場合は `404`、一覧を読み出せない場合は `500` です。revision、保存済み設定、検証中の通話状態が競合したコマンドは `409`、設定の書き込み失敗は `500` になります。
 
 | 主なコード | 原因・確認箇所 |
 | --- | --- |
@@ -315,7 +315,8 @@ APIはJSONの `{ "error": "コード" }` を返します。Originの拒否は `4
 | `GAUSSIAN_ACTIVE_SPLAT_LIMIT` | 保存対象プロフィールの元データ合計が8,000,000を超過 |
 | `GAUSSIAN_STORE_FULL` | 保存数または保存容量の上限 |
 | `GAUSSIAN_ASSET_NOT_FOUND` / `GAUSSIAN_FILE_CORRUPT` | 登録情報やファイルの欠落・破損 |
-| `AVATAR_SETTINGS_WRITE_FAILED` | 参加者設定の保存失敗 |
+| `SETTINGS_CONFLICT` | 別プロセスが更新した設定や座席との競合 |
+| `SETTINGS_WRITE_FAILED` | 参加者設定の保存失敗 |
 
 ルートとHTTPステータスは [assets.ts](../src/server/routes/assets.ts) と [commands.ts](../src/server/routes/commands.ts) にあります。
 
@@ -323,9 +324,11 @@ APIはJSONの `{ "error": "コード" }` を返します。Originの拒否は `4
 
 既存の画像プロフィールは `kind` がなくても画像として読み込みます。画像の表面・裏面、`faceRect`、`framingRect`、倍率、位置を維持します。画像をGaussianとして解釈したり、Gaussianへダミーの画像寸法を付けたりしません。
 
-`avatars.json` は従来の `schemaVersion:1` と新しい `schemaVersion:2` を読み込み、新しく保存するときは `2` を使用します。通常の設定プリセットのschemaVersionは `1` のまま、画像とGaussianのプロフィールを混在させます。旧バージョンのアプリでGaussianプロフィールを読み込む互換性は提供しません。
+旧 `avatars.json` の `schemaVersion:1` / `schemaVersion:2` は `data/settings.sqlite` がない初回のDB作成時にだけ読み込みます。元のJSONを保持し、その後の設定更新はDBへ保存します。移行済みDBの破損時に旧JSONを自動的に読み直す処理はありません。[現在の保存先と移行](architecture-status.md#データの移行)を参照してください。
 
-互換処理は [avatar-profile.ts](../src/assets/avatar-profile.ts) と [presets/schema.ts](../src/presets/schema.ts) にあります。
+配布ZIPのmanifestと通常の設定プリセットのschemaVersionは `1` のままです。設定プリセットには画像とGaussianのプロフィールを混在させられます。旧バージョンのアプリでGaussianプロフィールを読み込む互換性は提供しません。
+
+プロフィールの検証は [avatar-profile.ts](../src/assets/avatar-profile.ts)、旧JSONの移行は [legacy-settings.ts](../src/storage/legacy-settings.ts)、プリセットの検証は [presets/schema.ts](../src/presets/schema.ts) にあります。
 
 ## テストとサンプル
 

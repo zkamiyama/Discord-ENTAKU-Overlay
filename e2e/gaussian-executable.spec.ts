@@ -181,9 +181,10 @@ test.describe('compiled Linux 3DGS distribution',()=>{
       result.bootstrapNetwork=structuredClone(boot.network);
       await boot.browser.close();boot=undefined;
       await stopServer(server);result.firstServerLog=server.output();server=undefined;
-      const saved=JSON.parse(await readFile(join(dataDirectory,'avatars.json'),'utf8'));
-      expect(saved.profiles.find((p:{userId:string})=>p.userId==='100')).toMatchObject(profile);
-      result.persistedSchemaVersion=saved.schemaVersion;
+      const saved=await readFile(join(dataDirectory,'settings.sqlite'));
+      expect(saved.subarray(0,16).toString('ascii')).toBe('SQLite format 3\0');
+      expect(await readdir(dataDirectory)).not.toContain('avatars.json');
+      result.persistedStorage={format:'sqlite3',bytes:saved.byteLength};
 
       // Restart the copied binary and use a separate cold browser process. No
       // import request is made in this phase: all character bytes come from disk.

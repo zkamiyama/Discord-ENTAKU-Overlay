@@ -20,9 +20,17 @@
 
 ## 所有権と復元
 
+OverlaySceneがシーンと参加者の配置を管理し、ProgramRendererが全ビュー共通のSceneEffectsIndexを所有する。カメラ別の描画ターゲット、ソート、LoD選択は共用しない。GLBの素材はStudioModelRegistryから参照し、配置ごとの変更可能なマテリアルと骨格は各インスタンスが所有する。詳細は[ADR 0026](adr/0026-state-stream-and-resource-ownership.md)と[ADR 0028](adr/0028-render-generation-and-screen-halo.md)を参照する。検証範囲は[アーキテクチャの現状](architecture-status.md)に記録する。
+
 ProgramRendererが単独・分割レンダラーと標準照明を所有する。EffectTargetsは画面効果のターゲットを必要時に確保し、Three.js標準のsetSizeとdisposeを呼ぶ。読み込み中のスタジオ候補は表示中のスタジオと別の所有者である。
 
-QualityRenderer、PostRenderer、DisplayComposite、SplitRendererは、複数パスで変更した状態をsaveRenderStateで復元する。対象は描画先、キューブ面・mip、viewport、scissor、クリア色、背景、色空間、レイヤー、autoClear、影の自動更新である。正常終了・例外のどちらでも復元し、出力テクスチャの中身は解放しない。
+QualityRenderer、PostRenderer、DisplayComposite、SplitRendererは複数パスで変更した状態をsaveRenderStateで復元する。対象は描画先、キューブ面・mip、viewport、scissor、クリア色、背景、色空間、レイヤー、autoClear、影の自動更新である。正常終了・例外のどちらでも復元し、出力テクスチャの中身は解放しない。
+
+viewportとscissorはRenderer全体の論理座標を先に復元し、最後にsetRenderTargetを呼ぶ。Three.jsが描画先ごとの実画素viewportを復元するため、分割パネルが全画面の大きさに引き伸ばされない。DPR、独自viewport、入れ子のパスを単体テストで確認する。
+
+ScenePresentationは完成済みのスタジオ設定とカメラ計画を同時に表示へ反映する。候補の読み込み中・失敗時も参加者と発話は更新する。2D画像、3DGS、連動GLBの発話強度は共通のAvatarEnvelopeから取得し、Three.jsのMathUtils.dampに実際の経過時間を渡す。
+
+3DGSの外側グローは表示中のLoDとソート結果を使う通常サイズのマスクから生成する。GaussianSpeechHaloはマスク、深度、距離計算用の2枚のテクスチャを所有する。サイズ別に最大2組を再利用し、奇数幅の左右分割で毎回再確保しない。視点固有のLoDとソートを混ぜず、不要な組と終了時の全組はdisposeで解放する。[発話グロー](gaussian-speech-glow.md)に描画順と近似の範囲を記載する。
 
 スタジオ破棄時はライトのdisposeも呼び、影用テクスチャを解放する。Overlay終了時は描画ループ、WebSocket、人物、机、照明、描画パイプライン、Rendererを解放する。編集中の画像プレビューは本番とは別の所有者で、古い非同期ビルドを新しい画像へ接続しない。
 

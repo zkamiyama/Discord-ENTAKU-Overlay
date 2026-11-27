@@ -3,11 +3,21 @@ import type {SplatMesh} from '@sparkjsdev/spark';
 
 /** Original-asset-space bounds; set once per calibration, never scan splats in a frame. */
 const boundsByMesh=new WeakMap<SplatMesh,THREE.Box3>();
+const worldBounds=new THREE.Box3();
+export const MAX_GAUSSIAN_HALO_RADIUS=144;
 export function setGaussianSpeechBounds(mesh:SplatMesh,bounds:THREE.Box3):void {
  if(bounds.isEmpty()||![...bounds.min.toArray(),...bounds.max.toArray()].every(Number.isFinite))throw new Error('GAUSSIAN_SPEECH_BOUNDS_INVALID');
  boundsByMesh.set(mesh,bounds.clone());
 }
 export function clearGaussianSpeechBounds(mesh:SplatMesh):void {boundsByMesh.delete(mesh);}
+
+/** A calibrated asset wholly outside the view cannot contribute a visible halo.
+ * Unknown bounds stay conservative. Uses Three's box/frustum operations only.
+ */
+export function gaussianSpeechIntersectsView(mesh:SplatMesh,frustum:THREE.Frustum):boolean {
+ const bounds=boundsByMesh.get(mesh);
+ return !bounds||frustum.intersectsBox(worldBounds.copy(bounds).applyMatrix4(mesh.matrixWorld));
+}
 
 /** Project the calibrated full-body box into the actual render target.
  * The result is in framebuffer pixels, not world metres or CSS pixels.
@@ -46,7 +56,7 @@ export function speechScreenGlowRadius(bodyPixels:number|null,framebufferHeight:
  if(!Number.isFinite(framebufferHeight)||!framebufferHeight||framebufferHeight<=0)return 8.5*strength;
  const height=framebufferHeight;
  const projected=bodyPixels===null?height*.4:bodyPixels;
- const minimum=Math.max(4,height*.012),maximum=Math.min(72,Math.max(minimum,height*.065));
+ const minimum=Math.max(4,height*.012),maximum=Math.min(MAX_GAUSSIAN_HALO_RADIUS/2,Math.max(minimum,height*.065));
  return THREE.MathUtils.clamp(projected*.06,minimum,maximum)*strength;
 }
 /** Per-frame Gaussian owner mapping; never scans the original splat array. */

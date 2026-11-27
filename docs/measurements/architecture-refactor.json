@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "scope": "Architecture refactor measurements; synthetic workloads, not OBS output FPS or a hardware GPU guarantee.",
+  "gaussianSpeech": {
+    "baselineCommit": "67bac9ee9dca68617cb85f5023c63b599f502e82",
+    "afterBranch": "fix/entaku-stability-performance-audit",
+    "afterParentCommit": "ae208c22942f31dcba5813fc53488bda4b0d4721",
+    "afterImplementation": "Native-footprint speech mask, half-resolution bounded screen field, two-size target pool, initial native texture preparation.",
+    "protocol": "Fixed 480x480 camera, synthetic bust, mode 2, glowScale 4. Complete silent warmup and readPixels first. Time 13 settle frames plus synchronous readPixels completion for speech. One sample per implementation.",
+    "command": "bun run bench:gaussian-speech --software --repository PATH --output RESULT.json",
+    "limitations": [
+      "Software WebGL via SwiftShader. Values include GPU work completion, not only CPU command submission.",
+      "The settles[].elapsedMs values record scheduling/selection events; they exclude the synchronous completion readback and are not rendering speed measurements.",
+      "The later startup micro-motion tolerance fix does not alter the already-ready, fixed-camera timed rendering path. This measurement precedes that fix.",
+      "Input and selected Splat counts, camera, browser, output pixels and glow setting match; glow algorithms intentionally differ.",
+      "No multi-run confidence interval, hardware GPU, native OBS/CEF, or long-duration streaming performance was measured."
+    ],
+    "before": {
+      "measuredAt": "2026-11-27T15:28:18.093Z",
+      "browser": "158.0.8127.0",
+      "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+      "case": {
+        "mode": 2,
+        "glowScale": 4
+      },
+      "settleAndReadbackMs": 54217.90000000014,
+      "width": 480,
+      "height": 480,
+      "inputSplats": 35913,
+      "selectedSplats": [
+        35869
+      ],
+      "appearance": {
+        "changed": 56929,
+        "max": 255,
+        "green": 4580896
+      },
+      "settles": [
+        {
+          "options": {
+            "speaking": "none"
+          },
+          "frames": 44,
+          "elapsedMs": 12879
+        },
+        {
+          "options": {
+            "mode": 2,
+            "glowScale": 4
+          },
+          "frames": 13,
+          "elapsedMs": 215
+        }
+      ],
+      "errors": []
+    },
+    "after": {
+      "measuredAt": "2026-11-27T16:08:44.999Z",
+      "browser": "158.0.8127.0",
+      "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+      "softwareRequested": true,
+      "os": {
+        "platform": "linux",
+        "release": "6.18.57",
+        "cpu": "AMD EPYC 9V74 80-Core Processor"
+      },
+      "case": {
+        "mode": 2,
+        "glowScale": 4
+      },
+      "settleAndReadbackMs": 12051.700000000186,
+      "width": 480,
+      "height": 480,
+      "inputSplats": 35913,
+      "selectedSplats": [
+        35869
+      ],
+      "appearance": {
+        "changed": 60435,
+        "max": 243,
+        "green": 3081344
+      },
+      "settles": [
+        {
+          "options": {
+            "speaking": "none"
+          },
+          "frames": 15,
+          "elapsedMs": 284
+        },
+        {
+          "options": {
+            "mode": 2,
+            "glowScale": 4
+          },
+          "frames": 13,
+          "elapsedMs": 274
+        }
+      ],
+      "errors": []
+    },
+    "elapsedReductionPercent": 77.77173221389955,
+    "elapsedSpeedupRatio": 4.498776106275406
+  },
+  "stateStream": {
+    "frames": 10000,
+    "participants": 32,
+    "models": 32,
+    "fullBytes": 443835560,
+    "wireBytes": 31215719,
+    "reductionPercent": 92.96682784948551,
+    "validationElapsedMs": 7139,
+    "scope": "synthetic wire payload; no WebSocket compression, GPU or OBS performance claim"
+  }
+}

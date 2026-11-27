@@ -1,9 +1,13 @@
+import {parseRenderReport} from './render-report.ts';
+import {StatePublisher} from '../contracts/state-stream.ts';
+import {WorkQueue} from './work-queue.ts';
 import {GAUSSIAN_LIMITS} from '../assets/gaussian-profile.ts';
 import {headers,json} from './http.ts';
 import {statusRoutes} from './routes/status.ts';
 import {assetRoutes} from './routes/assets.ts';
 import {commandRoute} from './routes/commands.ts';
 import {SettingsService} from './settings-service.ts';
+import {SettingsStore} from '../storage/settings-store.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {PresetStore} from '../presets/store.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
@@ -19,7 +23,7 @@ import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { chat?:boolean; messages: number; windowStart: number }
+interface SocketData { chat?:boolean; messages: number; windowStart: number; frame?:number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
@@ -28,6 +32,7 @@ export interface ServerOptions {
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
   presets?: PresetStore;
+  settingsStore?: SettingsStore;
   replay?:{status:()=>ReplayStatus;control:(command:ReplayControl)=>Promise<void>};
 }
 export function startServer(options: ServerOptions) {
@@ -46,32 +51,61 @@ export function startServer(options: ServerOptions) {
   const studioStore=options.studioStore??new StudioStore();
   const presets=options.presets??new PresetStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
-  const settings=new SettingsService(engine,studioStore,customAssets,presets,now);
-  let mutationQueue = Promise.resolve();
-  const serial = <T>(work:()=>Promise<T>):Promise<T> => {
-    const result=mutationQueue.then(work);mutationQueue=result.then(()=>{},()=>{});return result;
+  const settingsStore=options.settingsStore??new SettingsStore(null,{studio:engine.snapshot().studio,avatarProfiles:engine.avatarProfiles(),preferences:null});
+  const settings=new SettingsService(engine,settingsStore,studioStore,customAssets,presets,now);
+  // The single writer protects validation and settings transactions; bounded admission also
+  // protects the process from retaining unlimited uploaded assets or commands.
+  const mutations=new WorkQueue(8);
+  let stopping=false,stopped:Promise<void>|undefined;
+  const serial = async(work:()=>Promise<Response>,signal?:AbortSignal):Promise<Response> => {
+    const result=mutations.tryRun(work,signal);
+    if(!result)return json({error:stopping?'SERVER_STOPPING':'SERVER_BUSY'},503);
+    try{return await result;}catch(error){
+      if(error instanceof Error&&error.message==='WORK_CANCELLED')return json({error:signal?.aborted?'REQUEST_CANCELLED':'SERVER_STOPPING'},503);
+      throw error;
+    }
   };
 
   let broadcastAt = -Infinity;
-  const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): void => {
-    if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
-    socket.send(message);
+  const stream=new StatePublisher();
+  const closeSocket=(socket:ServerWebSocket<SocketData>,code:number,reason:string):void=>{
+    clients.delete(socket);reports.delete(socket);
+    if(!clients.size)stream.reset();
+    try{socket.close(code,reason);}catch{/* A failed connection cannot interrupt another client or a committed command. */}
   };
-  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => sendEncoded(socket, JSON.stringify(message));
+  const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): boolean => {
+    if(stopping||!clients.has(socket))return false;
+    try{
+      if(socket.getBufferedAmount()<=1024*1024&&socket.send(message)!==0)return true;
+    }catch{/* Retire only the failing socket. */}
+    closeSocket(socket,1013,'SLOW_CLIENT');return false;
+  };
+  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {sendEncoded(socket, JSON.stringify(message));};
   const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
-  const snapshot = (state=engine.snapshot(now())): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
   const broadcast = (): void => {
-    const state=engine.snapshot(now());
-    journal.state(state);
-    const message = JSON.stringify(snapshot(state));
-    for (const socket of clients) sendEncoded(socket, message);
-    broadcastAt = performance.now();
+    if(stopping)return;
+    const time=now();
+    if(clients.size){
+      const state=engine.snapshot(time),playback=options.replay?.status();journal.state(state);
+      const packet=stream.publish({...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1});
+      for(const socket of clients){
+        const message=socket.data.frame===packet.base&&packet.delta!==undefined?packet.delta:packet.full();
+        socket.data.frame=sendEncoded(socket,message)?packet.frame:undefined;
+      }
+    }else journal.state(engine.journalState(time));
+    broadcastAt=performance.now();
+  };
+  const sendFull=(socket:ServerWebSocket<SocketData>):void=>{
+    const packet=stream.latest;
+    if(!packet){broadcast();return;}
+    socket.data.frame=sendEncoded(socket,packet.full())?packet.frame:undefined;
   };
   const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,diagnostic,broadcast,serial};
   const routes=[statusRoutes(context),assetRoutes(context),commandRoute(context)];
   const server = Bun.serve<SocketData>({
     hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes) + 1024*1024,
     async fetch(request, server) {
+      if(stopping)return json({error:'SERVER_STOPPING'},503);
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
       const url = new URL(request.url);
       if (url.pathname === '/ws') {
@@ -89,12 +123,16 @@ export function startServer(options: ServerOptions) {
     websocket: {
       maxPayloadLength: 1024 * 1024, backpressureLimit: 1024 * 1024, closeOnBackpressureLimit: true,
       open(socket) {
-        if (clients.size >= 8) { socket.close(1013, 'CLIENT_LIMIT'); return; }
+        if(stopping){closeSocket(socket,1001,'SHUTDOWN');return;}
+        if (clients.size >= 8) { closeSocket(socket,1013,'CLIENT_LIMIT');return; }
         clients.add(socket);
         send(socket, { type: 'hello' });
-        send(socket, snapshot());
+        // Initial snapshots are full and current. Established sockets receive
+        // the same new wire frame as a delta, keeping one baseline globally.
+        broadcast();
       },
       message(socket, message) {
+        if(stopping||!clients.has(socket))return;
         try {
           const time = performance.now();
           if (time - socket.data.windowStart > 1000) { socket.data.windowStart = time; socket.data.messages = 0; }
@@ -104,17 +142,13 @@ export function startServer(options: ServerOptions) {
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
           else if(p.type==='vc-chat-subscribe'){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
           else if(p.type==='render-status'){
-            const allowed=['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST'];
-            if(!allowed.includes(String(p.status))||![p.frameMs,p.drawCalls,p.triangles].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<1e9))throw new Error();
-            const exposure=typeof p.exposure==='number'&&Number.isFinite(p.exposure)&&p.exposure>0&&p.exposure<=32&&['AUTO','MANUAL','EMPTY_METER','HDR_UNAVAILABLE','METER_FAILED'].includes(String(p.exposureStatus))&&typeof p.authoredLights==='number'&&Number.isSafeInteger(p.authoredLights)&&p.authoredLights>=0&&p.authoredLights<=10000&&typeof p.fallbackLights==='boolean'?{exposure:p.exposure,exposureStatus:String(p.exposureStatus),authoredLights:p.authoredLights,fallbackLights:p.fallbackLights}:{};
-            const quality=['DIRECT','EFFECTS','EFFECTS_UNAVAILABLE','EFFECTS_FAILED'].includes(String(p.qualityStatus))&&typeof p.shadowLights==='number'&&Number.isInteger(p.shadowLights)&&p.shadowLights>=0&&p.shadowLights<=8?{qualityStatus:String(p.qualityStatus),shadowLights:p.shadowLights}:{};
-            reports.set(socket,{status:String(p.status),frameMs:p.frameMs as number,drawCalls:p.drawCalls as number,triangles:p.triangles as number,updatedAtMs:performance.now(),...exposure,...quality,...(typeof p.msaaSamples==='number'&&[0,2,4,8].includes(p.msaaSamples)?{msaaSamples:p.msaaSamples}:{})});
+            reports.set(socket,parseRenderReport(p,performance.now()));
           }
-          else if (p.type === 'resync') send(socket, snapshot());
+          else if (p.type === 'resync') sendFull(socket);
           else socket.close(1008, 'INVALID_MESSAGE');
         } catch { socket.close(1008, 'INVALID_MESSAGE'); }
       },
-      close(socket) { clients.delete(socket); reports.delete(socket); },
+      close(socket) { clients.delete(socket); reports.delete(socket);if(!clients.size)stream.reset(); },
     },
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });
@@ -125,6 +159,13 @@ export function startServer(options: ServerOptions) {
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
-    async stop() { offEvents(); offChat(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
+    stop():Promise<void> {
+      return stopped??=(async()=>{
+        stopping=true;offEvents();offChat();clearInterval(timer);
+        const drained=mutations.close();
+        for(const socket of clients)closeSocket(socket,1001,'SHUTDOWN');
+        try{await server.stop(true);}finally{await drained;}
+      })();
+    },
   };
 }

@@ -18,10 +18,10 @@ test('move swaps physical seats and moderator roles without reflow; empty host s
 });
 test('released absent participants leave the Dock, keep profiles, and may join again',()=>{
  const e=new AppEngine({source:'demo',serverEpoch:'test'});for(const v of demoEvents())e.apply(v);e.tick(3000);
- const id=e.snapshot().participants[1]!.userId;
+ const person=e.snapshot().participants[1]!,id=person.userId;
  e.apply({type:'participant-left',userId:id,sourceGeneration:1,receivedAtMs:3100});expect(dockPeople(e.snapshot()).some(p=>p.userId===id)).toBe(true);
  e.control({type:'release',userId:id},e.snapshot().revision,3200);expect(dockPeople(e.snapshot()).some(p=>p.userId===id)).toBe(false);
- const person=e.snapshot().participants.find(p=>p.userId===id)!;e.apply({type:'participant-upsert',participant:person,sourceGeneration:1,receivedAtMs:3300});e.tick(4000);
+ expect(e.participant(id)).toBeUndefined();e.apply({type:'participant-upsert',participant:person,sourceGeneration:1,receivedAtMs:3300});e.tick(4000);
  expect(dockPeople(e.snapshot()).find(p=>p.userId===id)?.presence).toBe('present');
 });
 test('cohost plate footprints never overlap at the inner rim, from 2 to 32 seats',()=>{

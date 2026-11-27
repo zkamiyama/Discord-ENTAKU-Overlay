@@ -1,4 +1,30 @@
 import {expect,test} from './fixtures.ts';
+test('overlay publishes READY only after the first authoritative frame is complete',async({page})=>{
+ let held=true,received=0,release=()=>{};
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.routeWebSocket(/\/ws(?:\?|$)/,socket=>{
+  const server=socket.connectToServer(),pending:(string|Buffer)[]=[];
+  server.onMessage(message=>{
+   const packet=JSON.parse(message.toString());
+   if(held&&(packet.type==='snapshot'||packet.type==='snapshot-delta')){pending.push(message);received++;}
+   else socket.send(message);
+  });
+  release=()=>{held=false;for(const message of pending)socket.send(message);pending.length=0;};
+ });
+ await page.goto('/overlay');
+ await expect.poll(()=>received).toBeGreaterThan(0);
+ const scene=page.locator('#scene');
+ await expect(scene).toHaveAttribute('data-studio-status','STATE_WAITING');
+ expect(await scene.getAttribute('data-camera-local-position')).toBeNull();
+ release();
+ await expect(scene).toHaveAttribute('data-studio-status','READY');
+ for(const name of ['data-camera-local-position','data-camera-local-target']){
+  const values=(await scene.getAttribute(name))!.split(',').map(Number);
+  expect(values).toHaveLength(3);expect(values.every(Number.isFinite)).toBe(true);
+ }
+ expect(errors).toEqual([]);
+});
+
 test('frontal wide and near clip settings reach the renderer and survive Dock reload',async({page,context})=>{
  const errors:string[]=[];
  await page.goto('/dock');await expect(page.locator('#transport')).toHaveText('接続済み');

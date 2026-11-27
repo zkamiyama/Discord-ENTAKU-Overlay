@@ -1,5 +1,7 @@
 # ADR 0023：静的3DGSアバターと代理形状
 
+このADRは導入時の記録である。現在の設定・参加者割り当て・座席の保存先と移行は[ADR 0027](0027-durable-settings-and-command-transactions.md)を参照する。
+
 ## 基準と依存
 
 作業開始時はユーザー指定のfeature/static-3dgsブランチ、HEADは2ed355cfc2e753672c9340f0bdb3d58161330773だった。実装指示の参照版a00cdc2b4b9a656c2026f43bde0c59c011cd8c53との差分は、このADRの追加45行だけで、実装コードの差分はなかった。このブランチを継続した。ルートAGENTS.mdが適用され、追加のAGENTS.mdはなかった。コミット作成とリモートブランチ更新にはGitHub Pluginを使用する。

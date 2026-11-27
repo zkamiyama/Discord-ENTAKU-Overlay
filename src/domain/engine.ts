@@ -1,3 +1,4 @@
+import {studioCameraKey} from '../studio/change-keys.ts';
 import {MembershipState} from './membership-state.ts';
 import {updateSeatLayout} from './layout-coordinator.ts';
 import {CameraContext} from './camera-context.ts';
@@ -8,8 +9,8 @@ import {DEFAULT_DIRECTION} from '../studio/direction.ts';
 import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
 import { validateProfile, type AvatarProfile } from '../assets/avatar-profile.ts';
-import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
-import { TABLE } from './defaults.ts';
+import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, Participant, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
+import { APP,TABLE } from './defaults.ts';
 import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
 import { ShotDirector } from './shot-director.ts';
@@ -40,6 +41,12 @@ export class AppEngine {
   private generation = -1;
   private contextVersion = 0;
   get settingsContextVersion(): number {return this.contextVersion;}
+  get currentRevision():number{return this.revision;}
+  get source():AppSnapshot['source']{return this.options.source;}
+  participant(id:string):Participant|undefined {
+    const person=this.membership.participants.get(id);return person?structuredClone(person):undefined;
+  }
+  avatarProfiles():AvatarProfile[]{return structuredClone([...this.profiles.values()]);}
   private now = 0;
   private seq = 0;
   private revision = 0;
@@ -136,6 +143,7 @@ export class AppEngine {
       this.layoutHoldUntil=this.now+TABLE.growthDurationMs+500;this.layoutHoldReason='LAYOUT_GROWTH';
       this.forceWide('LAYOUT_GROWTH');
     }
+    this.membership.pruneAbsent(new Set(this.allocator.snapshot().reservations.map(r=>r.userId)));
     this.membershipDue=null;
   }
   private byUser(): Map<string, SeatTransform> {
@@ -145,8 +153,9 @@ export class AppEngine {
     return this.cameraContext.geometry(()=>this.allocator.snapshot(),this.layout,this.membership.participants,this.profiles).extents;
   }
   /** Roll back synchronous settings failures, including camera/layout planning.
-   * Never span an await: provider events must not be restored from an old snapshot. */
-  private settingsTransaction(change: () => void): void {
+   * The optional commit runs last and must be synchronous. Never span an await:
+   * provider events must not be restored from an old snapshot. */
+  private settingsTransaction(change: () => void, commit?: () => void): void {
     const allocators = new Map<SeatAllocator, SeatAllocator>();
     const copyAllocator = (a: SeatAllocator): SeatAllocator => {
       if (!allocators.has(a)) allocators.set(a, a.clone());
@@ -161,10 +170,10 @@ export class AppEngine {
       allocators:new Map([...this.allocators].map(([id,a]) => [id,copyAllocator(a)])),
       allocator:copyAllocator(this.allocator),
     };
-    try {change();} catch (error) {Object.assign(this,before);this.cameraContext.invalidate();throw error;}
+    try {change();commit?.();} catch (error) {Object.assign(this,before);this.cameraContext.invalidate();throw error;}
   }
-  setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
-    this.settingsTransaction(() => this.replaceAvatarProfiles(profiles, expectedRevision, now));
+  setAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number, commit?: () => void): void {
+    this.settingsTransaction(() => this.replaceAvatarProfiles(profiles, expectedRevision, now),commit);
   }
   private replaceAvatarProfiles(profiles: readonly AvatarProfile[], expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
@@ -177,18 +186,19 @@ export class AppEngine {
   private configureDirection():void {
     const d=this.studio.direction??DEFAULT_DIRECTION;this.membership.tracker.configure(d);this.director.configure(d);
   }
-  setStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
-    this.settingsTransaction(() => this.replaceStudioScene(scene, expectedRevision, now));
+  setStudioScene(scene: StudioScene, expectedRevision: number, now: number, commit?: () => void): void {
+    this.settingsTransaction(() => this.replaceStudioScene(scene, expectedRevision, now),commit);
   }
   private replaceStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
-    const clean=validateStudioScene(scene);this.advance(now);this.cameraContext.invalidate();
-    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
+    const clean=validateStudioScene(scene);this.advance(now);
     const previous=this.studio.direction??DEFAULT_DIRECTION,next=clean.direction??DEFAULT_DIRECTION;
     const framingChanged=['portraitFov','wideHeightRatio','nearClip'].some(key=>previous[key as keyof typeof previous]!==next[key as keyof typeof next]);
     const directionChanged=JSON.stringify(previous)!==JSON.stringify(next);
-    const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;this.configureDirection();
-    if(exposureOnly){
+    const structureChanged=studioCameraKey(clean)!==studioCameraKey(this.studio);
+    this.studio=clean;
+    if(directionChanged){this.cameraContext.invalidate();this.configureDirection();}
+    if(!structureChanged){
       this.revision++;this.seq++;
       if(framingChanged){
         // Parameter edits are manual operations: reframe the current shot now,
@@ -198,12 +208,13 @@ export class AppEngine {
       if(directionChanged)this.tick(this.now);
       return;
     }
+    this.cameraContext.invalidate();
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);
   }
-  applyPreset(input:ParameterPreset,expectedRevision:number,now:number):void {
-    this.settingsTransaction(() => this.replacePreset(input, expectedRevision, now));
+  applyPreset(input:ParameterPreset,expectedRevision:number,now:number,commit?:()=>void):void {
+    this.settingsTransaction(() => this.replacePreset(input, expectedRevision, now),commit);
   }
   private replacePreset(input:ParameterPreset,expectedRevision:number,now:number):void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
@@ -308,10 +319,13 @@ export class AppEngine {
     this.observers=observers;
   }
   sessions(): SeatSession[] { return [...this.allocators.values()].map(a => a.snapshot()); }
+  journalState(now=this.now):Pick<AppSnapshot,'camera'|'mode'|'connection'|'serverNowMs'>{
+    return {camera:structuredClone(this.camera),mode:this.director.mode,connection:this.connection,serverNowMs:Math.max(this.now,now)};
+  }
   snapshot(now = this.now): AppSnapshot {
     if (!Number.isFinite(now)) throw new Error('INVALID_TIME');
     return structuredClone({
-      protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
+      protocolVersion: APP.protocolVersion, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
       speech:this.presentIds().map(userId=>{const s=this.membership.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified,speechWindowMs:s.windowMs,speechMs10s:this.membership.tracker.intervals(userId,this.now,10000).reduce((n,i)=>n+i.end-i.start,0)};}),
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.membership.participants.values()],

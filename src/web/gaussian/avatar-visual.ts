@@ -3,9 +3,10 @@ import { SplatMesh } from '@sparkjsdev/spark';
 import { clone } from 'three/addons/utils/SkeletonUtils.js';
 import type { GaussianAvatarProfile } from '../../assets/gaussian-profile.ts';
 import { GAUSSIAN_COLOR_LAYER, GAUSSIAN_PROXY_LAYER } from '../studio/gaussian-layers.ts';
+import { disposeObject } from '../studio/dispose.ts';
 import { GaussianRuntime } from './runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from './assets.ts';
-import type { ResourceLease } from './resource-cache.ts';
+import type { ResourceLease } from '../shared/resource-cache.ts';
 import {GaussianSurface} from './surface.ts';
 import { gaussianLocalTransform, gaussianNormalization } from './transform.ts';
 import {setGaussianSpeechGlow,clearGaussianSpeechGlow,setGaussianSpeechBounds} from './speech-glow.ts';
@@ -103,11 +104,10 @@ export class GaussianAvatarVisual {
       this.mesh.dispose(); this.mesh = undefined;
     }
     if (this.proxyRoot) {
-      this.proxyRoot.traverse(object => {
-        if (object instanceof THREE.SkinnedMesh) object.skeleton.dispose();
-        if (object instanceof THREE.Mesh) { object.customDepthMaterial?.dispose(); object.customDistanceMaterial?.dispose(); }
-      });
-      this.proxyRoot.removeFromParent(); this.proxyRoot.clear(); this.proxyRoot = undefined;
+      // SkeletonUtils clones object state, including instancing buffers and
+      // skeletons, while geometry and any line/point materials remain borrowed.
+      disposeObject(this.proxyRoot, { sharedGeometry: true, sharedTextures: true, ownedMaterials: new Set() });
+      this.proxyRoot = undefined;
     }
     this.proxyMaterial?.dispose(); this.proxyMaterial = undefined;
     this.releaseVisual?.(); this.releaseVisual = undefined;

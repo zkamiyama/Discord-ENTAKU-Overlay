@@ -9,7 +9,7 @@ export class DiagnosticJournal{
     const code=event.type==='connection'?event.status:event.type==='speaking'?event.state:event.type;
     this.add(atMs,'provider',code,event.type==='snapshot'?event.participants.length:undefined);
   }
-  state(state:AppSnapshot):void{
+  state(state:Pick<AppSnapshot,'camera'|'mode'|'connection'|'serverNowMs'>):void{
     const key=[state.camera.id,state.camera.safetyReason,state.mode,state.connection].join(':');
     if(key===this.previous)return;this.previous=key;
     this.add(state.serverNowMs,'camera',state.camera.safetyReason??state.camera.reason);

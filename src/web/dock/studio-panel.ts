@@ -1,3 +1,4 @@
+import {SETTINGS_ERROR_MESSAGES} from './settings-errors.ts';
 import * as THREE from 'three';
 import {loadStudioBundle,disposeObject} from '../studio/loader.ts';
 import type {StudioClient} from '../shared/client.ts';
@@ -62,7 +63,7 @@ export class StudioPanel {
   }catch(e){this.report(e);}
   finally{this.lock(false);if(this.client.state)this.update(this.client.state);}
  }
- private report(e:unknown){get('studio-feedback').textContent=e instanceof Error?e.message:'STUDIO_IMPORT_FAILED';}
+ private report(e:unknown){const code=e instanceof Error?e.message:'STUDIO_IMPORT_FAILED';get('studio-feedback').textContent=SETTINGS_ERROR_MESSAGES[code]??code;}
  private async load(input:HTMLInputElement):Promise<void>{
   const files=[...(input.files??[])];if(this.busy||!files.length||!this.client.state)return;
   this.lock(true);const state=this.client.state;get('studio-feedback').textContent='素材を検証中…';let renderer:THREE.WebGLRenderer|undefined;

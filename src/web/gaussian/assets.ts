@@ -7,7 +7,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import type { GaussianAvatarProfile } from '../../assets/gaussian-profile.ts';
 import { safeGaussianPath } from '../../assets/gaussian-profile.ts';
 import { disposeObject } from '../studio/dispose.ts';
-import { ResourceCache, type ResourceLease } from './resource-cache.ts';
+import { ResourceCache, type ResourceLease } from '../shared/resource-cache.ts';
 
 export interface GaussianLoadStatus {
   phase: 'loading' | 'lod' | 'ready' | 'error';
@@ -103,6 +103,7 @@ export class GaussianAssetCache {
       }
     }, observe);
   }
+  get size(): number { return this.cache.size; }
   diagnostics() {
     return this.cache.snapshot().map(entry => ({
       references: entry.references, phase: entry.status.phase,

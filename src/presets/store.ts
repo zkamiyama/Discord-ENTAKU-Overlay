@@ -1,4 +1,3 @@
-import {writeAtomicJson} from '../storage/atomic-json.ts';
 import {mkdir,readdir,lstat,readFile,writeFile,link,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -6,7 +5,6 @@ import {presetFilename,validatePreset,type ParameterPreset} from './schema.ts';
 export interface PresetEntry {name:string;valid:boolean;error?:string}
 export class PresetStore {
  private memory=new Map<string,ParameterPreset>();
- private selection:ParameterPreset|null=null;
  private index=new Map<string,{stamp:string;entry:PresetEntry}>();
  constructor(private directory:string|null=null){}
  private async root():Promise<string>{const root=join(this.directory!,'presets');await mkdir(root,{recursive:true,mode:0o700});return root;}
@@ -48,17 +46,5 @@ export class PresetStore {
    finally{await unlink(temp).catch(()=>{});}
   }else this.memory.set(name,p);
   this.index.delete(name);return name;
- }
- /** Last applied preferences supply a template when no per-channel session exists. */
- async preferences(value?:ParameterPreset|null):Promise<ParameterPreset|null>{
-  if(!this.directory){if(value!==undefined)this.selection=value===null?null:validatePreset(value);return structuredClone(this.selection);}
-  await mkdir(this.directory,{recursive:true,mode:0o700});
-  const path=join(this.directory,'preset-state.json');
-  if(value===null){await unlink(path).catch(e=>{if(e.code!=='ENOENT')throw e;});return null;}
-  if(value){
-   await writeAtomicJson(path,validatePreset(value),'PRESET_STATE_WRITE_FAILED');return value;
-  }
-  try{const info=await lstat(path);if(!info.isFile()||info.size>2*1024*1024)throw new Error();return validatePreset(JSON.parse(await readFile(path,'utf8')));}
-  catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return null;throw new Error('PRESET_STATE_READ_FAILED');}
  }
 }

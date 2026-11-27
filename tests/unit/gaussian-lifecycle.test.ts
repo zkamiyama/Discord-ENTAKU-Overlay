@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import * as THREE from 'three';
 import { PackedSplats, SplatMesh } from '@sparkjsdev/spark';
-import { ResourceCache } from '../../src/web/gaussian/resource-cache.ts';
+import { ResourceCache } from '../../src/web/shared/resource-cache.ts';
 import { GaussianAvatarVisual } from '../../src/web/gaussian/avatar-visual.ts';
 import type { GaussianRuntime } from '../../src/web/gaussian/runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from '../../src/web/gaussian/assets.ts';
@@ -10,7 +10,9 @@ import type { GaussianAvatarProfile } from '../../src/assets/gaussian-profile.ts
 import {fillGaussianSpeechRanges} from '../../src/web/gaussian/speech-glow.ts';
 import {projectedGaussianHeightPixels} from '../../src/web/gaussian/speech-screen.ts';
 import {Avatar} from '../../src/web/overlay/avatar.ts';
+import {AvatarEnvelope} from '../../src/web/overlay/avatar-envelope.ts';
 import {makeLayout} from '../../src/geometry/capsule.ts';
+import {disposeObject} from '../../src/web/studio/dispose.ts';
 
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: Error) => void; const ready = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { ready, resolve, reject }; }
 function profile(id = 'a'): GaussianAvatarProfile {
@@ -36,12 +38,12 @@ test('shared async resource survives one participant leaving and is destroyed at
 });
 
 test('late A cannot replace reacquired A after its last owner left; abandoned load is freed', async () => {
-  const old = deferred<{ label: string }>(), recent = deferred<{ label: string }>(); const destroyed: string[] = [];
+  const old = deferred<{ label: string }>(), recent = deferred<{ label: string }>(), started = deferred<void>(); const destroyed: string[] = [];
   const cache = new ResourceCache<{ label: string }, string>('loading', value => destroyed.push(value.label));
-  const a = cache.acquire('asset', () => old.ready); a.release();
+  const a = cache.acquire('asset', () => { started.resolve(); return old.ready; }); await started.ready; a.release();
   const b = cache.acquire('asset', () => recent.ready); recent.resolve({ label: 'new' });
   expect((await b.ready).label).toBe('new'); old.resolve({ label: 'old' });
-  await expect(a.ready).rejects.toThrow('GAUSSIAN_LOAD_RETIRED'); expect(destroyed).toEqual(['old']);
+  await expect(a.ready).rejects.toThrow('RESOURCE_LOAD_RETIRED'); await Bun.sleep(0); expect(destroyed).toEqual(['old']);
   expect(cache.snapshot()[0]?.value?.label).toBe('new'); b.release(); expect(destroyed).toEqual(['old', 'new']);
 });
 
@@ -50,9 +52,9 @@ test('runtime shutdown aborts fetching and retires worker results that cannot be
   const cache = new ResourceCache<object, string>('loading', () => destroys++);
   const lease = cache.acquire('pending', async s => { signal = s; s.addEventListener('abort', () => { aborted = true; }); return pending.ready; });
   await Promise.resolve(); cache.dispose(); pending.resolve({});
-  await expect(lease.ready).rejects.toThrow('GAUSSIAN_LOAD_RETIRED');
+  await expect(lease.ready).rejects.toThrow('RESOURCE_LOAD_RETIRED');
   expect(aborted).toBe(true); expect(signal?.aborted).toBe(true); expect(destroys).toBe(1); lease.release(); expect(destroys).toBe(1);
-  expect(() => cache.acquire('later', async () => ({}))).toThrow('GAUSSIAN_RUNTIME_DISPOSED');
+  expect(() => cache.acquire('later', async () => ({}))).toThrow('RESOURCE_CACHE_DISPOSED');
 });
 
 test('two visuals share packed data and transform edits/speaking do not reload or rebuild LoD', async () => {
@@ -79,13 +81,14 @@ test('two visuals share packed data and transform edits/speaking do not reload o
 });
 
 test('slow A replaced by B, then leaving, cannot recreate a visual or overwrite latest state', async () => {
-  const a = deferred<GaussianAsset>(), b = deferred<GaussianAsset>(); let instances = 0;
+  const a = deferred<GaussianAsset>(), b = deferred<GaussianAsset>(), started = deferred<void>(); let instances = 0;
   const cache = new ResourceCache<GaussianAsset, GaussianLoadStatus>({ phase: 'loading' }, v => v.owner.dispose());
-  const runtime = { assets: { acquire: (p: GaussianAvatarProfile, observe: (s: GaussianLoadStatus) => void) => cache.acquire(gaussianAssetKey(p), () => p.assetId[0] === 'a' ? a.ready : b.ready, observe) },
+  const runtime = { assets: { acquire: (p: GaussianAvatarProfile, observe: (s: GaussianLoadStatus) => void) => cache.acquire(gaussianAssetKey(p), () => { if(p.assetId[0] === 'a'){ started.resolve(); return a.ready; } return b.ready; }, observe) },
     retainVisual: () => { instances++; return () => { instances--; }; } } as unknown as GaussianRuntime;
-  const visual = new GaussianAvatarVisual(runtime), loadingA = visual.setProfile(profile('a')), loadingB = visual.setProfile(profile('b'));
+  const visual = new GaussianAvatarVisual(runtime), loadingA = visual.setProfile(profile('a')); await started.ready;
+  const loadingB = visual.setProfile(profile('b'));
   const assetB = asset(); b.resolve(assetB); await loadingB; expect(instances).toBe(1);
-  visual.dispose(); const assetA = asset(); a.resolve(assetA); await loadingA;
+  visual.dispose(); const assetA = asset(); a.resolve(assetA); await loadingA; await Bun.sleep(0);
   expect(instances).toBe(0); expect(visual.root.children).toHaveLength(0);
   expect(assetA.owner.packedSplats).toBeUndefined(); expect(assetB.owner.packedSplats).toBeUndefined(); cache.dispose();
 });
@@ -129,6 +132,50 @@ test('proxy uses the real visual transform and stays out of color/depth while le
   expect(geometryDisposals).toBe(0); cache.dispose(); geometry.dispose(); material.dispose();
 });
 
+test('proxy retirement frees instance buffers, skeletons and shadows once without disposing borrowed resources', async () => {
+  const shared=asset(),source=new THREE.Group(),geometry=new THREE.BoxGeometry(.3,1,.2),texture=new THREE.Texture();
+  const material=new THREE.MeshBasicMaterial({map:texture}),lineMaterial=new THREE.LineBasicMaterial(),pointMaterial=new THREE.PointsMaterial();
+  const instances=new THREE.InstancedMesh(geometry,material,2);instances.name='instances';instances.setColorAt(0,new THREE.Color('red'));
+  instances.morphTexture=new THREE.DataTexture(new Float32Array(2),1,2,THREE.RedFormat,THREE.FloatType);
+  const bone=new THREE.Bone(),skinned=new THREE.SkinnedMesh(geometry,material);skinned.name='skinned';skinned.add(bone);skinned.bind(new THREE.Skeleton([bone]));skinned.skeleton.computeBoneTexture();
+  const light=new THREE.DirectionalLight();light.name='light';light.shadow.map=new THREE.WebGLRenderTarget(1,1);
+  source.add(instances,skinned,new THREE.Line(geometry,lineMaterial),new THREE.Points(geometry,pointMaterial),light);shared.proxy=source;
+  const released=new Map<string,number>();
+  const watch=(name:string,resource:{addEventListener(type:'dispose',listener:()=>void):void})=>resource.addEventListener('dispose',()=>released.set(name,(released.get(name)??0)+1));
+  watch('source geometry',geometry);watch('source texture',texture);watch('source material',material);watch('source line material',lineMaterial);watch('source point material',pointMaterial);
+  watch('source instances',instances);watch('source matrix',instances.instanceMatrix);watch('source color',instances.instanceColor!);watch('source morph',instances.morphTexture);
+  watch('source bone',skinned.skeleton.boneTexture!);watch('source shadow',light.shadow.map);
+  const cache=new ResourceCache<GaussianAsset,GaussianLoadStatus>({phase:'loading'},value=>{value.owner.dispose();if(value.proxy)disposeObject(value.proxy);});
+  const runtime={assets:{acquire:(p:GaussianAvatarProfile,observe:(s:GaussianLoadStatus)=>void)=>cache.acquire(gaussianAssetKey(p),async()=>shared,observe)},retainVisual:()=>()=>{}} as unknown as GaussianRuntime;
+  const first=new GaussianAvatarVisual(runtime),second=new GaussianAvatarVisual(runtime);
+  try{
+    await Promise.all([first.setProfile(profile()),second.setProfile({...profile(),userId:'2'})]);
+    const firstInstances=first.proxyRoot!.getObjectByName('instances') as THREE.InstancedMesh;
+    const secondInstances=second.proxyRoot!.getObjectByName('instances') as THREE.InstancedMesh;
+    const firstSkinned=first.proxyRoot!.getObjectByName('skinned') as THREE.SkinnedMesh;
+    const secondSkinned=second.proxyRoot!.getObjectByName('skinned') as THREE.SkinnedMesh;
+    const firstLight=first.proxyRoot!.getObjectByName('light') as THREE.DirectionalLight;
+    const secondLight=second.proxyRoot!.getObjectByName('light') as THREE.DirectionalLight;
+    expect(firstInstances.geometry).toBe(geometry);expect(secondInstances.geometry).toBe(geometry);
+    expect(firstInstances.instanceMatrix).not.toBe(instances.instanceMatrix);expect(firstInstances.instanceMatrix.array).not.toBe(instances.instanceMatrix.array);
+    expect(firstInstances.instanceColor).not.toBe(instances.instanceColor);expect(firstInstances.morphTexture).not.toBe(instances.morphTexture);
+    expect(firstSkinned.skeleton).not.toBe(skinned.skeleton);expect(firstSkinned.skeleton).not.toBe(secondSkinned.skeleton);
+    expect(firstLight.shadow).not.toBe(light.shadow);expect(firstLight.shadow.map).toBeNull();expect(secondLight.shadow.map).toBeNull();
+    firstSkinned.skeleton.computeBoneTexture();secondSkinned.skeleton.computeBoneTexture();
+    firstLight.shadow.map=new THREE.WebGLRenderTarget(1,1);secondLight.shadow.map=new THREE.WebGLRenderTarget(1,1);
+    watch('first instances',firstInstances);watch('first matrix',firstInstances.instanceMatrix);watch('first color',firstInstances.instanceColor!);watch('first morph',firstInstances.morphTexture!);
+    watch('first material',firstInstances.material as THREE.Material);watch('first bone',firstSkinned.skeleton.boneTexture!);watch('first shadow',firstLight.shadow.map);
+    watch('second instances',secondInstances);watch('second matrix',secondInstances.instanceMatrix);watch('second color',secondInstances.instanceColor!);watch('second morph',secondInstances.morphTexture!);
+    watch('second material',secondInstances.material as THREE.Material);watch('second bone',secondSkinned.skeleton.boneTexture!);watch('second shadow',secondLight.shadow.map);
+    first.dispose();first.dispose();
+    expect(Object.fromEntries(released)).toEqual({'first instances':1,'first matrix':1,'first color':1,'first morph':1,'first bone':1,'first shadow':1,'first material':1});
+    expect(second.proxyRoot!.children).toHaveLength(5);expect(secondSkinned.skeleton.boneTexture).not.toBeNull();
+    expect(secondInstances.instanceMatrix.array.length).toBe(32);expect(secondInstances.morphTexture).not.toBeNull();
+    second.dispose();second.dispose();cache.dispose();
+    expect(released.size).toBe(25);for(const count of released.values())expect(count).toBe(1);
+  }finally{first.dispose();second.dispose();cache.dispose();}
+});
+
 test('participant speech, stale, leave, rejoin and seat movement reach the same live Gaussian without reloading', async () => {
   let loads=0;const shared=asset();
   const geometry=new THREE.BoxGeometry(.3,1,.2),material=new THREE.MeshBasicMaterial();
@@ -143,10 +190,10 @@ test('participant speech, stale, leave, rejoin and seat movement reach the same 
   // Omit DOM-backed nameplate construction, but use the production Avatar
   // update/render methods and the real Gaussian visual, mesh and proxy.
   const avatar=Object.assign(Object.create(Avatar.prototype),{
-    root:new THREE.Group(),plate:new THREE.Group(),opacity:0,glow:0,
+    root:new THREE.Group(),plate:new THREE.Group(),envelope:new AvatarEnvelope(),
     body:{material:{uniforms:{opacity:{value:0}}}},outline:{material:{uniforms:{strength:{value:0},glowScale:{value:4}}}},
     nameplate:{setName:()=>{}},context:{camera:new THREE.PerspectiveCamera(),state:()=>null},
-    profile:p,profileKey:JSON.stringify(p),gaussian:visual,custom:null,
+    profile:p,gaussian:visual,custom:null,
     user:{userId:'1',displayName:'fixture',presence:'present',speaking:'inactive'},
   }) as Avatar;
   avatar.root.add(visual.root);const seats=makeLayout(6).seats;let time=0;

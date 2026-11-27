@@ -35,7 +35,7 @@ export function assetRoutes(context:RouteContext):HttpRoute {
           const text=form.get('manifest');if(text!==null&&(typeof text!=='string'||text.length>GAUSSIAN_LIMITS.manifestBytes))throw new Error('GAUSSIAN_MANIFEST_INVALID');
           let manifest:unknown;try{manifest=text===null?undefined:JSON.parse(text as string);}catch{throw new Error('GAUSSIAN_MANIFEST_INVALID');}
           return json(await gaussian.importRaw({path:splat.name,bytes:new Uint8Array(await splat.arrayBuffer())},extras,manifest),201);
-        }catch(e){const code=e instanceof Error&&/^GAUSSIAN_[A-Z0-9_]+$/.test(e.message)?e.message:'GAUSSIAN_IMPORT_FAILED';return json({error:code},/TOO_LARGE|FILE_LIMIT/.test(code)?413:422);}});
+        }catch(e){const code=e instanceof Error&&/^GAUSSIAN_[A-Z0-9_]+$/.test(e.message)?e.message:'GAUSSIAN_IMPORT_FAILED';return json({error:code},/TOO_LARGE|FILE_LIMIT/.test(code)?413:422);}},request.signal);
       }
       if (request.method === 'GET' && url.pathname === '/api/studio/bundles') {
         try{return json(await studioStore.list());}catch{return json({error:'STUDIO_INDEX_UNAVAILABLE'},500);}
@@ -68,7 +68,7 @@ export function assetRoutes(context:RouteContext):HttpRoute {
             }
             return json(await studioStore.importFiles(files,entry||undefined),201);
           }catch(e){const code=e instanceof Error&&/^STUDIO_[A-Z_]+$/.test(e.message)?e.message:'STUDIO_IMPORT_FAILED';return json({error:code},422);}
-        });
+        },request.signal);
       }
       if (request.method === 'POST' && url.pathname === '/api/assets') {
         if (!validOrigin(request,port)) return json({error:'ORIGIN_REJECTED'},403);
@@ -77,7 +77,7 @@ export function assetRoutes(context:RouteContext):HttpRoute {
         return serial(async()=>{
           try { const data=new Uint8Array(await request.arrayBuffer());return json(await customAssets.importImage(data),201); }
           catch(e){const code=e instanceof Error&&assetErrors.has(e.message)?e.message:'ASSET_IMPORT_FAILED';return json({error:code},code==='IMAGE_TOO_LARGE'?413:422);}
-        });
+        },request.signal);
       }
       const customMatch=/^\/api\/assets\/([a-f0-9]{64})$/.exec(url.pathname);
       if(request.method==='GET'&&customMatch){
@@ -86,7 +86,7 @@ export function assetRoutes(context:RouteContext):HttpRoute {
       }
       const avatarMatch = /^\/api\/avatars\/(\d{1,20})$/.exec(url.pathname);
       if (request.method === 'GET' && avatarMatch) {
-        const person = engine.snapshot().participants.find(p => p.userId === avatarMatch[1]);
+        const person = engine.participant(avatarMatch[1]!);
         if (!person?.avatarUrl) return json({ error: 'AVATAR_NOT_FOUND' }, 404);
         try { const data = await avatars.get(person.avatarUrl); return new Response(new Blob([data as Uint8Array<ArrayBuffer>]), { headers: headers('image/png') }); }
         catch { return json({ error: 'AVATAR_UNAVAILABLE' }, 502); }

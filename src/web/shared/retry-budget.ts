@@ -1,6 +1,6 @@
-/** Two bounded retries, not a shader compile loop on every frame. A change of
- * scene, camera, size or settings establishes a new retry budget. */
-export class RenderRecovery {
+/** Two delayed retries per owner key. Callers poll without scheduling timers;
+ * a changed key starts a fresh budget, and success clears prior failures. */
+export class RetryBudget {
   private key = '';
   private failures = 0;
   private retryAt = 0;
