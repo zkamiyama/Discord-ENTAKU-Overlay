@@ -20,7 +20,9 @@ export class SceneEffectsIndex {
   renderer.shadowMap.enabled=q.shadows==='soft';renderer.shadowMap.type=THREE.PCFShadowMap;
   const key=[scene.uuid,source,q.shadows,q.shadowSize,q.shadowLights,q.reflections,displayLayer,q.gaussianAlphaClip,gaussianShadowKey(scene)].join('|');
   if(key===this.key)return false;
-  this.key=key;this.lights=[];this.reflective=[];this.hasUnlit=false;
+  const previousLights=this.lights;
+  this.lights=[];this.reflective=[];this.hasUnlit=false;
+  const allLights=new Set<ShadowLight>();
   let desk:THREE.Object3D|undefined;
   const candidates:ShadowLight[]=[];
   scene.traverse(o=>{
@@ -31,7 +33,7 @@ export class SceneEffectsIndex {
     o.castShadow=true;o.receiveShadow=!o.userData.entakuStudioUnlit&&!o.layers.isEnabled(GAUSSIAN_PROXY_LAYER);installStudioAlphaShadows(o);
     if(o.userData.entakuStudioUnlit)this.hasUnlit=true;
    }
-   if(o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight)o.castShadow=false;
+   if(o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight){o.castShadow=false;allLights.add(o);}
   });
   scene.traverseVisible(o=>{
    if((o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight)&&o.intensity>0)candidates.push(o);
@@ -41,10 +43,15 @@ export class SceneEffectsIndex {
    }
   });
   if(q.shadows==='soft')this.lights=candidates.sort((a,b)=>Number(b instanceof THREE.DirectionalLight)-Number(a instanceof THREE.DirectionalLight)||b.intensity-a.intensity).slice(0,q.shadowLights);
+  const selected=new Set(this.lights);
+  for(const light of previousLights)if(allLights.has(light)&&!selected.has(light)){
+   // The light remains owned by the scene; an inactive shadow is not a cache.
+   light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;
+  }
   for(const light of this.lights){
    light.castShadow=true;light.shadow.autoUpdate=false;
    light.shadow.camera.layers.set(0);light.shadow.camera.layers.enable(STUDIO_UNLIT_LAYER);light.shadow.camera.layers.enable(GAUSSIAN_PROXY_LAYER);light.shadow.camera.layers.enable(GAUSSIAN_SURFACE_LAYER);
-   if(light.shadow.mapSize.x!==q.shadowSize){light.shadow.map?.dispose();light.shadow.map=null;light.shadow.mapSize.set(q.shadowSize,q.shadowSize);}
+   if(light.shadow.mapSize.x!==q.shadowSize){light.shadow.dispose();light.shadow.map=null;light.shadow.mapPass=null;light.shadow.mapSize.set(q.shadowSize,q.shadowSize);}
    light.shadow.bias=-.00005;light.shadow.normalBias=.012;light.shadow.radius=2.5;
    light.shadow.camera.near=.1;light.shadow.camera.far=Math.max(60,light.shadow.camera.far);light.shadow.camera.updateProjectionMatrix();light.shadow.needsUpdate=true;
   }
@@ -57,6 +64,7 @@ export class SceneEffectsIndex {
    }
   }
   renderer.shadowMap.needsUpdate=true;
+  this.key=key;
   return true;
  }
  invalidate():void {this.key='';}

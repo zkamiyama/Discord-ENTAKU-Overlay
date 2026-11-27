@@ -15,6 +15,8 @@ export class GaussianRuntime {
   private readonly activeCameras = new Set<THREE.Camera>();
   private readonly uninstall: () => void;
   private users = 0;
+  private membershipVersion=0;
+  get membershipRevision():number{return this.membershipVersion;}
   private totalBudget = 500_000;
   private viewCount = 1;
   private stopped = false;
@@ -33,15 +35,16 @@ export class GaussianRuntime {
   }
   retainVisual(): () => void {
     if (this.stopped) throw new Error('GAUSSIAN_RUNTIME_DISPOSED');
-    // Asset membership changes invalidate in-flight sorts in every view. A view
-    // parked during SPLIT must not flash a retired avatar when it is used again.
-    this.releaseViews();
-    this.users++;
+    // Addition leaves the existing displayed mapping valid. Spark's native
+    // mappingVersion transition adds the new generator without blanking all
+    // existing participants. Removal is different: no stale mapping is safe.
+    this.users++;this.membershipVersion++;
+    for(const view of this.views.values())view.setDirty();
     if (this.drawNode) this.drawNode.visible = true;
     let released = false;
     return () => {
       if (released) return;
-      released = true; this.users--; this.releaseViews();
+      released = true; this.users--;this.membershipVersion++;this.releaseViews();
     };
   }
   private createView(): SparkRenderer {
@@ -105,7 +108,7 @@ export class GaussianRuntime {
   }
   diagnostics() {
     return {
-      totalBudget: this.totalBudget, activeViewCount: this.viewCount, instances: this.users,
+      totalBudget: this.totalBudget, activeViewCount: this.viewCount, instances: this.users, membershipRevision:this.membershipVersion,
       assets: this.assets.diagnostics(),
       nativeSurfaces:nativeSurfaceDiagnostics(this.scene),
       rendererMemory: {textures:this.renderer.info.memory.textures,geometries:this.renderer.info.memory.geometries,programs:this.renderer.info.programs?.length??0},

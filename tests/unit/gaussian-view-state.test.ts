@@ -61,3 +61,18 @@ test('cheap frame summary matches active view counters without collecting diagno
   expect(probe.runtime.diagnostics().views[0]!.active).toBe(true);
  }finally{probe.dispose();}
 });
+
+test('adding a participant retains existing views; removal retires old mappings immediately',()=>{
+ const probe=setup();
+ try{
+  const before=probe.runtime.membershipRevision;
+  const releaseSecond=probe.runtime.retainVisual();
+  expect(probe.runtime.membershipRevision).toBe(before+1);
+  expect(probe.runtime.diagnostics().views).toHaveLength(1);
+  expect(probe.view.parent).not.toBeNull();
+  releaseSecond();
+  expect(probe.runtime.membershipRevision).toBe(before+2);
+  expect(probe.runtime.diagnostics().views).toHaveLength(0);
+  expect(probe.view.parent).toBeNull();
+ }finally{probe.dispose();}
+});

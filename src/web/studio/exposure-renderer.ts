@@ -1,3 +1,4 @@
+import type {SceneEffectsIndex} from './scene-effects-index.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import {DEFAULT_POST,type PostSettings,type FocusBand} from '../../studio/post-effects.ts';
 import {QualityRenderer,type QualityStatus} from './quality-renderer.ts';
@@ -35,8 +36,8 @@ export class ExposureRenderer {
   private status:ExposureStatus='AUTO';private available:boolean;
   private readonly width=64;private readonly height=36;
   report:ExposureReport={exposure:1,exposureStatus:'AUTO',authoredLights:0,fallbackLights:true};
-  constructor(private readonly renderer:THREE.WebGLRenderer,private readonly fallback:THREE.Group){
-    this.quality=new QualityRenderer(renderer,DISPLAY_LAYER);
+  constructor(private readonly renderer:THREE.WebGLRenderer,private readonly fallback:THREE.Group,index?:SceneEffectsIndex){
+    this.quality=new QualityRenderer(renderer,DISPLAY_LAYER,index);
     this.available=renderer.extensions.has('EXT_color_buffer_float')||renderer.extensions.has('EXT_color_buffer_half_float');
     this.target=new THREE.WebGLRenderTarget(this.width,this.height,{type:THREE.HalfFloatType,format:THREE.RGBAFormat,colorSpace:THREE.LinearSRGBColorSpace,minFilter:THREE.NearestFilter,magFilter:THREE.NearestFilter,depthBuffer:true,generateMipmaps:false});
     this.buffer=new Uint16Array(this.width*this.height*4);this.linear=new Float32Array(this.buffer.length);
@@ -95,8 +96,13 @@ export class ExposureRenderer {
   render(scene:THREE.Scene,camera:THREE.Camera,settings:ExposureSettings=DEFAULT_EXPOSURE,source='',authoredLights=0,now=performance.now(),quality:QualitySettings=DEFAULT_QUALITY,post:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},effectsSource=source):ExposureReport {
     if(this.disposed)return this.report;
     const measured=this.prepare(scene,camera,settings,source,authoredLights,now);
-    this.quality.render(scene,camera,quality,effectsSource+'|'+this.fallback.visible,post,focus);
-    this.report={...measured,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights,msaaSamples:this.quality.msaaSamples};return this.report;
+    return this.renderPrepared(scene,camera,quality,post,focus,effectsSource+'|'+measured.fallbackLights);
+  }
+  /** The program has already measured exposure and prepared its shared world. */
+  renderPrepared(scene:THREE.Scene,camera:THREE.Camera,quality:QualitySettings,post:PostSettings,focus:FocusBand,source:string,recoverySource=source):ExposureReport {
+    if(this.disposed)return this.report;
+    this.quality.render(scene,camera,quality,source,post,focus,false,recoverySource);
+    this.report={...this.report,qualityStatus:this.quality.status,shadowLights:this.quality.shadowLights,msaaSamples:this.quality.msaaSamples};return this.report;
   }
   releaseQuality():void{this.quality.dispose();}
   dispose():void{this.quality.dispose();this.disposed=true;this.generation++;if(!this.pending)this.target.dispose();}

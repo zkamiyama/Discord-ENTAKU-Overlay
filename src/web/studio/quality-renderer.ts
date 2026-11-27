@@ -3,7 +3,7 @@ import {SceneEffectsIndex} from './scene-effects-index.ts';
 import {saveRenderState} from './render-state.ts';
 import {EffectTargets} from './effect-targets.ts';
 import {RenderRecovery} from './render-recovery.ts';
-import {createReflectionPass,disposeReflectionPass} from './addon-adapters.ts';
+import {createReflectionPass,disposeReflectionPass,disposeAmbientOcclusionPass} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import {DisplayComposite} from './display-composite.ts';
 import {PostRenderer} from './post-renderer.ts';
@@ -36,10 +36,15 @@ export class QualityRenderer {
  private reflectionBlend?:FullScreenQuad;
  private ao?:GTAOPass;private ssr?:SSRPass;private output?:OutputPass;private fxaa?:FXAAPass;private screen?:FullScreenQuad;
  private w=0;private h=0;private passScene?:THREE.Scene;private passCamera?:THREE.Camera;
- private index=new SceneEffectsIndex();
+ private readonly index:SceneEffectsIndex;
+ private readonly ownsIndex:boolean;
  private sampleCounts?:number[];private recovery=new RenderRecovery();
  status:QualityStatus='DIRECT';msaaSamples=0;get shadowLights():number{return this.index.lights.length;}
- constructor(private renderer:THREE.WebGLRenderer,private displayLayer=1){}
+ /** A program prepares one shared world index per frame; standalone previews
+  * and test probes own their index and prepare it here. */
+ constructor(private renderer:THREE.WebGLRenderer,private displayLayer=1,index?:SceneEffectsIndex){
+  this.index=index??new SceneEffectsIndex();this.ownsIndex=!index;
+ }
  private allocate(scene:THREE.Scene,camera:THREE.PerspectiveCamera):void{
   if(this.targets.has('world')&&this.passScene===scene&&this.passCamera===camera)return;
   this.releaseEffects();this.passScene=scene;this.passCamera=camera;
@@ -60,15 +65,15 @@ export class QualityRenderer {
   });
   this.screen=new FullScreenQuad(material);
  }
- render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false):void{
+ render(scene:THREE.Scene,camera:THREE.Camera,q:QualitySettings,source:string,p:PostSettings=DEFAULT_POST,focus:FocusBand={distance:6,range:.5},forceComposite=false,recoverySource=source):void{
   const renderer=this.renderer;
   camera.layers.enable(STUDIO_UNLIT_LAYER);camera.layers.disable(GAUSSIAN_PROXY_LAYER);camera.layers.disable(GAUSSIAN_SURFACE_LAYER);
-  this.index.update(renderer,scene,q,source,this.displayLayer);
+  if(this.ownsIndex)this.index.update(renderer,scene,q,source,this.displayLayer);
   if(!forceComposite&&!hasScreenEffects(q)&&!hasPostEffects(p)){this.msaaSamples=0;this.releaseEffects();this.recovery.reset();this.status='DIRECT';renderSceneWithGaussians(renderer,scene,camera);return;}
-  if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.status='EFFECTS_UNAVAILABLE';renderSceneWithGaussians(renderer,scene,camera);return;}
+  if(!(camera instanceof THREE.PerspectiveCamera)||!renderer.extensions.has('EXT_color_buffer_float')){this.releaseEffects();this.msaaSamples=0;this.status='EFFECTS_UNAVAILABLE';renderSceneWithGaussians(renderer,scene,camera);return;}
   const mask=camera.layers.mask,target=renderer.getRenderTarget(),auto=renderer.autoClear,background=scene.background;
   const size=target?new THREE.Vector2(target.width,target.height):renderer.getDrawingBufferSize(new THREE.Vector2()),w=size.x,h=size.y;
-  if(!this.recovery.canAttempt(JSON.stringify([source,camera.uuid,w,h,q,p]))){this.status='EFFECTS_FAILED';renderSceneWithGaussians(renderer,scene,camera);return;}
+  if(!this.recovery.canAttempt(JSON.stringify([recoverySource,scene.uuid,camera.uuid,w,h,q,p]))){this.status='EFFECTS_FAILED';renderSceneWithGaussians(renderer,scene,camera);return;}
   const restore=saveRenderState(renderer,scene,camera);
   const clear=renderer.getClearColor(new THREE.Color()),alpha=renderer.getClearAlpha();
   try{
@@ -118,10 +123,10 @@ export class QualityRenderer {
     const aw=Math.max(1,Math.round(w*q.effectsScale)),ah=Math.max(1,Math.round(h*q.effectsScale));if(this.ao.width!==aw||this.ao.height!==ah)this.ao.setSize(aw,ah);
     this.ao.blendIntensity=q.aoStrength;this.ao.updateGtaoMaterial({radius:q.aoRadius,distanceExponent:1,thickness:1,scale:1,samples:8});
     this.ao.render(renderer,this.aoTarget!,input,0,false);input=this.aoTarget!;
-   }else if(this.ao){this.ao.dispose();this.ao=undefined;this.targets.release('ao');}
+   }else if(this.ao){disposeAmbientOcclusionPass(this.ao);this.ao=undefined;this.targets.release('ao');}
    const postActive=hasPostEffects(p),postUsed=postActive||this.index.hasUnlit;
    let color:THREE.WebGLRenderTarget;
-   if(postUsed){this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,postActive?p:{...DEFAULT_POST,enabled:false,saturation:1,contrast:1,bloom:false,dof:false},focus,this.msaaSamples,this.index.hasUnlit);}
+   if(postUsed){this.targets.release('mapped');this.post??=new PostRenderer(this.displayLayer);color=this.post.render(renderer,scene,camera,input,this.world!.depthTexture!,postActive?p:{...DEFAULT_POST,enabled:false,saturation:1,contrast:1,bloom:false,dof:false},focus,this.msaaSamples,this.index.hasUnlit);}
    else {this.post?.dispose();this.post=undefined;this.output!.render(renderer,this.mapped!,input,0,false);color=this.mapped!;}
    const compositeDepth=postUsed?this.post!.depthTexture:this.world!.depthTexture!;
    let coverage=postUsed?color.texture:this.world!.texture;
@@ -129,7 +134,7 @@ export class QualityRenderer {
    if(target&&(!postActive||p.excludeAvatars)){
     this.displayComposite??=new DisplayComposite(this.displayLayer);
     color=this.displayComposite.render(renderer,scene,camera,color,compositeDepth,this.msaaSamples);coverage=color.texture;
-   }
+   }else if(this.displayComposite){this.displayComposite.dispose();this.displayComposite=undefined;}
    const uniforms=(this.screen!.material as THREE.ShaderMaterial).uniforms;
    uniforms.color!.value=color.texture;uniforms.depth!.value=compositeDepth;uniforms.coverage!.value=coverage;
    renderer.setRenderTarget(target);renderer.autoClear=false;renderer.clear();this.screen!.render(renderer);
@@ -147,11 +152,11 @@ export class QualityRenderer {
   this.post?.dispose();this.post=undefined;
   this.gi?.dispose();this.gi=undefined;
   this.gaussianReflections?.dispose();this.gaussianReflections=undefined;
-  this.ao?.dispose();if(this.ssr)disposeReflectionPass(this.ssr);this.output?.dispose();this.fxaa?.dispose();
+  if(this.ao)disposeAmbientOcclusionPass(this.ao);if(this.ssr)disposeReflectionPass(this.ssr);this.output?.dispose();this.fxaa?.dispose();
   if(this.screen){this.screen.material.dispose();this.screen.dispose();}
   this.targets.dispose();
   if(this.reflectionBlend){this.reflectionBlend.material.dispose();this.reflectionBlend.dispose();this.reflectionBlend=undefined;}
   this.ao=undefined;this.ssr=undefined;this.output=undefined;this.fxaa=undefined;this.screen=undefined;this.w=this.h=0;
  }
- dispose():void{this.releaseEffects();this.recovery.reset();this.index.invalidate();}
+ dispose():void{this.releaseEffects();this.recovery.reset();if(this.ownsIndex)this.index.invalidate();}
 }
