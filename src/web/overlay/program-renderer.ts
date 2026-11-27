@@ -26,6 +26,9 @@ export class ProgramRenderer {
  get report(){return this.exposureRenderer.report;}
  render(state:AppSnapshot|null,pose:CameraPose,visual:StudioVisual,connected:boolean,time:number,length:number,offsetZ:number,near:number):Record<string,string>{
   if(this.disposed)return {};
+  // Until the first authoritative snapshot arrives, no scene is ready and no
+  // quality/exposure pipeline should be allocated using guessed settings.
+  if(!state){this.renderer.clear();return {};}
   const {scene,stage,camera,avatars,exposureRenderer,splitRenderer}=this,debug:Record<string,string>={};
     const post=state?.studio.post??DEFAULT_POST;
     const selected=state?.camera.shot.userIds.length?state.camera.shot.userIds:state?.participants.filter(p=>p.presence==='present').map(p=>p.userId)??[];

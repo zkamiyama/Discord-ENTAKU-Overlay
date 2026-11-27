@@ -1,11 +1,13 @@
 import type { DiagnosticEntry } from '../diagnostics/journal.ts';
 export interface ReplayStatus {elapsedMs:number;durationMs:number;paused:boolean;rate:number;seeking:boolean}
 export interface ReplayControl {action:'play'|'pause'|'seek'|'rate';value?:number}
+export const RENDER_STATUSES=['STATE_WAITING','STATE_STALE','READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST','RENDER_FAILED'] as const;
+export type RenderStatus=typeof RENDER_STATUSES[number];
 export interface FramePerformance {
  frameSamples:number;frameP50Ms:number;frameP95Ms:number;frameP99Ms:number;
  prepareP95Ms:number;submitP95Ms:number;gpuP95Ms?:number;gpuSamples?:number;
 }
-export interface RenderReport extends Partial<FramePerformance> {status:string;frameMs:number;drawCalls:number;triangles:number;updatedAtMs:number;exposure?:number;exposureStatus?:string;authoredLights?:number;fallbackLights?:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number}
+export interface RenderReport extends Partial<FramePerformance> {status:RenderStatus;frameMs:number;drawCalls:number;triangles:number;updatedAtMs:number;exposure?:number;exposureStatus?:string;authoredLights?:number;fallbackLights?:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number}
 export interface RuntimeDiagnostics {
   version:string;runtime:string;platform:string;source:string;connection:string;errorCode?:string;
   participantCount:number;capacity:number;rssBytes:number;events:DiagnosticEntry[];

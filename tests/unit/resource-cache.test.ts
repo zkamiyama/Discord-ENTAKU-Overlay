@@ -34,3 +34,49 @@ test('synchronous reacquisition in abort listener receives a new entry',async()=
  expect(cache.size).toBe(1);expect(destroyed).toEqual([1]);
  replacement!.release();expect(destroyed).toEqual([1,2]);expect(cache.size).toBe(0);
 });
+
+test('releasing the last lease before loading starts never calls the loader',async()=>{
+ let loads=0;
+ const cache=new ResourceCache<number,undefined>(undefined,()=>{});
+ const lease=cache.acquire('a',async()=>{loads++;return 1;});
+ const failure=lease.ready.catch(error=>error);
+ lease.release();
+ expect((await failure).message).toBe('RESOURCE_LOAD_RETIRED');
+ expect(loads).toBe(0);expect(cache.size).toBe(0);cache.dispose();
+});
+
+test('shutdown settles outstanding leases even when decoding cannot be cancelled',async()=>{
+ const destroyed:number[]=[];
+ const cache=new ResourceCache<number,undefined>(undefined,value=>destroyed.push(value));
+ let resolve!:(value:number)=>void;
+ const lease=cache.acquire('a',async()=>new Promise<number>(done=>{resolve=done;}));
+ const failure=lease.ready.catch(error=>error);
+ await Promise.resolve();cache.dispose();
+ let timer:ReturnType<typeof setTimeout>|undefined;
+ const result=await Promise.race([failure,new Promise(resolve=>{timer=setTimeout(()=>resolve('still pending'),50);})]);
+ if(timer!==undefined)clearTimeout(timer);
+ resolve(7);
+ // A non-cancellable decoder may complete later; its result still has one owner.
+ await new Promise(done=>setTimeout(done,0));
+ expect(result).toBeInstanceOf(Error);
+ expect((result as Error).message).toBe('RESOURCE_LOAD_RETIRED');
+ expect(destroyed).toEqual([7]);expect(cache.size).toBe(0);
+});
+
+test('a retired loader can fail late without affecting its replacement or aborting twice',async()=>{
+ let reject!:(error:Error)=>void,aborts=0;
+ const cache=new ResourceCache<number,string>('loading',()=>{});
+ const old=cache.acquire('a',signal=>{
+  signal.addEventListener('abort',()=>{aborts++;});
+  return new Promise<number>((_,fail)=>{reject=fail;});
+ });
+ const failure=old.ready.catch(error=>error);
+ await Promise.resolve();old.release();old.release();
+ expect((await failure).message).toBe('RESOURCE_LOAD_RETIRED');
+ const current=cache.acquire('a',async()=>2);
+ expect(await current.ready).toBe(2);
+ reject(new Error('Late decoder failure'));
+ await new Promise(done=>setTimeout(done,0));
+ expect(aborts).toBe(1);expect(cache.snapshot()[0]?.value).toBe(2);
+ current.release();cache.dispose();expect(aborts).toBe(1);expect(cache.size).toBe(0);
+});

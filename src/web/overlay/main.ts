@@ -7,7 +7,9 @@ import type {GaussianRuntime} from '../gaussian/runtime.ts';
 
 const client=new StudioClient();
 const canvas=document.querySelector<HTMLCanvasElement>('#scene')!;
-const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:'high-performance'});
+// World MSAA and final FXAA belong to QualityRenderer. Spark's alpha-blended
+// splats do not benefit from multisampling the default framebuffer as well.
+const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:false,powerPreference:'high-performance'});
 renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.AgXToneMapping;renderer.info.autoReset=false;
 const world=new OverlayScene(client,renderer);
 const metrics=new FrameMetrics(),gpu=new GpuFrameSampler(renderer.getContext() as WebGL2RenderingContext,metrics.gpu);
@@ -21,7 +23,7 @@ canvas.addEventListener('webglcontextrestored',()=>{if(!disposed)location.reload
 let lastPixelRatio=0,lastWidth=0,lastHeight=0;
 function resize():void{
  const width=Math.max(1,Math.min(innerWidth,innerHeight*16/9)),height=width*9/16;
- const ratio=Math.min(Math.min(devicePixelRatio,1.5)*(world.state?.studio.quality?.renderScale??1),4096/width,2304/height);
+ const ratio=Math.min(Math.min(devicePixelRatio,1.5)*(world.presentedState?.studio.quality?.renderScale??1),4096/width,2304/height);
  if(width===lastWidth&&height===lastHeight&&ratio===lastPixelRatio)return;
  if(ratio!==lastPixelRatio)renderer.setPixelRatio(ratio);
  renderer.setSize(width,height);lastWidth=width;lastHeight=height;lastPixelRatio=ratio;
@@ -39,8 +41,8 @@ function frame(time:number):void{
  frameMs=frameMs*.9+Math.min(1000,delta)*.1;
  if(!contextLost)try{
   const started=performance.now();resize();renderer.info.reset();
-  const state=world.state,prepared=world.prepare(client.now(),time,Math.min(delta/1000,.05),client.connected);
-  const {pose,length,offsetZ,near,studioStatus}=prepared;
+  const prepared=world.prepare(client.now(),time,delta/1000,client.connected);
+  const {state,pose,length,offsetZ,near,studioStatus}=prepared;
   const prepareMs=performance.now()-started,submittedAt=performance.now();
   gpu.begin(time);
   const debug=(()=>{try{return program.render(state,pose,world.studio,client.connected,time,length,offsetZ,near);}finally{gpu.end();}})();
@@ -61,7 +63,7 @@ function frame(time:number):void{
   if(time-lastFailure>=1000){lastFailure=time;console.warn('OVERLAY_FRAME_FAILED',error instanceof Error?error.name:'Unknown');}
  }
  if(time-reportAt>=1000){
-  reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':frameFailed?'RENDER_FAILED':world.failures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report,metrics.report());
+  reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':frameFailed?'RENDER_FAILED':world.failures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'STATE_WAITING',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report,metrics.report());
  }
 }
 frameId=requestAnimationFrame(frame);client.connect();

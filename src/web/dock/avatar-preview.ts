@@ -17,6 +17,7 @@ export class AvatarPreview {
  private visual:CustomAvatarVisual|null=null;
  private generation=0;
  private timer?:ReturnType<typeof setTimeout>;
+ private pendingBuild?:AbortController;
  private closed=false;
  private signature='';
  private image?:ImageBitmap;
@@ -38,24 +39,26 @@ export class AvatarPreview {
   this.cancel();this.image=image;this.back=back;this.signature=signature;
   const version=this.generation;this.pending=true;this.changed();
   const clean=structuredClone(profile);
-  this.timer=setTimeout(()=>void this.build(version,image,clean,back),this.deps.delayMs);
+  const controller=new AbortController();this.pendingBuild=controller;
+  this.timer=setTimeout(()=>void this.build(version,image,clean,back,controller.signal),this.deps.delayMs);
  }
  cancel():void {
   this.generation++;clearTimeout(this.timer);this.timer=undefined;
+  this.pendingBuild?.abort();this.pendingBuild=undefined;
   this.pending=false;this.signature='';this.image=this.back=undefined;
  }
- private async build(version:number,image:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap):Promise<void>{
+ private async build(version:number,image:ImageBitmap,profile:ImageAvatarProfile,back:ImageBitmap|undefined,signal:AbortSignal):Promise<void>{
   let copies:[ImageBitmap,ImageBitmap|undefined]|undefined;
   try{
    // Own copies across the worker await. The editor may close or replace originals.
    copies=await loadImagePair(this.deps.copy(image),back?this.deps.copy(back):undefined);
    if(version!==this.generation||this.closed)return;
-   const visual=await this.deps.build(copies[0],profile,copies[1]);
+   const visual=await this.deps.build(copies[0],profile,copies[1],signal);
    if(version!==this.generation||this.closed){visual.dispose();return;}
    visual.root.position.set(-profile.offsetX,1.25+profile.offsetY,3.4);visual.root.rotation.y=Math.PI;
    this.stage.scene.add(visual.root);this.visual?.dispose();this.visual=visual;this.pending=false;this.changed();
   }catch(error){if(version===this.generation&&!this.closed){this.pending=false;this.signature='';this.changed(error);}}
-  finally{copies?.[0].close();copies?.[1]?.close();}
+  finally{copies?.[0].close();copies?.[1]?.close();if(version===this.generation)this.pendingBuild=undefined;}
  }
  dispose():void {
   if(this.closed)return;this.closed=true;this.cancel();this.visual?.dispose();this.visual=null;this.stage.dispose();

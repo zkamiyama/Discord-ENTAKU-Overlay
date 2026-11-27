@@ -150,3 +150,17 @@ test('malformed and unmatched pongs cannot corrupt the renderer clock',()=>{
   expect(Number.isFinite(client.now())).toBe(true);expect(client.now()).toBeGreaterThanOrEqual(before);
  }finally{client.disconnect();}
 });
+
+test('cancelling image decoding closes a late bitmap instead of publishing it',async()=>{
+ const {client}=fixture(),originalFetch=globalThis.fetch,originalDecode=globalThis.createImageBitmap,abort=new AbortController();
+ let resolve!:(bitmap:ImageBitmap)=>void,fetchSignal:AbortSignal|undefined,closed=0;
+ globalThis.fetch=(async(_input:unknown,init?:RequestInit)=>{fetchSignal=init?.signal??undefined;return new Response(new Uint8Array([1]),{headers:{'Content-Type':'image/png'}});}) as typeof fetch;
+ globalThis.createImageBitmap=(()=>new Promise<ImageBitmap>(done=>{resolve=done;})) as typeof createImageBitmap;
+ try{
+  const result=client.customImage('asset',abort.signal).catch(error=>error as Error);
+  for(let i=0;i<10&&!resolve;i++)await Bun.sleep(1);
+  expect(fetchSignal).toBe(abort.signal);expect(resolve).toBeFunction();
+  abort.abort(Error('superseded'));resolve({close(){closed++;}} as ImageBitmap);
+  expect(await result).toEqual(Error('superseded'));expect(closed).toBe(1);
+ }finally{globalThis.fetch=originalFetch;globalThis.createImageBitmap=originalDecode;client.disconnect();}
+});

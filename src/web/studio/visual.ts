@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import {studioVisualKey} from '../../studio/change-keys.ts';
 import type {StudioScene} from '../../studio/manifest.ts';
+import type {RenderStatus} from '../../contracts/diagnostics.ts';
 import type {StudioClient} from '../shared/client.ts';
+import {RetryBudget} from '../shared/retry-budget.ts';
 import {BroadcastSet} from './broadcast-set.ts';
 import {loadStudioBundle} from './loader.ts';
 import {disposeObject} from './dispose.ts';
@@ -15,6 +17,12 @@ interface StudioGeneration {
  models:StudioModelInstance[];
  speakers:MeshSpeechGlow[];
  speakerIds:Set<string>;
+}
+interface PendingScene {
+ signature:string;
+ definition:StudioScene;
+ controller:AbortController;
+ completion:Promise<void>;
 }
 function releaseGeneration(generation:StudioGeneration):void{
  for(const speaker of generation.speakers)speaker.dispose();
@@ -31,19 +39,25 @@ export class StudioVisual {
  private generation=0;
  private revision=0;
  private signature='';
+ private requestedSignature='';
+ private requested?:StudioScene;
+ private readonly recovery:RetryBudget;
  private disposed=false;
- private pending?:AbortController;
+ private pending?:PendingScene;
  private active:StudioGeneration|null=null;
  private meshVisibilityVersion=0;
  private readonly models:StudioModelRegistry;
  loading=false;
  error='';
  authoredLights=0;
- constructor(client:StudioClient,renderer:THREE.WebGLRenderer,loadModel:typeof loadStudioBundle=loadStudioBundle){
+ constructor(client:StudioClient,renderer:THREE.WebGLRenderer,loadModel:typeof loadStudioBundle=loadStudioBundle,clock?:()=>number){
   this.models=new StudioModelRegistry((id,signal)=>loadModel(client,renderer,id,signal));
+  this.recovery=new RetryBudget(clock);
  }
  get renderGeneration():number{return this.revision;}
  get readyForCamera():boolean{return this.active!==null;}
+ get definition():StudioScene|null{return this.active?.definition??null;}
+ get matchesRequested():boolean{return this.active!==null&&this.signature===this.requestedSignature;}
  get meshVisibilityRevision():number{return this.meshVisibilityVersion;}
  hasMeshSpeaker(userId:string):boolean{return this.root.visible&&!!this.active?.speakerIds.has(userId);}
  get meshSpeechCount():number{return this.active?.speakers.length??0;}
@@ -64,14 +78,35 @@ export class StudioVisual {
   }
   if(changed){this.meshVisibilityVersion++;this.recountLights();}
  }
- async update(definition:StudioScene):Promise<void>{
-  if(this.disposed)return;
+ update(definition:StudioScene):Promise<void>{
+  if(this.disposed)return Promise.resolve();
   const signature=studioVisualKey(definition);
-  if(signature===this.signature)return;
-  this.signature=signature;
-  this.pending?.abort();
-  const controller=new AbortController(),signal=controller.signal,version=++this.generation;
-  this.pending=controller;this.loading=true;this.error='';
+  this.requestedSignature=signature;this.requested=definition;
+  this.recovery.canAttempt(signature);
+  if(signature===this.pending?.signature){
+   this.pending.definition=definition;
+   return this.pending.completion;
+  }
+  const version=++this.generation;
+  this.pending?.controller.abort();this.pending=undefined;
+  this.error='';
+  if(signature===this.signature&&this.active){
+   // Reverting an unfinished replacement keeps the already committed graph.
+   this.active.definition=definition;this.loading=false;this.recovery.succeeded();
+   return Promise.resolve();
+  }
+  const pending:PendingScene={signature,definition,controller:new AbortController(),completion:Promise.resolve()};
+  this.pending=pending;this.loading=true;
+  pending.completion=this.loadCandidate(pending,version);
+  return pending.completion;
+ }
+ /** The connected render owner may retry transient fetch/decode failures. A
+  * permanent failure retains the prior generation without a per-frame load loop. */
+ retry():void{
+  if(!this.disposed&&this.error&&!this.loading&&this.requested&&this.recovery.canAttempt(this.requestedSignature))void this.update(this.requested);
+ }
+ private async loadCandidate(pending:PendingScene,version:number):Promise<void>{
+  const {definition,controller}=pending,signal=controller.signal;
   const candidate:StudioGeneration={root:new THREE.Group(),definition,broadcast:null,models:[],speakers:[],speakerIds:new Set()};
   let committed=false;
   try{
@@ -102,17 +137,20 @@ export class StudioVisual {
    signal.throwIfAborted();
    if(version!==this.generation)return;
    const previous=this.active;
+   candidate.definition=pending.definition;
    this.root.add(candidate.root);this.active=candidate;committed=true;
+   this.signature=pending.signature;
+   this.recovery.succeeded();
    this.revision++;this.recountLights();this.root.updateMatrixWorld(true);
    if(previous)releaseGeneration(previous);
   }catch(error){
-   if(version===this.generation&&!signal.aborted)this.error=error instanceof Error?error.message:'STUDIO_LOAD_FAILED';
+   if(version===this.generation&&!signal.aborted){this.error=error instanceof Error?error.message:'STUDIO_LOAD_FAILED';this.recovery.failed();}
   }finally{
    if(!committed)releaseGeneration(candidate);
    if(version===this.generation){this.loading=false;this.pending=undefined;}
   }
  }
- setLength(length:number,offsetZ=0):string{
+ setLength(length:number,offsetZ=0):RenderStatus{
   this.active?.broadcast?.setLength(length,offsetZ);
   const definition=this.active?.definition,overflow=!!definition&&length>definition.tableEnvelope.maxStraightLength;
   this.root.visible=this.active!==null&&!(overflow&&definition?.tableEnvelope.overflow==='hide-studio');
@@ -120,8 +158,9 @@ export class StudioVisual {
  }
  dispose():void{
   if(this.disposed)return;
-  this.disposed=true;this.generation++;this.pending?.abort();this.pending=undefined;
+  this.disposed=true;this.generation++;this.pending?.controller.abort();this.pending=undefined;
   if(this.active)releaseGeneration(this.active);
   this.active=null;this.models.dispose();this.loading=false;this.authoredLights=0;this.root.removeFromParent();
+  this.requested=undefined;this.recovery.reset();
  }
 }

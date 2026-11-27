@@ -8,16 +8,18 @@ export class CustomAvatarVisual {
   readonly root=new THREE.Group();
   private cards:Array<{geometry:THREE.PlaneGeometry;image:THREE.CanvasTexture;distance:THREE.DataTexture;body:THREE.ShaderMaterial;glow:THREE.ShaderMaterial}>=[];
   private constructor(readonly profile:ImageAvatarProfile){}
-  static async create(bitmap:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap):Promise<CustomAvatarVisual>{
+  static async create(bitmap:ImageBitmap,profile:ImageAvatarProfile,back?:ImageBitmap,signal?:AbortSignal):Promise<CustomAvatarVisual>{
+    signal?.throwIfAborted();
     const visual=new CustomAvatarVisual(profile);
     try{
-      await visual.card(bitmap,profile,profile.back?'front':'double');
+      await visual.card(bitmap,profile,profile.back?'front':'double',signal);
       const b=backProfile(profile);
-      if(b){if(!back)throw new Error('BACK_IMAGE_REQUIRED');await visual.card(back,b,'back');}
+      if(b){if(!back)throw new Error('BACK_IMAGE_REQUIRED');await visual.card(back,b,'back',signal);}
       return visual;
     }catch(e){visual.dispose();throw e;}
   }
-  private async card(bitmap:ImageBitmap,profile:ImageAvatarProfile,side:'front'|'back'|'double'):Promise<void>{
+  private async card(bitmap:ImageBitmap,profile:ImageAvatarProfile,side:'front'|'back'|'double',signal?:AbortSignal):Promise<void>{
+    signal?.throwIfAborted();
     if(bitmap.width!==profile.image.width||bitmap.height!==profile.image.height)throw new Error('IMAGE_DIMENSIONS_MISMATCH');
     const ratio=Math.min(1,1024/Math.max(bitmap.width,bitmap.height));
     const width=Math.max(1,Math.round(bitmap.width*ratio)),height=Math.max(1,Math.round(bitmap.height*ratio)),pad=96;
@@ -26,7 +28,8 @@ export class CustomAvatarVisual {
     const rgba=context.getImageData(0,0,canvas.width,canvas.height).data,alpha=new Uint8Array(canvas.width*canvas.height);
     for(let i=0;i<alpha.length;i++)alpha[i]=rgba[i*4+3]!;
     if(!alpha.some(v=>v>=128))throw new Error('EMPTY_AVATAR_IMAGE');
-    const field=await alphaField(alpha,canvas.width,canvas.height,64);
+    const field=await alphaField(alpha,canvas.width,canvas.height,64,signal);
+    signal?.throwIfAborted();
     const image=new THREE.CanvasTexture(canvas);image.colorSpace=THREE.SRGBColorSpace;
     const distance=new THREE.DataTexture(field.data,field.width,field.height,THREE.RedFormat);
     distance.flipY=true;distance.minFilter=distance.magFilter=THREE.LinearFilter;distance.generateMipmaps=false;distance.needsUpdate=true;

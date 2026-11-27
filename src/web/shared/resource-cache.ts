@@ -3,6 +3,7 @@
 export interface ResourceLease<T> { readonly ready: Promise<T>; release(): void }
 interface Entry<T, S> {
   refs: number; retired: boolean; controller: AbortController; ready: Promise<T>;
+  rejectRetired: () => void;
   value?: { resource: T }; status: S; observers: Set<(status: S) => void>;
 }
 export class ResourceCache<T, S> {
@@ -14,20 +15,30 @@ export class ResourceCache<T, S> {
     if (this.stopped) throw new Error('RESOURCE_CACHE_DISPOSED');
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { refs: 0, retired: false, controller: new AbortController(), ready: undefined!, status: this.initial, observers: new Set() };
+      let rejectRetired!: () => void;
+      const retired = new Promise<never>((_, reject) => { rejectRetired = () => reject(new Error('RESOURCE_LOAD_RETIRED')); });
+      entry = { refs: 0, retired: false, controller: new AbortController(), ready: undefined!, rejectRetired, status: this.initial, observers: new Set() };
       const created = entry;
       this.entries.set(key, created);
-      created.ready = Promise.resolve().then(() => load(created.controller.signal, status => {
-        if (created.retired) return;
-        created.status = status;
-        for (const observer of [...created.observers]) {
-          if (created.observers.has(observer)) observer(status);
-        }
-      })).then(value => {
+      const loaded = Promise.resolve().then(() => {
+        // A lease can be released in the same turn as acquire(). Do not start
+        // work with an already-aborted signal: not every decoder checks it.
+        if (created.retired) throw new Error('RESOURCE_LOAD_RETIRED');
+        return load(created.controller.signal, status => {
+          if (created.retired) return;
+          created.status = status;
+          for (const observer of [...created.observers]) {
+            if (created.observers.has(observer)) observer(status);
+          }
+        });
+      }).then(value => {
         if (created.retired) { this.destroy(value); throw new Error('RESOURCE_LOAD_RETIRED'); }
         created.value = { resource: value };
         return value;
       });
+      // Fetch cancellation and worker cancellation have different guarantees.
+      // Consumers stop waiting immediately; a late decoded value is still freed.
+      created.ready = Promise.race([loaded, retired]);
       // A release may happen before the caller installs its own rejection handler.
       void created.ready.catch(() => {});
     }
@@ -50,6 +61,7 @@ export class ResourceCache<T, S> {
     entry.retired = true; entry.observers.clear();
     // Abort listeners run synchronously and may acquire the same key again.
     if (this.entries.get(key) === entry) this.entries.delete(key);
+    entry.rejectRetired();
     entry.controller.abort();
     if (entry.value) { const { resource } = entry.value; entry.value = undefined; this.destroy(resource); }
   }

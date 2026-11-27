@@ -1,5 +1,6 @@
 import type {RenderReport,FramePerformance} from '../contracts/diagnostics.ts';
-const allowed=new Set(['READY','STUDIO_LOADING','STUDIO_LOAD_FAILED','STUDIO_CAPACITY_OVERFLOW','CAMERA_SAFE_FALLBACK','CUSTOM_AVATAR_UNAVAILABLE','WEBGL_CONTEXT_LOST','RENDER_FAILED']);
+import {RENDER_STATUSES,type RenderStatus} from '../contracts/diagnostics.ts';
+const allowed=new Set<string>(RENDER_STATUSES);
 const finite=(v:unknown,min=0,max=1e9):v is number=>typeof v==='number'&&Number.isFinite(v)&&v>=min&&v<max;
 const integer=(v:unknown,min:number,max:number):v is number=>finite(v,min,max+1)&&Number.isSafeInteger(v);
 function performanceFields(p:Record<string,unknown>):Partial<FramePerformance>{
@@ -16,6 +17,6 @@ export function parseRenderReport(p:Record<string,unknown>,updatedAtMs:number):R
   ?{exposure:p.exposure,exposureStatus:String(p.exposureStatus),authoredLights:p.authoredLights,fallbackLights:p.fallbackLights}:{};
  const quality=['DIRECT','EFFECTS','EFFECTS_UNAVAILABLE','EFFECTS_FAILED'].includes(String(p.qualityStatus))&&integer(p.shadowLights,0,8)
   ?{qualityStatus:String(p.qualityStatus),shadowLights:p.shadowLights}:{};
- return {status:p.status,frameMs:p.frameMs,drawCalls:p.drawCalls,triangles:p.triangles,updatedAtMs,...exposure,...quality,
+ return {status:p.status as RenderStatus,frameMs:p.frameMs,drawCalls:p.drawCalls,triangles:p.triangles,updatedAtMs,...exposure,...quality,
   ...(typeof p.msaaSamples==='number'&&[0,2,4,8].includes(p.msaaSamples)?{msaaSamples:p.msaaSamples}:{}),...performanceFields(p)};
 }

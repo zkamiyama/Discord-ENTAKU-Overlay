@@ -22,8 +22,10 @@ test('cancelled candidate releases only its lease while another consumer still l
  const registry=new StudioModelRegistry(async(_id,signal)=>{signal.addEventListener('abort',()=>{aborted=true;});return new Promise(r=>{resolve=r;});});
  const cancel=new AbortController(),other=new AbortController();
  const a=registry.instantiate('same',cancel.signal),b=registry.instantiate('same',other.signal);
- const failed=expect(a).rejects.toBeDefined();
- await Promise.resolve();cancel.abort();await failed;expect(aborted).toBe(false);
+ // Attach a rejection handler before aborting without asking Bun's matcher to
+ // wait for a promise whose cancellation has not been triggered yet.
+ const failure=a.then(()=>{throw new Error('Cancelled model unexpectedly resolved');},error=>error);
+ await Promise.resolve();cancel.abort();expect(await failure).toBe(cancel.signal.reason);expect(aborted).toBe(false);
  resolve(new THREE.Group());const instance=await b;expect(registry.size).toBe(1);
  instance.dispose();expect(aborted).toBe(true);expect(registry.size).toBe(0);registry.dispose();
 });

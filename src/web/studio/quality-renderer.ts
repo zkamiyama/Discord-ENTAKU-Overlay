@@ -2,7 +2,7 @@ import {GAUSSIAN_SURFACE_LAYER} from '../gaussian/surface.ts';
 import {SceneEffectsIndex} from './scene-effects-index.ts';
 import {saveRenderState} from './render-state.ts';
 import {EffectTargets} from './effect-targets.ts';
-import {RenderRecovery} from './render-recovery.ts';
+import {RetryBudget} from '../shared/retry-budget.ts';
 import {createReflectionPass,disposeReflectionPass,disposeAmbientOcclusionPass} from './addon-adapters.ts';
 import {STUDIO_UNLIT_LAYER} from './studio-materials.ts';
 import {DisplayComposite} from './display-composite.ts';
@@ -38,7 +38,7 @@ export class QualityRenderer {
  private w=0;private h=0;private passScene?:THREE.Scene;private passCamera?:THREE.Camera;
  private readonly index:SceneEffectsIndex;
  private readonly ownsIndex:boolean;
- private sampleCounts?:number[];private recovery=new RenderRecovery();
+ private sampleCounts?:number[];private recovery=new RetryBudget();
  status:QualityStatus='DIRECT';msaaSamples=0;get shadowLights():number{return this.index.lights.length;}
  /** A program prepares one shared world index per frame; standalone previews
   * and test probes own their index and prepare it here. */

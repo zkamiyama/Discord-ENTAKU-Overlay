@@ -183,13 +183,20 @@ export class StudioClient {
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({manifest}),
     })).blob();
   }
-  async customImage(assetId:string):Promise<ImageBitmap>{
-    const response=await fetch(`/api/assets/${encodeURIComponent(assetId)}`);
-    if(!response.ok)throw new Error('ASSET_NOT_FOUND');return createImageBitmap(await response.blob());
+  async customImage(assetId:string,signal?:AbortSignal):Promise<ImageBitmap>{
+    const response=await fetch(`/api/assets/${encodeURIComponent(assetId)}`,{signal});
+    if(!response.ok)throw new Error('ASSET_NOT_FOUND');
+    return this.decodeImage(await response.blob(),signal);
   }
-  async avatar(userId: string): Promise<ImageBitmap> {
-    const response = await fetch(`/api/avatars/${encodeURIComponent(userId)}`);
+  async avatar(userId: string,signal?:AbortSignal): Promise<ImageBitmap> {
+    const response = await fetch(`/api/avatars/${encodeURIComponent(userId)}`,{signal});
     if (!response.ok) throw new Error('AVATAR_UNAVAILABLE');
-    return createImageBitmap(await response.blob(), { imageOrientation: 'flipY' });
+    return this.decodeImage(await response.blob(),signal,{imageOrientation:'flipY'});
+  }
+  private async decodeImage(blob:Blob,signal?:AbortSignal,options?:ImageBitmapOptions):Promise<ImageBitmap>{
+    signal?.throwIfAborted();
+    const bitmap=await createImageBitmap(blob,options);
+    if(signal?.aborted){bitmap.close();signal.throwIfAborted();}
+    return bitmap;
   }
 }
