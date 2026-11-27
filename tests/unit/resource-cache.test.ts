@@ -1,5 +1,5 @@
 import {expect,test} from 'bun:test';
-import {ResourceCache} from '../../src/web/gaussian/resource-cache.ts';
+import {ResourceCache} from '../../src/web/shared/resource-cache.ts';
 
 test('duplicate callback identity does not remove another live lease',async()=>{
  const cache=new ResourceCache<number,string>('loading',()=>{});

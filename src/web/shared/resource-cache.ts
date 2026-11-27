@@ -11,7 +11,7 @@ export class ResourceCache<T, S> {
   constructor(private readonly initial: S, private readonly destroy: (value: T) => void) {}
   get size(): number { return this.entries.size; }
   acquire(key: string, load: (signal: AbortSignal, status: (value: S) => void) => Promise<T>, observe: (status: S) => void = () => {}): ResourceLease<T> {
-    if (this.stopped) throw new Error('GAUSSIAN_RUNTIME_DISPOSED');
+    if (this.stopped) throw new Error('RESOURCE_CACHE_DISPOSED');
     let entry = this.entries.get(key);
     if (!entry) {
       entry = { refs: 0, retired: false, controller: new AbortController(), ready: undefined!, status: this.initial, observers: new Set() };
@@ -24,7 +24,7 @@ export class ResourceCache<T, S> {
           if (created.observers.has(observer)) observer(status);
         }
       })).then(value => {
-        if (created.retired) { this.destroy(value); throw new Error('GAUSSIAN_LOAD_RETIRED'); }
+        if (created.retired) { this.destroy(value); throw new Error('RESOURCE_LOAD_RETIRED'); }
         created.value = { resource: value };
         return value;
       });
@@ -35,7 +35,7 @@ export class ResourceCache<T, S> {
     acquired.refs++;
     // A subscription belongs to a lease, not to the callback's identity.
     // UI observers must not reject a shared load or strand its reference.
-    const notify = (status: S): void => { try { observe(status); } catch (error) { console.error('GAUSSIAN_STATUS_OBSERVER_FAILED', error); } };
+    const notify = (status: S): void => { try { observe(status); } catch (error) { console.error('RESOURCE_STATUS_OBSERVER_FAILED', error); } };
     acquired.observers.add(notify);
     notify(acquired.status);
     let released = false;

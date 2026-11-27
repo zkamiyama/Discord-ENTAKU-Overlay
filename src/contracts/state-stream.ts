@@ -62,7 +62,7 @@ export class StatePublisher{
   this.fields=next;this.epoch=state.serverEpoch;this.revision=state.revision;
   return this.latest;
  }
- reset():void{this.latest=undefined;this.fields.clear();this.epoch='';this.revision=-1;}
+ reset():void{this.latest=undefined;this.fields=new Map();this.epoch='';this.revision=-1;}
 }
 
 /** Transactional receiver: an incomplete or out-of-order delta cannot mutate

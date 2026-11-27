@@ -17,7 +17,7 @@ test('failed replacement retains active geometry, lighting and definition',async
   const first=asset(),partial=asset();let calls=0;
   const visual=new StudioVisual(client,renderer,async()=>{if(++calls===1)return first.group;if(calls===2)return partial.group;throw Error('STUDIO_TEXTURE_LOAD_FAILED');});
   await visual.update(scene('one'));const generation=visual.renderGeneration;
-  const candidate=scene('two');candidate.objects.push({...candidate.objects[0]!,id:'failing'});
+  const candidate=scene('two');candidate.objects.push({...candidate.objects[0]!,id:'failing',bundleId:'failing'} as StudioScene['objects'][number]);
   await visual.update(candidate);
   expect(visual.error).toBe('STUDIO_TEXTURE_LOAD_FAILED');expect(visual.readyForCamera).toBe(true);
   expect(visual.authoredLights).toBe(1);expect(visual.renderGeneration).toBe(generation);
@@ -27,10 +27,11 @@ test('failed replacement retains active geometry, lighting and definition',async
 test('out-of-order candidates and dispose cannot attach late-loaded resources',async()=>{
   const pending=new Map<string,(value:THREE.Group)=>void>();
   const visual=new StudioVisual(client,renderer,async(_c,_r,id)=>new Promise(resolve=>pending.set(id,resolve)));
-  const old=visual.update(scene('old')),latest=visual.update(scene('latest'));
-  const a=asset(),b=asset();pending.get('latest')!(b.group);await latest;pending.get('old')!(a.group);await old;
+  const old=visual.update(scene('old'));await Promise.resolve();
+  const latest=visual.update(scene('latest'));await Promise.resolve();
+  const a=asset(),b=asset();pending.get('latest')!(b.group);await latest;pending.get('old')!(a.group);await old;await Promise.resolve();await Promise.resolve();
   expect(a.disposed()).toBe(1);expect(b.disposed()).toBe(0);expect(visual.root.children).toHaveLength(1);expect(visual.renderGeneration).toBe(1);
-  const later=visual.update(scene('disposed')),c=asset();visual.dispose();pending.get('disposed')!(c.group);await later;
+  const later=visual.update(scene('disposed')),c=asset();await Promise.resolve();visual.dispose();pending.get('disposed')!(c.group);await later;await Promise.resolve();await Promise.resolve();
   expect(c.disposed()).toBe(1);expect(b.disposed()).toBe(1);expect(visual.readyForCamera).toBe(false);expect(visual.root.children).toHaveLength(0);
 });
 test('active scene stays visible while loading and old resources release once on success',async()=>{
@@ -38,17 +39,19 @@ test('active scene stays visible while loading and old resources release once on
   const visual=new StudioVisual(client,renderer,async(_c,_r,id)=>id==='first'?a.group:new Promise(r=>{resolve=r;}));
   await visual.update(scene('first'));const next=visual.update(scene('next'));
   expect(visual.setLength(1)).toBe('STUDIO_LOADING');expect(visual.root.visible).toBe(true);expect(visual.readyForCamera).toBe(true);expect(a.disposed()).toBe(0);
-  resolve(b.group);await next;expect(a.disposed()).toBe(1);expect(visual.renderGeneration).toBe(2);expect(visual.error).toBe('');
+  await Promise.resolve();resolve(b.group);await next;expect(a.disposed()).toBe(1);expect(visual.renderGeneration).toBe(2);expect(visual.error).toBe('');
   await visual.update(scene('next'));expect(visual.renderGeneration).toBe(2);visual.dispose();visual.dispose();expect(b.disposed()).toBe(1);
 });
 
 test('studio GLB speaker binding follows voice and presence, and releases glow shells on replacement',async()=>{
- const a=asset(),b=asset();const firstMesh=a.group.children[0] as THREE.Mesh;
- const material=firstMesh.material as THREE.MeshBasicMaterial;
+ const a=asset(),b=asset();const sourceMesh=a.group.children[0] as THREE.Mesh;
  let called=0;
  const visual=new StudioVisual(client,renderer,async()=>++called===1?a.group:b.group);
  const bound=scene('actor');bound.objects=[{...bound.objects[0]!,speakerUserId:'100'} as any];
  await visual.update(bound);expect(visual.meshSpeechCount).toBe(1);
+ const instance=visual.root.children[0]!.children[0]!,firstMesh=instance.children[0] as THREE.Mesh;
+ const material=firstMesh.material as THREE.MeshBasicMaterial;
+ expect(firstMesh.geometry).toBe(sourceMesh.geometry);expect(material).not.toBe(sourceMesh.material);
  expect(visual.setLength(1)).toBe('READY');expect(visual.hasMeshSpeaker('100')).toBe(true);
  expect(visual.hasMeshSpeaker('101')).toBe(false);
  expect(firstMesh.children.filter(c=>c.userData.entakuMeshSpeechOutline)).toHaveLength(2);
@@ -56,7 +59,7 @@ test('studio GLB speaker binding follows voice and presence, and releases glow s
  visual.setMeshSpeech(states,4);expect(visual.activeMeshSpeakers).toBe(1);
  expect(material.opacity).toBeCloseTo(.45);expect(material.transparent).toBe(true);
  visual.setMeshSpeech(new Map(),4);expect(visual.activeMeshSpeakers).toBe(0);
- expect(a.group.visible).toBe(false);
+ expect(instance.visible).toBe(false);expect(a.group.visible).toBe(true);
  const plain=scene('next');await visual.update(plain);
  expect(visual.meshSpeechCount).toBe(0);expect(a.disposed()).toBe(1);
  expect(visual.activeMeshSpeakers).toBe(0);
@@ -104,4 +107,20 @@ test('camera blocker edits do not rebuild visual resources',async()=>{
   await visual.update({...first,revision:1,camera:{blockers:[{id:'wall',min:[-1,0,0],max:[1,2,1]}]}});
   expect(loads).toBe(1);expect(a.disposed()).toBe(0);
  }finally{visual.dispose();}
+});
+
+test('same bundle is decoded once across placements and transform-only changes',async()=>{
+ const a=asset();let calls=0;
+ const visual=new StudioVisual(client,renderer,async()=>{calls++;return a.group;});
+ const first=scene('one'),object=first.objects[0]!;
+ if(object.kind!=='model')throw Error('fixture');
+ first.objects.push({...object,id:'two'});
+ await visual.update(first);
+ expect(calls).toBe(1);expect(visual.diagnostics().models[0]?.references).toBe(2);
+ const [left,right]=visual.root.children[0]!.children;
+ const l=left!.children[0] as THREE.Mesh,r=right!.children[0] as THREE.Mesh;
+ expect(l.geometry).toBe(r.geometry);expect(l.material).not.toBe(r.material);
+ await visual.update({...first,revision:1,objects:[{...object,transform:{...object.transform,position:[2,0,0]}}]});
+ expect(calls).toBe(1);expect(a.disposed()).toBe(0);expect(visual.diagnostics().models[0]?.references).toBe(1);
+ visual.dispose();expect(a.disposed()).toBe(1);
 });

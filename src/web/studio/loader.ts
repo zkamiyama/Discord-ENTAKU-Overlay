@@ -9,8 +9,10 @@ import type { StudioBundle } from '../../studio/store.ts';
 import type { StudioClient } from '../shared/client.ts';
 import { disposeObject } from './dispose.ts';
 export { disposeObject } from './dispose.ts';
-export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLRenderer|undefined,id:string):Promise<THREE.Group>{
-  const bundle:StudioBundle=await (await client.localFetch('/api/studio/bundles/'+id)).json();
+export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLRenderer|undefined,id:string,signal?:AbortSignal):Promise<THREE.Group>{
+  signal?.throwIfAborted();
+  const bundle:StudioBundle=await (await client.localFetch('/api/studio/bundles/'+id,{signal})).json();
+  signal?.throwIfAborted();
   const manager=new THREE.LoadingManager(),urls=new Map<string,string>();
   const root=new URL(`/__studio/${id}/`,location.origin).href;
   let failed=false;
@@ -24,8 +26,9 @@ export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLR
     let index=0;
     const transfers=await Promise.allSettled(Array.from({length:Math.min(4,bundle.files.length)},async()=>{
       while(index<bundle.files.length){
+        signal?.throwIfAborted();
         const file=bundle.files[index++]!;
-        const response=await client.localFetch(`/api/studio/bundles/${id}/file?path=${encodeURIComponent(file.path)}`);
+        const response=await client.localFetch(`/api/studio/bundles/${id}/file?path=${encodeURIComponent(file.path)}`,{signal});
         const blob=await response.blob();
         if(!renderer&&file.path===bundle.entry){
           const document=inspectGltfEntry(new Uint8Array(await blob.arrayBuffer()),bundle.entry).json;
@@ -35,6 +38,7 @@ export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLR
       }
     }));
     const failure=transfers.find(result=>result.status==='rejected');if(failure?.status==='rejected')throw failure.reason;
+    signal?.throwIfAborted();
     if(needsGpu)throw new Error('STUDIO_GPU_VALIDATION_REQUIRED');
     manager.setURLModifier(url=>{
       if(url.startsWith('data:')||url.startsWith('blob:'))return url; // GLTFLoader creates blobs for GLB-embedded images.
@@ -47,6 +51,7 @@ export async function loadStudioBundle(client:StudioClient,renderer:THREE.WebGLR
     if(ktx)loader.setKTX2Loader(ktx);
     const path=bundle.entry.split('/').map(encodeURIComponent).join('/');
     const gltf=await loader.loadAsync(root+path);model=gltf.scene;
+    signal?.throwIfAborted();
     if(failed)throw new Error('STUDIO_TEXTURE_LOAD_FAILED');
     let meshes=0,triangles=0;
     model.traverse(o=>{if(o instanceof THREE.Mesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.getAttribute('position')?.count??0)/3*(o instanceof THREE.InstancedMesh?o.count:1);}});

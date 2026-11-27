@@ -5,7 +5,7 @@ import type { GaussianAvatarProfile } from '../../assets/gaussian-profile.ts';
 import { GAUSSIAN_COLOR_LAYER, GAUSSIAN_PROXY_LAYER } from '../studio/gaussian-layers.ts';
 import { GaussianRuntime } from './runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from './assets.ts';
-import type { ResourceLease } from './resource-cache.ts';
+import type { ResourceLease } from '../shared/resource-cache.ts';
 import {GaussianSurface} from './surface.ts';
 import { gaussianLocalTransform, gaussianNormalization } from './transform.ts';
 import {setGaussianSpeechGlow,clearGaussianSpeechGlow,setGaussianSpeechBounds} from './speech-glow.ts';

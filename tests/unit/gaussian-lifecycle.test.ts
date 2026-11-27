@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import * as THREE from 'three';
 import { PackedSplats, SplatMesh } from '@sparkjsdev/spark';
-import { ResourceCache } from '../../src/web/gaussian/resource-cache.ts';
+import { ResourceCache } from '../../src/web/shared/resource-cache.ts';
 import { GaussianAvatarVisual } from '../../src/web/gaussian/avatar-visual.ts';
 import type { GaussianRuntime } from '../../src/web/gaussian/runtime.ts';
 import { gaussianAssetKey, type GaussianAsset, type GaussianLoadStatus } from '../../src/web/gaussian/assets.ts';
@@ -41,7 +41,7 @@ test('late A cannot replace reacquired A after its last owner left; abandoned lo
   const a = cache.acquire('asset', () => old.ready); a.release();
   const b = cache.acquire('asset', () => recent.ready); recent.resolve({ label: 'new' });
   expect((await b.ready).label).toBe('new'); old.resolve({ label: 'old' });
-  await expect(a.ready).rejects.toThrow('GAUSSIAN_LOAD_RETIRED'); expect(destroyed).toEqual(['old']);
+  await expect(a.ready).rejects.toThrow('RESOURCE_LOAD_RETIRED'); expect(destroyed).toEqual(['old']);
   expect(cache.snapshot()[0]?.value?.label).toBe('new'); b.release(); expect(destroyed).toEqual(['old', 'new']);
 });
 
@@ -50,9 +50,9 @@ test('runtime shutdown aborts fetching and retires worker results that cannot be
   const cache = new ResourceCache<object, string>('loading', () => destroys++);
   const lease = cache.acquire('pending', async s => { signal = s; s.addEventListener('abort', () => { aborted = true; }); return pending.ready; });
   await Promise.resolve(); cache.dispose(); pending.resolve({});
-  await expect(lease.ready).rejects.toThrow('GAUSSIAN_LOAD_RETIRED');
+  await expect(lease.ready).rejects.toThrow('RESOURCE_LOAD_RETIRED');
   expect(aborted).toBe(true); expect(signal?.aborted).toBe(true); expect(destroys).toBe(1); lease.release(); expect(destroys).toBe(1);
-  expect(() => cache.acquire('later', async () => ({}))).toThrow('GAUSSIAN_RUNTIME_DISPOSED');
+  expect(() => cache.acquire('later', async () => ({}))).toThrow('RESOURCE_CACHE_DISPOSED');
 });
 
 test('two visuals share packed data and transform edits/speaking do not reload or rebuild LoD', async () => {
