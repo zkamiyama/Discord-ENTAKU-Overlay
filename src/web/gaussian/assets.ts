@@ -103,6 +103,7 @@ export class GaussianAssetCache {
       }
     }, observe);
   }
+  get size(): number { return this.cache.size; }
   diagnostics() {
     return this.cache.snapshot().map(entry => ({
       references: entry.references, phase: entry.status.phase,

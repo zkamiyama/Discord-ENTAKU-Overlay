@@ -96,3 +96,22 @@ test('normal-less GLTF geometry remains byte-for-byte untouched and halo clone i
  expect(source.getAttribute('normal')).toBeUndefined();
  source.dispose();material.dispose();
 });
+
+test('outline radius invalidates when FOV changes without camera movement',()=>{
+ const {group,geometry,material}=model();
+ const glow=new MeshSpeechGlow(group,'100'),camera=new THREE.PerspectiveCamera(40,1,.1,100);
+ camera.position.set(0,0,5);camera.lookAt(0,0,0);camera.updateMatrixWorld(true);
+ group.updateMatrixWorld(true);glow.setSpeech(1,4);
+ const shell=(group.children[0] as THREE.Mesh).children[0] as THREE.Mesh;
+ const renderer={getRenderTarget:()=>null,getDrawingBufferSize:(v:THREE.Vector2)=>v.set(720,720)} as unknown as THREE.WebGLRenderer;
+ const scene=new THREE.Scene();
+ const draw=()=>{
+  shell.onBeforeRender(renderer,scene,camera,shell.geometry,shell.material as THREE.Material,null as unknown as Parameters<typeof shell.onBeforeRender>[5]);
+  return (glow as unknown as {lastRadius:number}).lastRadius;
+ };
+ try{
+  const before=draw();
+  camera.fov=70;camera.updateProjectionMatrix();
+  expect(draw()).toBeLessThan(before*.8);
+ }finally{glow.dispose();geometry.dispose();material.dispose();}
+});

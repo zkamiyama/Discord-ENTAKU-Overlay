@@ -32,6 +32,7 @@ export class MeshSpeechGlow {
  private lastCamera?:THREE.Camera;
  private lastSize=new THREE.Vector2(-1,-1);
  private lastCameraMatrix=new THREE.Matrix4();
+ private lastProjectionMatrix=new THREE.Matrix4();
  private lastObjectMatrix=new THREE.Matrix4();
  private lastScale=NaN;
  private lastRadius=0;
@@ -108,10 +109,12 @@ if(nlen>0.0001)gl_Position.xy+=outward/nlen * vec2(2.0*entakuGlowRadius)/entakuG
       if(!this.lastCamera||this.lastCamera!==camera||
         size.x!==this.lastSize.x||size.y!==this.lastSize.y||
         !this.lastCameraMatrix.equals(camera.matrixWorld)||
+        !this.lastProjectionMatrix.equals(camera.projectionMatrix)||
         !this.lastObjectMatrix.equals(this.object.matrixWorld)||this.lastScale!==this.scale){
        const pixels=projectedObjectHeightPixels(this.object,this.bounds,camera,size.y);
        this.lastRadius=speechScreenGlowRadius(pixels,size.y,this.scale);
        this.lastCamera=camera;this.lastCameraMatrix.copy(camera.matrixWorld);
+       this.lastProjectionMatrix.copy(camera.projectionMatrix);
        this.lastObjectMatrix.copy(this.object.matrixWorld);
        this.lastSize.copy(size);this.lastScale=this.scale;
       }

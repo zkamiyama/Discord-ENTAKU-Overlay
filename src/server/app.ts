@@ -63,8 +63,12 @@ export function startServer(options: ServerOptions) {
   const broadcast = (): void => {
     const state=engine.snapshot(now());
     journal.state(state);
-    const message = JSON.stringify(snapshot(state));
-    for (const socket of clients) sendEncoded(socket, message);
+    // Keep the journal current even with no UI, but don't serialize a packet
+    // that nobody will consume. New clients receive their own initial snapshot.
+    if (clients.size) {
+      const message = JSON.stringify(snapshot(state));
+      for (const socket of clients) sendEncoded(socket, message);
+    }
     broadcastAt = performance.now();
   };
   const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,diagnostic,broadcast,serial};

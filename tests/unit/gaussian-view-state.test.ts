@@ -48,3 +48,16 @@ test('old completed LoD is rejected after camera position, direction, projection
     probe.runtime.setBudget(2000);expect(probe.state().lodMatchesView).toBe(false);
   }finally{probe.dispose();}
 });
+
+test('cheap frame summary matches active view counters without collecting diagnostics',()=>{
+ const probe=setup();
+ try{
+  expect(probe.runtime.frameSummary()).toEqual({instances:1,assets:0,selectedSplats:probe.view.activeSplats});
+  // Even an unchanged budget starts a new frame's active camera set.
+  probe.runtime.setBudget(1000);
+  expect(probe.runtime.frameSummary().selectedSplats).toBe(0);
+  probe.runtime.render(probe.camera);
+  expect(probe.runtime.frameSummary().selectedSplats).toBe(probe.view.activeSplats);
+  expect(probe.runtime.diagnostics().views[0]!.active).toBe(true);
+ }finally{probe.dispose();}
+});

@@ -24,8 +24,11 @@ export class GaussianRuntime {
   }
   setBudget(total: number, viewCount = 1): void {
     this.activeCameras.clear();
-    this.totalBudget = Math.max(1000, Math.min(8_000_000, Math.floor(total)));
-    this.viewCount = viewCount === 2 ? 2 : 1;
+    const budget = Math.max(1000, Math.min(8_000_000, Math.floor(total)));
+    const count = viewCount === 2 ? 2 : 1;
+    if (budget === this.totalBudget && count === this.viewCount) return;
+    this.totalBudget = budget;
+    this.viewCount = count;
     for (const view of this.views.values()) view.lodSplatCount = Math.floor(this.totalBudget / this.viewCount);
   }
   retainVisual(): () => void {
@@ -93,6 +96,12 @@ export class GaussianRuntime {
       this.renderer.autoClear=auto;
       this.renderingView=previous;
     }
+  }
+  /** Hot-path counters only. Detailed scene/asset diagnostics are on demand. */
+  frameSummary() {
+    let selectedSplats = 0;
+    for (const camera of this.activeCameras) selectedSplats += this.views.get(camera)?.activeSplats ?? 0;
+    return { instances: this.users, assets: this.assets.size, selectedSplats };
   }
   diagnostics() {
     return {

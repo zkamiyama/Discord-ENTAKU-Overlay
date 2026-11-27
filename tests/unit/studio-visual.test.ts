@@ -62,3 +62,17 @@ test('studio GLB speaker binding follows voice and presence, and releases glow s
  expect(visual.activeMeshSpeakers).toBe(0);
  visual.dispose();expect(b.disposed()).toBe(1);
 });
+
+test('Gaussian LoD budget changes do not reload or dispose the studio scene',async()=>{
+  const a=asset();let calls=0;
+  const visual=new StudioVisual(client,renderer,async()=>{calls++;return a.group;});
+  try{
+    const first={...scene('one'),gaussian:{lodSplatCount:500_000}};
+    await visual.update(first);
+    const generation=visual.renderGeneration;
+    await visual.update({...first,revision:1,gaussian:{lodSplatCount:1_000_000}});
+    expect(calls).toBe(1);expect(visual.renderGeneration).toBe(generation);
+    expect(a.disposed()).toBe(0);expect(visual.readyForCamera).toBe(true);
+  }finally{visual.dispose();}
+  expect(a.disposed()).toBe(1);
+});

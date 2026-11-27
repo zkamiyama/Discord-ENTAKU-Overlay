@@ -11,9 +11,9 @@ class FakeSocket {
   receive(value:unknown):void {this.onmessage?.call(this as unknown as WebSocket,{data:JSON.stringify(value)} as MessageEvent);}
   end(code=1006):void {this.onclose?.call(this as unknown as WebSocket,{code} as CloseEvent);}
 }
-function fixture(){
+function fixture(staleMs=10_000){
   const sockets:FakeSocket[]=[];
-  const client=new StudioClient(()=>{const s=new FakeSocket();sockets.push(s);return s as unknown as WebSocket;},()=> 'ws://127.0.0.1/test',5);
+  const client=new StudioClient(()=>{const s=new FakeSocket();sockets.push(s);return s as unknown as WebSocket;},()=> 'ws://127.0.0.1/test',5,staleMs);
   return {client,sockets};
 }
 test('late events from a replaced WebSocket cannot reset state or create reconnects',async()=>{
@@ -41,5 +41,27 @@ test('a current connection retries once and policy closes never reconnect',async
     client.connect();const first=sockets[0]!;first.end();first.end();
     for(let i=0;i<40&&sockets.length<2;i++)await Bun.sleep(5);
     expect(sockets).toHaveLength(2);sockets[1]!.end(1008);await Bun.sleep(20);expect(sockets).toHaveLength(2);
+  }finally{client.disconnect();}
+});
+
+test('a socket without hello times out and reconnects, then accepts a new hello',async()=>{
+  const {client,sockets}=fixture(25);
+  try{
+    client.connect();
+    // Non-hello messages cannot keep the handshake alive forever.
+    sockets[0]!.receive({type:'pong',clientTime:0,serverTime:0});
+    for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
+    expect(sockets.length).toBeGreaterThanOrEqual(2);
+    sockets.at(-1)!.receive({type:'hello'});
+    expect(client.connected).toBe(true);
+  }finally{client.disconnect();}
+});
+test('an established socket also reconnects after becoming silent',async()=>{
+  const {client,sockets}=fixture(25);
+  try{
+    client.connect();sockets[0]!.receive({type:'hello'});
+    expect(client.connected).toBe(true);
+    for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
+    expect(sockets.length).toBeGreaterThanOrEqual(2);expect(client.connected).toBe(false);
   }finally{client.disconnect();}
 });

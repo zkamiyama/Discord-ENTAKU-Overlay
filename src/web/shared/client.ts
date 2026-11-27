@@ -27,6 +27,7 @@ export class StudioClient {
     private readonly createSocket: (url: string) => WebSocket = url => new WebSocket(url),
     private readonly socketUrl: () => string = () => `ws://${location.host}/ws`,
     private readonly retryMs = 2000,
+    private readonly staleMs = 10_000,
   ) {}
   private clearTimers(): void {
     clearTimeout(this.retry); clearInterval(this.pingTimer); clearInterval(this.watchdog);
@@ -44,6 +45,16 @@ export class StudioClient {
     this.disconnect();
     this.onConnection('接続中');
     const socket = this.createSocket(this.socketUrl()); this.socket = socket;
+    const startedAt=performance.now();this.lastMessage=startedAt;
+    // A peer that never sends hello is just as stale as an established peer
+    // that stops sending messages. Start monitoring at socket creation.
+    this.watchdog=setInterval(()=>{
+      if(this.socket!==socket)return;
+      if(performance.now()-(this.connected?this.lastMessage:startedAt)>=this.staleMs){
+        clearInterval(this.watchdog);this.watchdog=undefined;
+        this.connected=false;socket.close(4000,'STALE');
+      }
+    },Math.min(1000,this.staleMs));
     socket.onmessage = event => {
       if (this.socket !== socket) return;
       this.lastMessage=performance.now();
@@ -52,7 +63,6 @@ export class StudioClient {
         if (message.type === 'hello') {
           this.connected = true; this.bestRtt = Infinity;
           this.onConnection('接続済み'); this.ping();if(this.wantsChat)this.watchChat();
-          clearInterval(this.watchdog);this.watchdog=setInterval(()=>{if(performance.now()-this.lastMessage>10000){this.connected=false;socket.close(4000,'STALE');}},1000);
           clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this.ping(), 5000);
         } else if (message.type === 'snapshot' && message.state?.protocolVersion === 1) {
           const state = message.state as AppSnapshot;
@@ -70,7 +80,7 @@ export class StudioClient {
     socket.onclose = event => {
       if (this.socket !== socket) return;
       this.socket = null; this.clearTimers();
-      this.connected = false; this.chat=null;this.onChat(null);clearInterval(this.pingTimer); clearInterval(this.watchdog); this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
+      this.connected = false; this.chat=null;this.onChat(null);this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
       if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), this.retryMs);
     };
   }

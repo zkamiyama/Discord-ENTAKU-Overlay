@@ -45,7 +45,9 @@ export class StudioVisual {
 
   async update(definition: StudioScene): Promise<void> {
     if (this.disposed) return;
-    const signature = JSON.stringify({...definition,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
+    // Only fields consumed by this visual can invalidate its owned GLB/GPU resources.
+    const { schemaVersion, tableAnchor, tableEnvelope, objects, broadcast: backdrop } = definition;
+    const signature = JSON.stringify({ schemaVersion, tableAnchor, tableEnvelope, objects, backdrop });
     if (signature === this.signature) return;
     this.signature = signature;
     const version = ++this.generation, stage = new THREE.Group();

@@ -27,7 +27,7 @@ const table=new BroadcastDesk(0);stage.add(table);
 const avatarFailures=new Set<string>();
 const avatars=new Map<string,Avatar>();let state:AppSnapshot|null=null;
 const program=new ProgramRenderer(renderer,scene,stage,camera,avatars);
-client.onState=next=>{state=next;void studioVisual.update(next.studio);for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=next.avatarProfiles.find(a=>a.userId===p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar({client,stage,camera,gaussian,failures:avatarFailures,state:()=>state},p,profile));}
+client.onState=next=>{state=next;void studioVisual.update(next.studio);const profiles=new Map(next.avatarProfiles.map(a=>[a.userId,a]));for(const p of next.participants){const avatar=avatars.get(p.userId);const profile=profiles.get(p.userId);if(avatar)avatar.update(p,profile);else avatars.set(p.userId,new Avatar({client,stage,camera,gaussian,failures:avatarFailures,state:()=>state},p,profile));}
   const ids=new Set(next.participants.map(p=>p.userId));for(const [id,avatar]of avatars)if(!ids.has(id)){avatar.dispose();avatars.delete(id);}
 };
 let previous=performance.now(),lastLength=-1,reportAt=0,frameMs=16.7;
@@ -74,11 +74,11 @@ function frame(time:number):void{
   }
   gaussian.setBudget(state?.studio.gaussian?.lodSplatCount??DEFAULT_GAUSSIAN_SETTINGS.lodSplatCount,state?.camera.shot.kind==='SPLIT'&&!!state.camera.panels&&client.connected&&studioVisual.readyForCamera&&renderer.extensions.has('EXT_color_buffer_float')?2:1);
   if(!contextLost)Object.assign(canvas.dataset,program.render(state,pose,studioVisual,client.connected,time,length,offsetZ,near));
-  const gaussianDiagnostics=gaussian.diagnostics();
-  canvas.dataset.gaussianInstances=String(gaussianDiagnostics.instances);
+  const gaussianSummary=gaussian.frameSummary();
+  canvas.dataset.gaussianInstances=String(gaussianSummary.instances);
   canvas.dataset.meshSpeakerCount=String(studioVisual.meshSpeechCount);
-  canvas.dataset.meshSpeaking=String(studioVisual.activeMeshSpeakers);canvas.dataset.gaussianAssets=String(gaussianDiagnostics.assets.length);
-  canvas.dataset.gaussianSelectedSplats=String(gaussianDiagnostics.views.filter(view=>view.active).reduce((sum,view)=>sum+view.selectedSplats,0));
+  canvas.dataset.meshSpeaking=String(studioVisual.activeMeshSpeakers);canvas.dataset.gaussianAssets=String(gaussianSummary.assets);
+  canvas.dataset.gaussianSelectedSplats=String(gaussianSummary.selectedSplats);
   canvas.dataset.gaussianStatus=JSON.stringify([...avatars.values()].filter(a=>a.gaussian).map(a=>({userId:a.user.userId,...a.gaussian!.status})));
   if(time-reportAt>=1000){reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':avatarFailures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report);}
 }
