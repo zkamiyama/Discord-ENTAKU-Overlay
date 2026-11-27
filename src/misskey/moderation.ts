@@ -75,18 +75,38 @@ export function truncateGraphemes(value:string,limit:number,maxUnits=1900):{text
 
 export function hasMechanicalRepetition(text:string):boolean {
   const chars=[...segmenter.segment(text)].map(item=>item.segment);
-  if(chars.some(char=>char.length>64))return true;
-  let same=1;
-  for(let i=1;i<chars.length;i++){
-    same=chars[i]===chars[i-1]?same+1:1;
-    if(same>=12)return true;
+  // Retain the input-complexity guard for a single pathological grapheme;
+  // repeated ordinary graphemes (cheers, laughter, emoji) are allowed.
+  const kinds=new Set<string>();
+  for(const char of chars){
+    if(char.length>64)return true;
+    if(kinds.size<3)kinds.add(char);
   }
-  for(let period=2;period<=12;period++){
-    let run=0;
-    for(let i=period;i<chars.length;i++){
-      run=chars[i]===chars[i-period]?run+1:0;
-      if(run+period>=Math.max(24,period*5))return true;
+  if(kinds.size<3)return false;
+  const minUnit=5,maxUnit=64,minCopies=5;
+  const minSpan=Math.max(30,Math.ceil(chars.length*3/5));
+  // A phrase must dominate the full normalized input, not just its preview.
+  // Every qualifying span contains the comparison pair centred in the input.
+  // Check only the run through that pair: at most 60 bounded linear scans,
+  // with nonmatching and short-unit candidates discarded before scanning.
+  for(let period=minUnit;period<=Math.min(maxUnit,Math.floor(chars.length/minCopies));period++){
+    const required=Math.max(minSpan,period*minCopies);
+    if(required>chars.length)continue;
+    const middle=Math.floor((chars.length+period)/2);
+    if(chars[middle]!==chars[middle-period])continue;
+    const unit=chars.slice(middle-period,middle);
+    if(new Set(unit).size<3)continue;
+    // Do not misclassify bundled short replies, e.g. "haha" or "わーい",
+    // as a longer phrase. A proper repeated unit must divide this period.
+    let shortUnit=false;
+    for(let shorter=1;shorter<minUnit;shorter++){
+      if(period%shorter===0&&unit.every((char,index)=>char===unit[index%shorter])){shortUnit=true;break;}
     }
+    if(shortUnit)continue;
+    let start=middle,end=middle+1;
+    while(start>period&&chars[start-1]===chars[start-1-period])start--;
+    while(end<chars.length&&chars[end]===chars[end-period])end++;
+    if(end-start+period>=required)return true;
   }
   return false;
 }

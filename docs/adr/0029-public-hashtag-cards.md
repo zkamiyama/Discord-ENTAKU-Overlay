@@ -2,7 +2,7 @@
 
 日付: 2026-11-28 JST
 
-状態: `feat/misskey-hashtag-cards`で実装。運用条件と測定値は[利用・調査記録](../misskey-hashtag-cards.md)を参照する。
+状態: `feat/misskey-hashtag-cards`で実装。Spriteを選んだ描画部分と反復判定は、[ADR 0030](0030-tilted-cards-and-phrase-moderation.md)で変更した。この文書のSpriteに関する記述は初期設計の記録として残す。運用条件と現在の測定値は[利用・調査記録](../misskey-hashtag-cards.md)を参照する。
 
 ## 課題
 

@@ -2,7 +2,7 @@
 
 ENTAKUはMisskeyの`hashtag` Streamingチャンネルから公開ノートを受信し、人物の背後に最大30枚のカードを表示する。接続先の初期値は`https://otomad.site`、タグは`NicoMiss`。受信は初期状態では無効で、Dockから有効にする。Discordに接続していないデモでも使える。
 
-この文書は`feat/misskey-hashtag-cards`の実装を説明する。調査日は2026-11-28 JST。実装方針と代替案は[ADR 0029](adr/0029-public-hashtag-cards.md)、測定の生データは[実接続](measurements/misskey-live.json)と[描画実験](measurements/misskey-cards.json)に記録した。各記録の対象ソースと条件を確認し、別の版や実GPUの結果へ読み替えない。
+この文書は`feat/misskey-hashtag-cards`の実装を説明する。調査日は2026-11-28 JST。初期設計は[ADR 0029](adr/0029-public-hashtag-cards.md)、平面メッシュと反復判定への変更は[ADR 0030](adr/0030-tilted-cards-and-phrase-moderation.md)に記録した。測定の生データは[実接続](measurements/misskey-live.json)と[平面メッシュの描画実験](measurements/misskey-geometry.json)にある。各記録の対象ソースと条件を確認し、別の版や実GPUの結果へ読み替えない。
 
 ## 使い始める
 
@@ -101,12 +101,16 @@ HTTPリバースプロキシ、CDN、サーバー運用設定による制限は�
 | 表記の揺れ | 検査用文字列をNFKC・小文字へ正規化し、句読点・空白・不可視制御文字を除く。表示する原文は別に保持 |
 | 同一内容 | 正規化した全文のSHA-256で10分間重複を除外。投稿者が違っても対象 |
 | 同一ノート | 採用IDと削除・編集済みIDを10分間記憶。補完による再表示を防ぐ |
-| 単純な連打 | 同じgraphemeが12個以上連続する場合などを除外 |
-| 短いパターンの反復 | 長さ2〜12の繰り返しを検出。24文字以上かつ概ね5回以上を基準にする |
+| 歓声・笑い | 通常の同一文字や絵文字の連続だけでは除外しない。最短の反復単位が1〜4文字の場合も通す |
+| フレーズの反復 | 5〜64文字、異なる文字3種類以上の単位が5回以上連続し、区間が30文字以上かつ全文の60%以上を占める場合に除外 |
 | 一人の連投 | 表示＋待機の投稿者上限と、同じ投稿者からの採用間隔10秒 |
 | 大量投稿 | live入力の審査上限、待機列60件、表示30件を固定 |
 | 過大・不正入力 | 本文16,000 UTF-16単位、MFM深さ8、ノード4,096、各種フィールドの型と長さを検査 |
 | 取り下げ | 削除・編集の通知で表示と待機から除去。手動の全消去・投稿者除外も用意 |
+
+反復の長さはgraphemeで数え、正規化後の全文から監視タグを除いて判定する。「きたああああああああああああ！」、長い`w`や全角`ｗ`、「わーい」の反復は反復だけを理由に除外しない。「加藤純一最強！」を6回続けた例は一般のフレーズ規則で除外し、固有名のNG辞書は追加していない。同じ条件を満たす別のフレーズにも同じ規則を適用する。
+
+「そうですね」は5文字なので、6回繰り返して全文の60%以上を占めれば除外する。単位が65文字以上、区間が60%未満の場合はこの規則の対象外である。途中で文字が変わる場合も、前後に条件を満たす連続区間が残れば除外する。1 graphemeが64 UTF-16単位を超える異常入力の保護は維持する。歓声を許可しても、危険語・全文重複・投稿者上限・10秒間隔は独立して働く。同じ`w`だけの投稿が既に採用されていれば、後の同一内容は重複で除外される。
 
 IDと内容の重複キャッシュは各2,048件、投稿者の短期キャッシュは4,096件まで。期限と件数の両方でメモリを制限する。上限を超えるほど大量の異なる投稿が来ると、古い重複記録は10分以内でも押し出される。
 
@@ -116,7 +120,7 @@ IDと内容の重複キャッシュは各2,048件、投稿者の短期キャッ�
 
 ## 3D表示と負荷
 
-Three.jsの標準`Sprite`と`CanvasTexture`を使う。本文が変わったときに512×256のCanvasへ一度描き、浮遊とフェードは座標・スケール・透明度だけで動かす。同じノートについて毎フレームCanvasを描き直さない。外部のアバター画像は取得せず、名前の頭文字から小さなアイコンを作る。
+Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMaterial`、`CanvasTexture`を使う。カードの面を幾何形状にし、文字は512×256のCanvasへ描く。本文やフォントが変わる場合だけ描き直し、浮遊・傾き・フェードは座標・行列・透明度で動かす。同じノートについて毎フレームCanvasを描き直さない。外部のアバター画像は取得せず、名前の頭文字から小さなアイコンを作る。
 
 カードはアイボリーの地に濃い文字、細いシアンの線、淡いタグ表示という構成にした。装飾を控え、投稿者名と本文を先に読めるようにする。小さなWindows風ウィンドウを重ねる方式は採らない。
 
@@ -124,9 +128,15 @@ Three.jsの標準`Sprite`と`CanvasTexture`を使う。本文が変わったと�
 
 ![ENTAKUのOverlayに配置した合成ノート](images/misskey-overlay.png)
 
+![左右のカメラへそれぞれ向くSPLITのカード](images/misskey-split.png)
+
 上の画像の本文と投稿者名は描画試験用の合成データである。
 
 配置は机のカプセル形状に沿う10方向×3段、合計30スロット。対向位置から埋める順序なので、少数件でも一方に偏りにくい。机の長さ・offset・stage transformへ追従し、各カメラで近側のカードを抑制する。SPLITではそれぞれの視点で判定する。人物の背後に均等な居場所を作る方式で、画面上ではカードが重なる場合もある。
+
+姿勢は各drawの実際のカメラから決める。カードの中心は空間内に置いたまま、面をカメラへ向け、その上にスロット固有のXYZの傾きと小さな揺れを加える。角度の絶対値はXが7.5〜15.5度、Yが13〜22度、Zが2〜7度。移動・回転するカメラとrollに追従し、SPLITの左右は独立して計算する。片方の姿勢をもう片方へ引き継がない。親の非一様scaleも行列で補正する。
+
+面はビューごとに回転するため、すべてのカメラが同じ固定姿勢の物体を撮る方式ではない。カメラが回り込んでも読めることと、傾きによる奥行きを両立する。文字そのものには厚みを付けず、1枚2三角形の平面に画像として表示する。
 
 `depthTest=true`、`depthWrite=false`を使い、不透明な机や壁との奥行きを保つ。カードは人物より前に描画し、3DGSのまとまった透明描画でも人物を上書きしない。表示用layerへ分け、影・反射・自動露出の対象から外す。詳細はADRに記載する。
 
@@ -137,10 +147,19 @@ Three.jsの標準`Sprite`と`CanvasTexture`を使う。本文が変わったと�
 - 30枚でカードのCanvasTextureは30個、RGBA画素分は15,728,640 bytes（15 MiB）。CPU側Canvasとドライバーの領域は含まない。
 - 1,000件を入れ替えても保持テクスチャ数は30個のまま。
 - 内容が変わらない計測中の追加テクスチャ更新は0回。
-- dispose後のGPUテクスチャ数は0。Three.js標準Spriteの共有geometryは残るが、入れ替えで増加しない。
+- dispose後のGPUテクスチャ数とgeometry数はともに0。共有PlaneGeometryは所有者が1回だけ解放する。
 - 独立シーンのdraw callは通常表示で7→37、SPLITで14→74。カード1枚1drawを基本とする。
 
-時間の生値と中央値・p95は[測定JSON](measurements/misskey-cards.json)にある。`readRenderTargetPixels`による同期とreadbackを含む時間なので、通常フレームのfpsへ単純に変換しない。30件を初期上限にする根拠は、資源が有界であることとこの比較実験であり、あらゆるPCで30件なら軽いという保証ではない。
+変更前の`8036aa7`を同じ環境で測り直し、平面メッシュの作業ツリーと比較した。以下は30枚表示時の値である。CPU時間は描画命令の送信まで、同期時間は`readRenderTargetPixels`の完了までを含む。
+
+| 表示・方式 | draw call | CPU中央値 | 同期時間の中央値 | 同期時間p95 |
+|---|---:|---:|---:|---:|
+| 通常・変更前Sprite | 37 | 0.3 ms | 3.9 ms | 5.5 ms |
+| 通常・平面メッシュ | 37 | 0.3 ms | 3.6 ms | 4.6 ms |
+| SPLIT・変更前Sprite | 74 | 0.5 ms | 6.9 ms | 8.8 ms |
+| SPLIT・平面メッシュ | 74 | 0.6 ms | 6.7 ms | 8.4 ms |
+
+生値とソースhashは[平面メッシュの測定](measurements/misskey-geometry.json)、変更前は[比較用Sprite測定](measurements/misskey-sprite-baseline.json)にある。初期調査時の[Sprite測定](measurements/misskey-cards.json)も過去の記録として保持する。少数フレームのソフトウェア描画には揺れがあり、この表から速度改善率や実GPUのfpsを求めない。draw callと保持テクスチャ数は増えていない。30件を初期上限にする根拠は、資源が有界であることとこの比較実験であり、あらゆるPCで30件なら軽いという保証ではない。
 
 ## 実接続の確認と未確認の範囲
 
@@ -150,7 +169,9 @@ Three.jsの標準`Sprite`と`CanvasTexture`を使う。本文が変わったと�
 
 開始時のソースhashは[実接続JSON](measurements/misskey-live.json)にある。その後、型不正な安全フラグ・usernameの除外判定と、反復過負荷時の取り下げを修正した。これらの経路は合成テストで確認し、180秒の実接続を繰り返してはいない。
 
-単体・結合試験では公開範囲、重複、反復、上限、期限、pause/resume、429、heartbeat、再接続、古い応答の拒否、補完cursor、削除・編集、反復過負荷を検査する。Playwrightでは実Overlayの30枚表示、上限、SPLIT、文字列の無害な表示、設定保存、投稿者除外、pause/clear/切断を確認する。実GPU、WindowsのOBS/CEF、長時間の実配信は別途確認が必要。
+単体・結合試験では公開範囲、重複、歓声の許可、フレーズ反復の境界、上限、期限、pause/resume、429、heartbeat、再接続、古い応答の拒否、補完cursor、削除・編集、反復過負荷を検査する。姿勢の試験はカメラ移動・roll、SPLITの描画順、非一様scale、中心位置、geometry共有と解放を含む。
+
+Playwrightでは実Overlayの30枚表示、上限、SPLIT、文字列の無害な表示、設定保存、投稿者除外、pause/clear/切断、3DGS人物との描画順序を確認する。別のWebGL試験では13通りの連続カメラ位置、同じ位置でのroll変更、左右のAB/BA描画順、通常表示への復帰を調べる。各draw後の行列と画素を確認し、左右を描く順序によらず各画面が一致することを検査する。実GPU、WindowsのOBS/CEF、長時間の実配信は別途確認が必要。
 
 ## 再実行
 
@@ -159,7 +180,7 @@ bun install --frozen-lockfile
 bun run typecheck
 bun test tests/unit/misskey-*.test.ts tests/integration/misskey-api.test.ts
 bun run build:web
-bunx playwright test e2e/misskey.spec.ts
+bunx playwright test e2e/misskey.spec.ts e2e/misskey-geometry.spec.ts
 
 # 外部へ接続する読み取り専用実験。本文や投稿者情報は記録しない。
 bun run probe:misskey --seconds 180 --output docs/measurements/misskey-live.json
@@ -170,7 +191,7 @@ bun run bench:misskey --software --frames 40
 
 実接続でホーム公開も審査する場合は`--include-home`を加える。描画実験を実GPUで行う場合は`--software`を外す。ソフトウェアrendererが検出された場合は、実GPUの測定として保存しない。Chromeの場所を指定する必要がある環境では、E2Eに`ENTAKU_CHROMIUM_PATH`、独立描画実験に`PLAYWRIGHT_CHROMIUM_EXECUTABLE`を使う。
 
-この作業環境ではAF_UNIXを作成できず、既存のIPC模擬試験12件がソケット作成時点で失敗する。Misskeyのためのskipやテスト条件の緩和は入れていない。リポジトリ全体の最終判定は対象HEADのLinux／Windows／ブラウザCIで確認する。
+この作業環境ではAF_UNIXを作成できず、既存のIPC模擬試験12件がソケット作成時点で失敗する。これらのIPC試験にskipや期待値の緩和は入れていない。リポジトリ全体の最終判定は対象HEADのLinux／Windows／ブラウザCIで確認する。
 
 ## 一次資料
 
@@ -183,5 +204,5 @@ bun run bench:misskey --software --frames 40
 - [S5: StreamingApiServerService](https://github.com/OtomadSite/system/blob/13cde5a03c560e0bfbe9ec475157f29ae4ba1653/packages/backend/src/server/api/StreamingApiServerService.ts)
 - [S6: QueryServiceとvisibility・pagination](https://github.com/OtomadSite/system/blob/13cde5a03c560e0bfbe9ec475157f29ae4ba1653/packages/backend/src/core/QueryService.ts)
 - [S7: Misskey公式Streaming API](https://misskey-hub.net/ja/docs/for-developers/api/streaming/)、[ノートcaptureイベント](https://misskey-hub.net/ja/docs/for-developers/api/streaming/note-capture-events/)
-- [Three.js Sprite](https://threejs.org/docs/pages/Sprite.html)、[CanvasTexture](https://threejs.org/docs/pages/CanvasTexture.html)、[CSS2DRenderer](https://threejs.org/docs/pages/CSS2DRenderer.html)
+- [Three.js PlaneGeometry](https://threejs.org/docs/pages/PlaneGeometry.html)、[Mesh](https://threejs.org/docs/pages/Mesh.html)、[CanvasTexture](https://threejs.org/docs/pages/CanvasTexture.html)、[Object3D](https://threejs.org/docs/pages/Object3D.html)、[r187 WebGLRenderer](https://github.com/mrdoob/three.js/blob/r187/src/renderers/WebGLRenderer.js)
 - [mfm-js](https://github.com/misskey-dev/mfm.js)。ライセンスと同梱依存の表記は[THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md)を参照。

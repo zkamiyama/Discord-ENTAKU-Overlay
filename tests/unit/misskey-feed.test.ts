@@ -41,6 +41,19 @@ test('ID and normalized body deduplication survive deletion, clear and recovery,
   f.advance(600_001);expect(f.feed.ingest(f.note('3','c','hello #NicoMiss'))).toBe(true);
 });
 
+test('accepted cheers still obey content deduplication, user limits, cooldown and threat filtering',()=>{
+  const f=fixture();
+  expect(f.feed.ingest(f.note('1','a','w'.repeat(20)+' #NicoMiss'))).toBe(true);
+  expect(f.feed.ingest(f.note('2','b','ｗ'.repeat(20)+' #NicoMiss'))).toBe(false);
+  const cheer=f.note('3','a','きた'+'あ'.repeat(30)+'！ #NicoMiss');
+  expect(f.feed.ingest(cheer)).toBe(false);
+  expect(f.feed.snapshot().rejected).toMatchObject({duplicate:1,'user-limit':1});
+  f.feed.clear();expect(f.feed.ingest(cheer)).toBe(false);
+  expect(f.feed.ingest(f.note('4','c','きた'+'あ'.repeat(30)+'！殺してやる #NicoMiss'))).toBe(false);
+  expect(f.feed.snapshot().rejected).toMatchObject({'rate-limit':1,'blocked-word':1});
+  expect(f.feed.snapshot().rejected.repetition).toBeUndefined();
+});
+
 test('edits and deletions revoke visible and queued content, including deletion before recovery',()=>{
   const f=fixture();f.feed.ingest(f.note('1'));f.feed.ingest(f.note('2'));
   f.feed.update('1',{text:'殺してやる #NicoMiss'});f.feed.remove('2');f.feed.remove('3');

@@ -18,7 +18,8 @@ test('public hashtag cards render in bounded resources, survive split views, and
  await expect(scene).toHaveAttribute('data-split-count','2',{timeout:20000});await expect(scene).toHaveAttribute('data-misskey-cards','30');
  expect(await scene.getAttribute('data-misskey-texture-updates')).toBe(updates);
  await scene.screenshot({path:'.work/misskey-cards-split.png',omitBackground:true});
- await people.nth(0).getByRole('button',{name:'この人を撮る',exact:true}).click();await expect(scene).toHaveAttribute('data-split-count','1');
+ await page.locator('#camera-split').uncheck();
+ await expect(scene).toHaveAttribute('data-split-count','1',{timeout:20000});
  const state=await (await request.get('/api/diagnostics')).json();expect(JSON.stringify(state)).not.toContain('NicoMiss');
  await request.post('http://127.0.0.1:31341/',{data:{action:'edit',id:'1',text:'changed'}});await expect(scene).toHaveAttribute('data-misskey-cards','29');
  await request.post('http://127.0.0.1:31341/',{data:{action:'delete',id:'2'}});await expect(scene).toHaveAttribute('data-misskey-cards','28');

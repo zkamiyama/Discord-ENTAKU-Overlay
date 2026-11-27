@@ -86,10 +86,80 @@ function memory(){return {...renderer.info.memory};}
   const cards=sample===null?Array.from({length:30},(_,slot)=>makeCard(slot)):[makeCard(0,0,sample)];
   view.setState({...emptyMisskeyState(),status:'live',cards});await document.fonts.ready;view.prepare(0,0,true,now+1000);
   const width=sample===null?1920:1024,height=sample===null?1080:512,cam=camera(width/height);
-  if(sample!==null){const p=misskeyCardPosition(0,0);cam.position.set(p.x+p.inwardX*2.45,p.y,p.z+p.inwardZ*2.45);cam.lookAt(p.x,p.y,p.z);cam.fov=26;cam.updateProjectionMatrix();}
+  if(sample!==null){const p=misskeyCardPosition(0,0);cam.position.set(p.x+p.inwardX*2.45,p.y,p.z+p.inwardZ*2.45);cam.lookAt(p.x,p.y,p.z);cam.fov=34;cam.updateProjectionMatrix();}
   renderer.setSize(width,height,false);renderer.setRenderTarget(null);renderer.setViewport(0,0,width,height);renderer.setScissorTest(false);renderer.render(world.scene,cam);gl.finish();
   (window as any).disposeMisskeyCapture=()=>{view.dispose();world.dispose();};
   return {width,height,stats:view.stats};
+};
+
+/** Real WebGL checks for the two risks that a Sprite-to-Mesh conversion adds:
+ * animated camera poses and sequential cameras sharing one scene graph. */
+(window as any).inspectMisskeyGeometryViews=async()=>{
+  const width=640,height=360,scene=new THREE.Scene(),stage=new THREE.Group(),view=new MisskeyCards();
+  scene.background=new THREE.Color('#233c41');scene.add(stage);stage.add(view.root);
+  stage.position.set(9,3,-6);stage.rotation.set(.12,.7,-.08);stage.scale.set(1.6,.75,1.1);
+  view.setState({...emptyMisskeyState(),status:'live',cards:[makeCard(0)]});
+  await document.fonts.ready;
+  const wallNow=now+1000;view.prepare(0,0,true,wallNow);scene.updateMatrixWorld(true);
+  const mesh=view.root.children[0] as THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;
+  const position=misskeyCardPosition(0,0),target=view.root.localToWorld(mesh.position.clone());
+  const a=camera(width/height),b=camera(width/2/height),pixels=new Uint8Array(width*height*4);
+  const pose=(cam:THREE.PerspectiveCamera,angle:number,roll:number,aspect:number)=>{
+    const inward=3.4*Math.cos(angle),tangent=3.4*Math.sin(angle);
+    cam.position.set(position.x+position.inwardX*inward-position.inwardZ*tangent,position.y+.25+.2*Math.sin(angle),position.z+position.inwardZ*inward+position.inwardX*tangent).applyMatrix4(view.root.matrixWorld);
+    cam.up.set(Math.sin(roll),Math.cos(roll),0);cam.lookAt(target);cam.aspect=aspect;cam.updateProjectionMatrix();cam.updateMatrixWorld(true);
+  };
+  const observation=(cam:THREE.PerspectiveCamera)=>{
+    const center=new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld),right=new THREE.Vector3().setFromMatrixColumn(mesh.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(mesh.matrixWorld,1);
+    const normal=new THREE.Vector3().crossVectors(right,up).normalize(),toCamera=cam.position.clone().sub(center).normalize();
+    const depths=[[-.5,-.5],[-.5,.5],[.5,-.5],[.5,.5]].map(([x,y])=>new THREE.Vector3(x,y,0).applyMatrix4(mesh.matrixWorld).applyMatrix4(cam.matrixWorldInverse).z);
+    return {normal:normal.toArray(),right:right.clone().normalize().toArray(),up:up.clone().normalize().toArray(),facing:normal.dot(toCamera),centerError:center.distanceTo(target),orthogonality:Math.abs(right.normalize().dot(up.normalize())),depthRange:Math.max(...depths)-Math.min(...depths),matrix:mesh.matrixWorld.toArray()};
+  };
+  const read=()=>{gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);};
+  const region=(start:number,end:number)=>{
+    let white=0,hash=2166136261;
+    for(let y=0;y<height;y++)for(let x=start;x<end;x++){
+      const offset=(y*width+x)*4;
+      if(pixels[offset]!>200&&pixels[offset+1]!>200&&pixels[offset+2]!>190&&pixels[offset+3]!>240)white++;
+      for(let channel=0;channel<4;channel++)hash=Math.imul(hash^pixels[offset+channel]!,16777619);
+    }
+    return {white,hash:hash>>>0};
+  };
+  renderer.setSize(width,height,false);renderer.setRenderTarget(null);renderer.setScissorTest(false);renderer.setViewport(0,0,width,height);
+  try{
+    const animation=[];
+    for(let frame=0;frame<=12;frame++){
+      const angle=(frame-6)*Math.PI/18;
+      pose(a,angle,.2*Math.sin(angle),width/height);renderer.render(scene,a);read();
+      animation.push({...observation(a),...region(0,width)});
+    }
+    // Isolate roll from orbit: a world-up implementation must not pass just
+    // because the eye position changed between observations.
+    const rollOnly=[];
+    for(const roll of [0,.6]){
+      pose(a,0,roll,width/height);renderer.render(scene,a);read();
+      rollOnly.push({...observation(a),...region(0,width)});
+    }
+    pose(a,-.7,-.15,width/2/height);pose(b,.7,.15,width/2/height);
+    const cameras=[a,b];
+    const split=(order:number[])=>{
+      renderer.setScissorTest(false);renderer.setViewport(0,0,width,height);renderer.clear();renderer.autoClear=false;renderer.setScissorTest(true);
+      const views:ReturnType<typeof observation>[]=[];
+      for(const index of order){
+        renderer.setViewport(index*width/2,0,width/2,height);renderer.setScissor(index*width/2,0,width/2,height);renderer.render(scene,cameras[index]!);views[index]=observation(cameras[index]!);
+      }
+      renderer.setScissorTest(false);renderer.autoClear=true;read();
+      return {views,panels:[region(0,width/2),region(width/2,width)]};
+    };
+    const forward=split([0,1]),reverse=split([1,0]);
+    // Return to a prior single-camera pose without rebuilding cards or textures.
+    pose(a,-Math.PI/3,.2*Math.sin(-Math.PI/3),width/height);
+    renderer.setViewport(0,0,width,height);renderer.render(scene,a);read();
+    const restored={...observation(a),...region(0,width)};
+    const result={mesh:mesh.isMesh===true,geometry:mesh.geometry?.type,animation,rollOnly,forward,reverse,restored,stats:view.stats,memory:memory()};
+    view.dispose();renderer.render(new THREE.Scene(),a);
+    return {...result,memoryAfterDispose:memory()};
+  }finally{renderer.autoClear=true;renderer.setScissorTest(false);view.dispose();scene.clear();}
 };
 
 (window as any).disposeMisskeyBenchmark=()=>{(window as any).disposeMisskeyCapture?.();renderer.dispose();renderer.forceContextLoss();};

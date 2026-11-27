@@ -1,5 +1,5 @@
 import {expect,test} from 'bun:test';
-import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_RADIUS,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition} from '../../src/geometry/misskey-card-layout.ts';
+import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_RADIUS,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition,misskeyCardTilt} from '../../src/geometry/misskey-card-layout.ts';
 import {MISSKEY_CARD_LIMIT} from '../../src/contracts/misskey.ts';
 
 test('all 30 slots are finite, outside the seated capsule, and distinct across desk lengths',()=>{
@@ -54,4 +54,22 @@ test('invalid slot and layout input cannot produce unbounded or non-finite posit
   for(const slot of [-1,.5,30,Infinity,NaN])expect(()=>misskeyCardPosition(slot,0)).toThrow('MISSKEY_SLOT_INVALID');
   for(const length of [-1,101,Infinity,NaN])expect(()=>misskeyCardPosition(0,length)).toThrow('MISSKEY_LAYOUT_INVALID');
   for(const offset of [-201,201,Infinity,NaN])expect(()=>misskeyCardPosition(0,0,offset)).toThrow('MISSKEY_LAYOUT_INVALID');
+});
+
+test('seeded XYZ tilt stays readable, visibly angled, smooth, and stable for each slot',()=>{
+  const signatures=new Set<string>();
+  for(let slot=0;slot<MISSKEY_CARD_LIMIT;slot++){
+    signatures.add(JSON.stringify(misskeyCardTilt(slot,1234)));
+    for(const time of [0,10,1000,1_800_000_000]){
+      const tilt=misskeyCardTilt(slot,time),again=misskeyCardTilt(slot,time),next=misskeyCardTilt(slot,time+.016);
+      expect(again).toEqual(tilt);
+      for(const [axis,min,max] of [['x',7.5,15.5],['y',13,22],['z',2,7]] as const){
+        const degrees=Math.abs(tilt[axis]*180/Math.PI);expect(degrees).toBeGreaterThanOrEqual(min);expect(degrees).toBeLessThanOrEqual(max);
+        expect(Math.abs(next[axis]-tilt[axis])).toBeLessThan(.0002);
+      }
+    }
+  }
+  expect(signatures.size).toBe(MISSKEY_CARD_LIMIT);
+  for(const slot of [-1,.5,30])expect(()=>misskeyCardTilt(slot,0)).toThrow('MISSKEY_SLOT_INVALID');
+  expect(()=>misskeyCardTilt(0,NaN)).toThrow('MISSKEY_TIME_INVALID');
 });

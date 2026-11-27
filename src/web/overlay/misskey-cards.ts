@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {MISSKEY_CARD_LIMIT,type MisskeyCard,type MisskeyState} from '../../contracts/misskey.ts';
-import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition,type MisskeyCardPosition} from '../../geometry/misskey-card-layout.ts';
+import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition,misskeyCardTilt,type MisskeyCardPosition} from '../../geometry/misskey-card-layout.ts';
 import {protectDisplayObject} from '../studio/exposure-renderer.ts';
 
 export const MISSKEY_TEXTURE_WIDTH=512;
@@ -15,7 +15,7 @@ export interface MisskeyCardStats {
   visible:number;allocated:number;textures:number;textureBytes:number;textureUpdates:number;
 }
 interface CardSlot {
-  sprite:THREE.Sprite;texture:THREE.CanvasTexture;context:CanvasRenderingContext2D;
+  mesh:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;texture:THREE.CanvasTexture;context:CanvasRenderingContext2D;tilt:THREE.Quaternion;
   card:MisskeyCard|null;signature:string;position:MisskeyCardPosition;baseOpacity:number;
 }
 
@@ -75,6 +75,7 @@ export function misskeyCardLines(text:string,measure:(text:string)=>number,maxWi
  * animate; pixels only change when a card's display content or the font changes. */
 export class MisskeyCards {
   readonly root=new THREE.Group();
+  private readonly geometry=new THREE.PlaneGeometry(1,1);
   private readonly slots=new Map<number,CardSlot>();
   private state:MisskeyState|null=null;
   private disposed=false;
@@ -83,8 +84,17 @@ export class MisskeyCards {
   private active=0;
   private dirty=false;
   private readonly cameraPosition=new THREE.Vector3();
+  private readonly localCameraPosition=new THREE.Vector3();
+  private readonly cameraUp=new THREE.Vector3();
+  private readonly worldPosition=new THREE.Vector3();
+  private readonly worldScale=new THREE.Vector3();
+  private readonly rootScale=new THREE.Vector3(1,1,1);
+  private readonly worldRotation=new THREE.Quaternion();
+  private readonly facingMatrix=new THREE.Matrix4();
+  private readonly tiltEuler=new THREE.Euler();
   private readonly inverseRoot=new THREE.Matrix4();
   private readonly rootMatrix=new THREE.Matrix4();
+  private rootInvertible=true;
   constructor(private readonly canvasFactory:()=>HTMLCanvasElement=()=>document.createElement('canvas')){
     this.root.name='Misskey public hashtag cards';this.root.visible=false;
     protectDisplayObject(this.root);
@@ -100,14 +110,14 @@ export class MisskeyCards {
     this.state=state;this.dirty=true;
     if(!state||state.status==='disabled'||state.paused){
       this.root.visible=false;this.active=0;
-      for(const slot of this.slots.values()){slot.sprite.visible=false;slot.card=null;}
+      for(const slot of this.slots.values()){slot.mesh.visible=false;slot.card=null;}
     }
   }
   prepare(straightLength:number,offsetZ:number,connected:boolean,wallNow=Date.now()):void {
     if(this.disposed)return;
     const state=this.state;
     this.active=0;this.root.visible=false;
-    for(const slot of this.slots.values())slot.sprite.visible=false;
+    for(const slot of this.slots.values())slot.mesh.visible=false;
     if(!state||!connected||state.status==='disabled'||state.paused||!Number.isFinite(wallNow))return;
     for(const card of state.cards.slice(0,MISSKEY_CARD_LIMIT)){
       if(card.shownAt>wallNow||card.expiresAt<=wallNow||!Number.isInteger(card.slot)||card.slot<0||card.slot>=MISSKEY_CARD_LIMIT)continue;
@@ -120,12 +130,16 @@ export class MisskeyCards {
       slot.position=misskeyCardPosition(card.slot,straightLength,offsetZ);
       const age=wallNow-card.shownAt,remaining=card.expiresAt-wallNow;
       slot.baseOpacity=ease(age/420)*ease(remaining/850);
-      slot.sprite.material.opacity=slot.baseOpacity;
+      slot.mesh.material.opacity=slot.baseOpacity;
       const phase=card.slot*2.399963229728653,time=wallNow/1000;
-      slot.sprite.position.set(slot.position.x,slot.position.y+Math.sin(time*.45+phase)*.035+(1-ease(age/420))*.08,slot.position.z);
+      slot.mesh.position.set(slot.position.x,slot.position.y+Math.sin(time*.45+phase)*.035+(1-ease(age/420))*.08,slot.position.z);
       const scale=.965+.035*ease(age/420);
-      slot.sprite.scale.set(MISSKEY_CARD_WIDTH*scale,MISSKEY_CARD_HEIGHT*scale,1);
-      slot.sprite.visible=slot.baseOpacity>.001;this.active+=Number(slot.sprite.visible);
+      slot.mesh.scale.set(MISSKEY_CARD_WIDTH*scale,MISSKEY_CARD_HEIGHT*scale,1);
+      const tilt=misskeyCardTilt(card.slot,time);slot.tilt.setFromEuler(this.tiltEuler.set(tilt.x,tilt.y,tilt.z));
+      // Transparent sorting happens before onBeforeRender. Keep the centered
+      // plane's translation current here; only its orientation changes per view.
+      slot.mesh.matrix.setPosition(slot.mesh.position);slot.mesh.matrixWorldNeedsUpdate=true;
+      slot.mesh.visible=slot.baseOpacity>.001;this.active+=Number(slot.mesh.visible);
     }
     this.dirty=false;
     this.root.visible=this.active>0;
@@ -135,22 +149,38 @@ export class MisskeyCards {
     const context=canvas.getContext('2d');if(!context)throw new Error('MISSKEY_CANVAS_UNAVAILABLE');
     const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
     texture.generateMipmaps=false;texture.minFilter=THREE.LinearFilter;texture.magFilter=THREE.LinearFilter;
-    const material=new THREE.SpriteMaterial({map:texture,toneMapped:false,depthTest:true,depthWrite:false,transparent:true,fog:false});
-    const sprite=new THREE.Sprite(material);sprite.name=`Misskey card slot ${index}`;sprite.visible=false;
+    const material=new THREE.MeshBasicMaterial({map:texture,toneMapped:false,depthTest:true,depthWrite:false,transparent:true,side:THREE.FrontSide,fog:false});
+    const mesh=new THREE.Mesh(this.geometry,material);mesh.name=`Misskey card slot ${index}`;mesh.visible=false;
     // Spark batches all Gaussian avatars into one scene-origin draw node, so
     // its transparent sort depth cannot represent each transformed person.
     // Cards form the background: draw before people, retaining opaque depth.
-    sprite.renderOrder=-1;
-    const slot:CardSlot={sprite,texture,context,card:null,signature:'',position:misskeyCardPosition(index,0),baseOpacity:0};
-    // Three's billboard transform and per-object transparent sort handle each
-    // SPLIT view. Suppression is likewise computed for that actual camera.
-    sprite.onBeforeRender=(_renderer,_scene,camera)=>{
+    mesh.renderOrder=-1;mesh.matrixAutoUpdate=false;
+    // A prior view's orientation must not cull this view before its callback.
+    // There are at most thirty two-triangle cards, each one FrontSide draw.
+    mesh.frustumCulled=false;
+    const slot:CardSlot={mesh,texture,context,tilt:new THREE.Quaternion(),card:null,signature:'',position:misskeyCardPosition(index,0),baseOpacity:0};
+    mesh.onBeforeRender=(_renderer,_scene,camera)=>{
       const matrix=this.root.matrixWorld;
-      if(!this.rootMatrix.equals(matrix)){this.rootMatrix.copy(matrix);this.inverseRoot.copy(matrix).invert();}
-      this.cameraPosition.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(this.inverseRoot);
-      material.opacity=slot.baseOpacity*misskeyCardFacing(slot.position,this.cameraPosition.x,this.cameraPosition.z);
+      if(!this.rootMatrix.equals(matrix)){
+        this.rootMatrix.copy(matrix);const determinant=matrix.determinant();this.rootInvertible=Number.isFinite(determinant)&&determinant!==0;
+        this.inverseRoot.copy(matrix).invert();this.rootScale.setFromMatrixScale(matrix);
+      }
+      if(!this.rootInvertible){material.opacity=0;return;}
+      this.cameraPosition.setFromMatrixPosition(camera.matrixWorld);
+      this.localCameraPosition.copy(this.cameraPosition).applyMatrix4(this.inverseRoot);
+      material.opacity=slot.baseOpacity*misskeyCardFacing(slot.position,this.localCameraPosition.x,this.localCameraPosition.z);
+      this.worldPosition.copy(mesh.position).applyMatrix4(matrix);
+      this.cameraUp.setFromMatrixColumn(camera.matrixWorld,1).normalize();
+      this.facingMatrix.lookAt(this.cameraPosition,this.worldPosition,this.cameraUp);
+      this.worldRotation.setFromRotationMatrix(this.facingMatrix).multiply(slot.tilt);
+      this.worldScale.copy(this.rootScale).multiply(mesh.scale);
+      // Recompute from this camera, never from the previous SPLIT view. Keep
+      // the inverse-parent product as a matrix: decompose loses the shear that
+      // cancels non-uniform parent scale. r187 computes modelViewMatrix next.
+      mesh.matrixWorld.compose(this.worldPosition,this.worldRotation,this.worldScale);
+      mesh.matrix.multiplyMatrices(this.inverseRoot,mesh.matrixWorld);mesh.matrixWorldNeedsUpdate=false;
     };
-    protectDisplayObject(sprite);this.root.add(sprite);this.slots.set(index,slot);return slot;
+    protectDisplayObject(mesh);this.root.add(mesh);this.slots.set(index,slot);return slot;
   }
   private draw(slot:CardSlot,card:MisskeyCard,hashtag:string):void {
     const x=slot.context,c=slot.texture.image as HTMLCanvasElement;
@@ -182,9 +212,9 @@ export class MisskeyCards {
     if(this.disposed)return;
     this.disposed=true;this.state=null;this.active=0;this.root.visible=false;
     for(const slot of this.slots.values()){
-      slot.sprite.onBeforeRender=()=>{};slot.sprite.material.dispose();slot.texture.dispose();
+      slot.mesh.onBeforeRender=()=>{};slot.mesh.material.dispose();slot.texture.dispose();
       const canvas=slot.texture.image as HTMLCanvasElement;canvas.width=canvas.height=0;slot.card=null;
     }
-    this.slots.clear();this.root.removeFromParent();this.root.clear();
+    this.geometry.dispose();this.slots.clear();this.root.removeFromParent();this.root.clear();
   }
 }

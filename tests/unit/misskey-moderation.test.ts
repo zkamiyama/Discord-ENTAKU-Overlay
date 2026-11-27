@@ -68,11 +68,64 @@ test('threat seed and custom words inspect the full normalized body before trunc
   expect(moderateMisskeyNote(note({text:'殺害予告に関する報道を確認しました #NicoMiss'}),settings,now).ok).toBe(true);
 });
 
-test('mechanical repetition catches long runs and repeated short blocks without flagging ordinary text',()=>{
-  for(const text of ['あ'.repeat(12),'abc'.repeat(10),'宣伝広告'.repeat(8)]){
-    expect(hasMechanicalRepetition(text)).toBe(true);rejected(note({text:text+' #NicoMiss'}),'repetition');
+test('cheers, single-character laughter and short replies pass repetition moderation',()=>{
+  for(const text of ['きた'+'あ'.repeat(60)+'！','w'.repeat(20),'ｗ'.repeat(40),'😀'.repeat(20),
+    'はい'.repeat(20),'haha'.repeat(20),'わーい'.repeat(20),'そうです'.repeat(20),'abc'.repeat(20),'abcd'.repeat(20)]){
+    expect(hasMechanicalRepetition(text)).toBe(false);
+    expect(moderateMisskeyNote(note({text:text+' #NicoMiss'}),settings,now).ok).toBe(true);
   }
+  expect(moderateMisskeyNote(note({user:{id:'user1',username:'tester',name:'w'.repeat(100),host:null}}),settings,now).ok).toBe(true);
+  rejected(note({text:'きた'+'あ'.repeat(30)+'！殺してやる #NicoMiss'}),'blocked-word');
+});
+
+test('excessive phrase repetition is content-independent and still inspects author names',()=>{
+  for(const phrase of ['加藤純一最強！','つぎの演目楽しみ！','ＡＢＣＤＥ！']){
+    expect(moderateMisskeyNote(note({text:phrase+' #NicoMiss'}),settings,now).ok).toBe(true);
+    rejected(note({text:phrase.repeat(6)+' #NicoMiss'}),'repetition');
+  }
+  rejected(note({user:{id:'user1',username:'tester',name:'加藤純一最強'.repeat(6),host:null}}),'repetition');
   expect(hasMechanicalRepetition('これは普段どおりの日本語の投稿です。読みやすい長さに整えます。')).toBe(false);
+});
+
+test('phrase repetition requires five copies, thirty graphemes, three kinds and sixty percent coverage',()=>{
+  expect(hasMechanicalRepetition('abcde'.repeat(5))).toBe(false);
+  expect(hasMechanicalRepetition('abcde'.repeat(6))).toBe(true);
+  expect(hasMechanicalRepetition('abcdef'.repeat(4))).toBe(false);
+  expect(hasMechanicalRepetition('abcdef'.repeat(5))).toBe(true);
+  expect(hasMechanicalRepetition('ababa'.repeat(6))).toBe(false);
+  expect(hasMechanicalRepetition('abaca'.repeat(6))).toBe(true);
+  expect(hasMechanicalRepetition('abcdef'.repeat(5)+'z'.repeat(20))).toBe(true);
+  expect(hasMechanicalRepetition('z'.repeat(20)+'abcdef'.repeat(5))).toBe(true);
+  expect(hasMechanicalRepetition('z'.repeat(10)+'abcdef'.repeat(5)+'q'.repeat(10))).toBe(true);
+  expect(hasMechanicalRepetition('abcdef'.repeat(5)+'z'.repeat(21))).toBe(false);
+  expect(hasMechanicalRepetition('z'.repeat(21)+'abcdef'.repeat(5))).toBe(false);
+  const sixtyFour=Array.from({length:64},(_,i)=>String.fromCodePoint(0x4e00+i)).join('');
+  expect(hasMechanicalRepetition(sixtyFour.repeat(5))).toBe(true);
+  expect(hasMechanicalRepetition((sixtyFour+'末').repeat(5))).toBe(false);
+  expect(hasMechanicalRepetition(Array.from({length:6},(_,i)=>`abcde${i}`).join(''))).toBe(false);
+});
+
+test('phrase checks use normalized static MFM, tolerate punctuation changes and omit the watched tag',()=>{
+  const varied=['**加藤純一最強！**','$[spin 加藤純一最強？]','[加藤純一最強](https://example.com)',
+    '加 藤 純 一 最 強。','加\u200b藤純一最強','加藤純一最強‼'];
+  rejected(note({text:varied.join('\n')+' #NicoMiss'}),'repetition');
+  rejected(note({text:['ＡＢＣＤＥ！','abcde?','AbCdE。','ＡＢＣＤＥ','abcde','a b c d e'].join('\n')+' #NicoMiss'}),'repetition');
+  const combined='か\u3099きくけこ';
+  rejected(note({text:(combined+'！').repeat(6)+' #NicoMiss'}),'repetition');
+  rejected(note({text:('👩🏽あいうえ').repeat(6)+' #NicoMiss'}),'repetition');
+  expect(hasMechanicalRepetition('👩🏽あいう'.repeat(10))).toBe(false);
+  // Without removing the monitored tag, 30 of these 58 normalized graphemes
+  // would fall below 60%. Other commentary still counts in the denominator.
+  rejected(note({text:'abcdef'.repeat(5)+'z'.repeat(20)+' #NicoMiss'}),'repetition');
+});
+
+test('repetition scans the full bounded body and retains malformed-grapheme protection',()=>{
+  const prefix=Array.from({length:50},(_,i)=>String.fromCodePoint(0x4e00+i)).join('');
+  rejected(note({text:prefix+'加藤純一最強！'.repeat(20)+' #NicoMiss'}),'repetition',{...settings,maxCharacters:40});
+  const text='w'.repeat(15_990)+' #NicoMiss';
+  expect(text).toHaveLength(16_000);
+  const value=moderateMisskeyNote(note({text}),settings,now);
+  expect(value.ok).toBe(true);if(value.ok)expect(value.note.truncated).toBe(true);
   rejected(note({text:'a'+'\u0301'.repeat(100)+' #NicoMiss'}),'repetition');
 });
 
