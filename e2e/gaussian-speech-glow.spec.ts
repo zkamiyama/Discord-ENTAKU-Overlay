@@ -4,7 +4,7 @@ import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 let probe='';
 test.beforeAll(()=>{mkdirSync('.work/gaussian',{recursive:true});execFileSync('bun',['build','tests/helpers/gaussian-speech-probe.ts','--target=browser','--outfile=.work/gaussian/speech-probe.js']);probe=readFileSync('.work/gaussian/speech-probe.js','utf8');});
 async function setup(page:Page){
- const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());});
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||m.text().includes('QUALITY_EFFECTS_FAILED'))errors.push(m.text());if(m.text().startsWith('ENTAKU_SPEECH_SETTLE_'))console.info(m.text());});
  await page.route('**/gaussian-speech-probe',r=>r.fulfill({contentType:'text/html',body:'<body style="margin:0"><canvas></canvas><script type="module" src="/static/gaussian-speech-probe.js"></script>'}));
  await page.route('**/static/gaussian-speech-probe.js',r=>r.fulfill({contentType:'text/javascript',body:probe}));
  await page.goto('/gaussian-speech-probe');await page.waitForFunction(()=>!!(window as any).gaussianSpeechProbe,{},{timeout:90000});return errors;

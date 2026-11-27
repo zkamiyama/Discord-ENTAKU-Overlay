@@ -17,22 +17,27 @@ export class StudioVisual {
   private broadcast: BroadcastSet | null = null;
   private definition: StudioScene | null = null;
   private meshSpeakers:MeshSpeechGlow[]=[];
+  private meshVisibilityVersion=0;
   loading = false;
   error = '';
   authoredLights = 0;
 
   get renderGeneration(): number {return this.revision;}
   get readyForCamera(): boolean {return this.loaded !== null;}
+  /** Separate visibility changes from geometry generation and exposure history. */
+  get meshVisibilityRevision():number{return this.meshVisibilityVersion;}
   /** A linked studio mesh substitutes for the speaker's flat avatar image. */
   hasMeshSpeaker(userId:string):boolean{return this.root.visible&&this.meshSpeakers.some(m=>m.speakerUserId===userId);}
   /** Avatar owns voice fades. Rendering only consumes current per-user strength. */
   setMeshSpeech(states:ReadonlyMap<string,{visible:boolean;opacity:number;intensity:number}>,scale:number):void{
+    let visibilityChanged=false;
     for(const mesh of this.meshSpeakers){
-      const state=states.get(mesh.speakerUserId);
-      mesh.object.visible=!!state?.visible;
+      const state=states.get(mesh.speakerUserId),visible=!!state?.visible;
+      if(mesh.object.visible!==visible){mesh.object.visible=visible;visibilityChanged=true;}
       mesh.setPresence(state?.visible?state.opacity:0);
       mesh.setSpeech(this.root.visible&&state?.visible?state.intensity:0,scale);
     }
+    if(visibilityChanged)this.meshVisibilityVersion++;
   }
   get meshSpeechCount():number{return this.meshSpeakers.length;}
   get activeMeshSpeakers():number{return this.meshSpeakers.filter(mesh=>mesh.active).length;}

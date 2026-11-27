@@ -76,3 +76,22 @@ test('Gaussian LoD budget changes do not reload or dispose the studio scene',asy
   }finally{visual.dispose();}
   expect(a.disposed()).toBe(1);
 });
+
+test('mesh presence invalidates shadow/receiver visibility only on a transition',async()=>{
+ const a=asset(),visual=new StudioVisual(client,renderer,async()=>a.group);
+ const bound=scene('actor');bound.objects=[{...bound.objects[0]!,speakerUserId:'100'} as any];
+ try{
+  await visual.update(bound);visual.setLength(1);
+  const generation=visual.renderGeneration,revision=visual.meshVisibilityRevision;
+  visual.setMeshSpeech(new Map(),4);
+  expect(visual.meshVisibilityRevision).toBe(revision+1);
+  visual.setMeshSpeech(new Map(),4);
+  expect(visual.meshVisibilityRevision).toBe(revision+1);
+  const states=new Map([['100',{visible:true,opacity:.5,intensity:1}]]);
+  visual.setMeshSpeech(states,4);
+  expect(visual.meshVisibilityRevision).toBe(revision+2);
+  visual.setMeshSpeech(new Map([['100',{visible:true,opacity:1,intensity:.3}]]),4);
+  expect(visual.meshVisibilityRevision).toBe(revision+2);
+  expect(visual.renderGeneration).toBe(generation);
+ }finally{visual.dispose();}
+});

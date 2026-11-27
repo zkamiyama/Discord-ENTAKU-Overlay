@@ -66,6 +66,8 @@ function draw(){
  }else quality.render(scene,camera,q,String(serial),p,{distance:4,range:.5});
 }
 async function settle(next:Options={}){
+ const started=performance.now();
+ console.info('ENTAKU_SPEECH_SETTLE_START '+JSON.stringify(next));
  options=next;serial++;scene.background=next.background?new THREE.Color(0x15273b):null;width=next.width??480;height=next.height??480;renderer.setSize(width,height,false);camera.aspect=width/height;camera.position.set(.65,1.65,next.cameraDistance??3.9);camera.lookAt(0,1.05,0);camera.updateProjectionMatrix();camera.updateMatrixWorld(true);
  const flatMode=next.layout==='planar';flat.visible=flatMode;first.visible=!flatMode;
  second.visible=next.layout==='overlap';first.position.set(second.visible?-.16:0,0,second.visible?-.18:0);second.position.set(.36,-.03,.39);second.rotation.y=-.12;
@@ -81,7 +83,11 @@ async function settle(next:Options={}){
   const signature=JSON.stringify(active.map(v=>[v.selectedSplats,v.displayedLodInstances]));
   const ready=i>=10&&active.length===(next.split?2:1)&&active.every(v=>v.lodMatchesView&&v.selectedSplats>0&&v.lodInstances.every((n,j)=>n===v.displayedLodInstances[j]));
   consecutive=ready&&signature===previous?consecutive+1:0;previous=signature;
-  if(consecutive>=3)return status();
+  if(consecutive>=3){
+   console.info('ENTAKU_SPEECH_SETTLE_END '+JSON.stringify({options:next,frames:i+1,elapsedMs:Math.round(performance.now()-started)}));
+   return status();
+  }
+  if(i%20===19)console.info('ENTAKU_SPEECH_SETTLE_PROGRESS '+JSON.stringify({options:next,frames:i+1,elapsedMs:Math.round(performance.now()-started),active:active.map(v=>({selected:v.selectedSplats,matches:v.lodMatchesView,pending:v.lodPending}))}));
  }
  throw new Error('SPEECH_LOD_NOT_SETTLED '+JSON.stringify(status()));
 }

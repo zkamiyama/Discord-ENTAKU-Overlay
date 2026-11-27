@@ -34,7 +34,7 @@ export class ProgramRenderer {
     if(split!==this.wasSplit){if(split)exposureRenderer.releaseQuality();else splitRenderer.dispose();this.wasSplit=split;}
     const exposure=state?.studio.exposure??DEFAULT_EXPOSURE,quality=state?.studio.quality??DEFAULT_QUALITY;
     const meterSource=String(visual.renderGeneration);
-    const source=[visual.renderGeneration,length,offsetZ,visual.root.visible,state?.session.revision??0,state?.studio.tableAnchor.position.join(',')??'',state?.studio.tableAnchor.yawDeg??0,visibleCasterKey([...avatars.values()].map(a=>a.plate))].join('|'),lights=visual.root.visible?visual.authoredLights:0;
+    const source=[visual.renderGeneration,visual.meshVisibilityRevision,length,offsetZ,visual.root.visible,state?.session.revision??0,state?.studio.tableAnchor.position.join(',')??'',state?.studio.tableAnchor.yawDeg??0,visibleCasterKey([...avatars.values()].map(a=>a.plate))].join('|'),lights=visual.root.visible?visual.authoredLights:0;
     let report;
     if(split&&panels){
       const measured=exposureRenderer.prepare(scene,camera,exposure,meterSource,lights,time);
