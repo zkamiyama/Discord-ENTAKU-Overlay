@@ -79,3 +79,9 @@ test('live sockets receive ordered state deltas and can request an independent f
   expect(rejected).toBe(0);
  }finally{ws.close();await app.stop();}
 });
+
+test('server shutdown is idempotent and retired publishers cannot emit new work',async()=>{
+ const {app}=setup();
+ const stopping=app.stop();expect(app.stop()).toBe(stopping);
+ await stopping;expect(()=>app.broadcast()).not.toThrow();expect(app.stop()).toBe(stopping);
+});

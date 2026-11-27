@@ -39,3 +39,27 @@ test('configuration is sent only after revision changes; invalid field changes a
  expect(receiver.accept(delta)).toEqual(json(next));
  sender.reset();expect(sender.publish(next).delta).toBeUndefined();
 });
+
+test('repeated full frames preserve immutable identity and cannot replace a known frame',()=>{
+ const sender=new StatePublisher(),receiver=new StateReceiver(),state=make();
+ const packet=JSON.parse(sender.publish(state).full()),first=receiver.accept(packet);
+ expect(receiver.accept(json(packet))).toBe(first);
+ expect(receiver.accept({...packet,state:{...packet.state,mode:'HOLD'}})).toBe(first);
+ expect(receiver.accept({...packet,state:{...packet.state,serverEpoch:'other'}})).toBeNull();
+});
+
+test('malformed nested sections and regressed revisions leave the baseline usable',()=>{
+ const sender=new StatePublisher(),receiver=new StateReceiver(),state={...make(),seq:10,revision:10};
+ const first=receiver.accept(JSON.parse(sender.publish(state).full()));
+ const delta=JSON.parse(sender.publish({...state,serverNowMs:100}).delta!);
+ const bad:Record<string,unknown>[]=[
+  {seq:9},{revision:9},{mode:'invalid'},{source:'old'},{straightLength:null},
+  {studio:{}},{session:{}},{camera:{}},{decision:{}},{seats:[{}]},
+  {participants:[{userId:'1'}]},{speech:[{userId:'1'}]},{avatarProfiles:[{kind:'unsupported'}]},
+  {layoutMotion:{fromSeats:[]}},{camera:{...state.camera,to:{...state.camera.to,position:[0,0,null]}}},
+ ];
+ for(const changes of bad)expect(receiver.accept({...delta,changes})).toBeNull();
+ expect(receiver.ready).toBe(true);
+ const last=receiver.accept(delta)!;expect(last.serverNowMs).toBe(100);expect(last.studio).toBe(first!.studio);
+ expect(receiver.accept({type:'snapshot',frame:3,state:{...state,seq:0}})).toBeNull();
+});

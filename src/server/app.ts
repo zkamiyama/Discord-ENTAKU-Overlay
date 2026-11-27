@@ -53,24 +53,34 @@ export function startServer(options: ServerOptions) {
   // The single writer protects cross-store transactions; bounded admission also
   // protects the process from retaining unlimited uploaded assets or commands.
   const mutations=new WorkQueue(8);
-  const serial = async(work:()=>Promise<Response>):Promise<Response> => {
-    const result=mutations.tryRun(work);
-    if(!result)return json({error:'SERVER_BUSY'},503);
+  let stopping=false,stopped:Promise<void>|undefined;
+  const serial = async(work:()=>Promise<Response>,signal?:AbortSignal):Promise<Response> => {
+    const result=mutations.tryRun(work,signal);
+    if(!result)return json({error:stopping?'SERVER_STOPPING':'SERVER_BUSY'},503);
     try{return await result;}catch(error){
-      if(error instanceof Error&&error.message==='WORK_CANCELLED')return json({error:'SERVER_STOPPING'},503);
+      if(error instanceof Error&&error.message==='WORK_CANCELLED')return json({error:signal?.aborted?'REQUEST_CANCELLED':'SERVER_STOPPING'},503);
       throw error;
     }
   };
 
   let broadcastAt = -Infinity;
   const stream=new StatePublisher();
+  const closeSocket=(socket:ServerWebSocket<SocketData>,code:number,reason:string):void=>{
+    clients.delete(socket);reports.delete(socket);
+    if(!clients.size)stream.reset();
+    try{socket.close(code,reason);}catch{/* A failed connection cannot interrupt another client or a committed command. */}
+  };
   const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): boolean => {
-    if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return false; }
-    return socket.send(message)!==0;
+    if(stopping||!clients.has(socket))return false;
+    try{
+      if(socket.getBufferedAmount()<=1024*1024&&socket.send(message)!==0)return true;
+    }catch{/* Retire only the failing socket. */}
+    closeSocket(socket,1013,'SLOW_CLIENT');return false;
   };
   const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {sendEncoded(socket, JSON.stringify(message));};
   const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
   const broadcast = (): void => {
+    if(stopping)return;
     const time=now();
     if(clients.size){
       const state=engine.snapshot(time),playback=options.replay?.status();journal.state(state);
@@ -92,6 +102,7 @@ export function startServer(options: ServerOptions) {
   const server = Bun.serve<SocketData>({
     hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes) + 1024*1024,
     async fetch(request, server) {
+      if(stopping)return json({error:'SERVER_STOPPING'},503);
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
       const url = new URL(request.url);
       if (url.pathname === '/ws') {
@@ -109,7 +120,8 @@ export function startServer(options: ServerOptions) {
     websocket: {
       maxPayloadLength: 1024 * 1024, backpressureLimit: 1024 * 1024, closeOnBackpressureLimit: true,
       open(socket) {
-        if (clients.size >= 8) { socket.close(1013, 'CLIENT_LIMIT'); return; }
+        if(stopping){closeSocket(socket,1001,'SHUTDOWN');return;}
+        if (clients.size >= 8) { closeSocket(socket,1013,'CLIENT_LIMIT');return; }
         clients.add(socket);
         send(socket, { type: 'hello' });
         // Initial snapshots are full and current. Established sockets receive
@@ -117,6 +129,7 @@ export function startServer(options: ServerOptions) {
         broadcast();
       },
       message(socket, message) {
+        if(stopping||!clients.has(socket))return;
         try {
           const time = performance.now();
           if (time - socket.data.windowStart > 1000) { socket.data.windowStart = time; socket.data.messages = 0; }
@@ -143,11 +156,13 @@ export function startServer(options: ServerOptions) {
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
-    async stop() {
-      offEvents();offChat();clearInterval(timer);
-      const drained=mutations.close();
-      for(const socket of clients)socket.close(1001,'SHUTDOWN');
-      await server.stop(true);await drained;
+    stop():Promise<void> {
+      return stopped??=(async()=>{
+        stopping=true;offEvents();offChat();clearInterval(timer);
+        const drained=mutations.close();
+        for(const socket of clients)closeSocket(socket,1001,'SHUTDOWN');
+        await server.stop(true);await drained;
+      })();
     },
   };
 }

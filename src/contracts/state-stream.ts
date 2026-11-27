@@ -1,4 +1,5 @@
 import type {AppSnapshot} from './domain.ts';
+import {validSnapshotSections} from './snapshot-validation.ts';
 
 export const STATE_PROTOCOL=2 as const;
 type Field=keyof AppSnapshot;
@@ -15,12 +16,18 @@ const known=(key:string):key is Field=>Object.hasOwn(fields,key);
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const integer=(value:unknown):value is number=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const finite=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value);
-function validState(value:unknown):value is AppSnapshot {
- if(!record(value)||Object.keys(value).some(k=>!known(k))||keys.some(k=>!optional.has(k)&&!(k in value)))return false;
- return value.protocolVersion===STATE_PROTOCOL&&typeof value.serverEpoch==='string'&&integer(value.seq)&&integer(value.revision)&&finite(value.serverNowMs)&&
+const connections=new Set(['disconnected','discovering','authorizing','subscribing','syncing','ready','degraded','auth-required']);
+function validState(value:unknown,previous?:AppSnapshot|null):value is AppSnapshot {
+ if(!record(value)||Object.keys(value).some(k=>!known(k))||keys.some(k=>!optional.has(k)&&!Object.hasOwn(value,k)))return false;
+ return value.protocolVersion===STATE_PROTOCOL&&typeof value.serverEpoch==='string'&&value.serverEpoch.length>0&&integer(value.seq)&&integer(value.revision)&&finite(value.serverNowMs)&&
   (value.clockRate===undefined||finite(value.clockRate)&&value.clockRate>=0)&&
-  record(value.studio)&&record(value.session)&&record(value.camera)&&record(value.decision)&&
-  Array.isArray(value.speech)&&Array.isArray(value.participants)&&Array.isArray(value.avatarProfiles)&&Array.isArray(value.seats);
+  typeof value.connection==='string'&&connections.has(value.connection)&&
+  (value.errorCode===undefined||typeof value.errorCode==='string')&&
+  (value.channel===null||record(value.channel)&&typeof value.channel.channelId==='string'&&typeof value.channel.name==='string'&&typeof value.channel.kind==='string'&&['guild-voice','unsupported'].includes(value.channel.kind))&&
+  typeof value.mode==='string'&&['AUTO','MANUAL','HOLD'].includes(value.mode)&&typeof value.source==='string'&&['demo','replay','ipc'].includes(value.source)&&
+  finite(value.straightLength)&&value.straightLength>=0&&(value.deskOffsetZ===undefined||finite(value.deskOffsetZ))&&
+  (value.autoResumeAtMs===undefined||value.autoResumeAtMs===null||finite(value.autoResumeAtMs))&&
+  validSnapshotSections(value,previous);
 }
 function freeze<T>(value:T):T{
  if(value&&typeof value==='object'&&!Object.isFrozen(value)){
@@ -77,6 +84,10 @@ export class StateReceiver{
   if(!record(packet)||!integer(packet.frame)||packet.frame<1)return null;
   if(packet.type==='snapshot'){
    if(!validState(packet.state)||packet.frame<this.frame)return null;
+   // The server may repeat its latest full packet in response to resync. A
+   // frame number names one immutable state; a duplicate never replaces it.
+   if(packet.frame===this.frame)return packet.state.serverEpoch===this.state?.serverEpoch?this.state:null;
+   if(this.state&&packet.state.serverEpoch===this.state.serverEpoch&&(packet.state.seq<this.state.seq||packet.state.revision<this.state.revision))return null;
    this.state=freeze(packet.state);this.frame=packet.frame;return this.state;
   }
   if(packet.type!=='snapshot-delta'||!this.state||packet.epoch!==this.state.serverEpoch||
@@ -85,7 +96,7 @@ export class StateReceiver{
     packet.removed.some(key=>typeof key!=='string'||!known(key)||!optional.has(key)||Object.hasOwn(packet.changes as object,key)))return null;
   const next:Record<string,unknown>={...this.state,...packet.changes};
   for(const key of packet.removed)delete next[key as string];
-  if(!validState(next))return null;
+  if(!validState(next,this.state)||next.seq<this.state.seq||next.revision<this.state.revision)return null;
   this.state=freeze(next);this.frame=packet.frame;return this.state;
  }
 }
