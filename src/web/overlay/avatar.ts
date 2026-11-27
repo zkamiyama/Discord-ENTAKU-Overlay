@@ -37,8 +37,7 @@ export class Avatar {
   private baseYaw=0;
   private externalMeshActive=false;
   user:Participant; opacity=0; glow=0; disposed=false; textureVersion=0; avatarUrl?:string;
-  custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0; profileKey='';
-  get shadowRoots():THREE.Object3D[]{return this.gaussian?.geometryRoot?[this.plate,this.gaussian.geometryRoot]:[this.plate];}
+  custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0;
   constructor(private context:AvatarContext,user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
     this.body=new THREE.Mesh(new THREE.CircleGeometry(.28,64),imageMaterial(placeholder(user)));this.root.add(this.body);
@@ -50,16 +49,15 @@ export class Avatar {
     this.context.stage.add(this.root,this.plate);this.update(user,profile);
   }
   update(user:Participant,profile?:AvatarProfile):void {
-    const key=JSON.stringify(profile??null);
-    if(key!==this.profileKey){
-      this.profileKey=key;const generation=++this.customVersion;this.profile=profile;
-      if(!profile){this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;this.body.visible=this.outline.visible=true;}
+    if(profile!==this.profile){
+      const generation=++this.customVersion;this.profile=profile;
+      if(!profile){this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;}
       else if(isGaussianProfile(profile)){
         this.custom?.dispose();this.custom=null;
         if(!this.gaussian){
           const visual=new GaussianAvatarVisual(this.context.gaussian,status=>{
             if(this.disposed||this.gaussian!==visual)return;
-            this.body.visible=status.phase!=='ready';this.outline.visible=status.phase!=='ready';
+            this.refreshBodyVisibility();
             if(status.phase==='error')this.context.failures.add(this.user.userId);
             else this.context.failures.delete(this.user.userId);
           });
@@ -69,33 +67,38 @@ export class Avatar {
       }
       else {
         this.gaussian?.dispose();this.gaussian=null;
-        if(!this.custom)this.body.visible=this.outline.visible=true;
         void loadImagePair(this.context.client.customImage(profile.assetId),profile.back?this.context.client.customImage(profile.back.assetId):undefined).then(async([bitmap,back])=>{
         try{
           if(this.disposed||generation!==this.customVersion)return;
           const next=await CustomAvatarVisual.create(bitmap,profile,back);
           if(this.disposed||generation!==this.customVersion){next.dispose();return;}
-          this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=next;this.root.add(next.root);this.body.visible=this.outline.visible=false;
+          this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=next;this.root.add(next.root);this.refreshBodyVisibility();
         }finally{bitmap.close();back?.close();}
       }).catch(()=>{
         if(this.disposed||generation!==this.customVersion)return;
-        this.custom?.dispose();this.custom=null;this.body.visible=this.outline.visible=true;
+        this.custom?.dispose();this.custom=null;this.refreshBodyVisibility();
         // Rendering remains usable; diagnostic code contains no path, URL or capability.
         this.context.failures.add(this.user.userId);console.warn('CUSTOM_AVATAR_UNAVAILABLE');
         });
       }
+      this.refreshBodyVisibility();
     }
     this.nameplate.setName(user.displayName,this.context.state()?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates);
-    this.user=user;
+    const oldName=this.user.displayName;this.user=user;
     // Keep the Discord icon ready as an isolated fallback for either asset type.
     if(user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
       if(user.avatarUrl)void this.context.client.avatar(user.userId).then(bitmap=>{
         if(this.disposed||version!==this.textureVersion){bitmap.close();return;}
         const texture=new THREE.Texture(bitmap);texture.needsUpdate=true;texture.colorSpace=THREE.SRGBColorSpace;
-        const previous=this.body.material.uniforms.map!.value as THREE.Texture;previous.dispose();
-        if(previous.image instanceof ImageBitmap)previous.image.close();this.body.material.uniforms.map!.value=texture;
+        this.replaceIcon(texture);
       }).catch(()=>{});
-    }
+      else this.replaceIcon(placeholder(user));
+    }else if(!user.avatarUrl&&oldName!==user.displayName)this.replaceIcon(placeholder(user));
+  }
+  private replaceIcon(texture:THREE.Texture):void{
+    const previous=this.body.material.uniforms.map!.value as THREE.Texture;
+    this.body.material.uniforms.map!.value=texture;previous.dispose();
+    if(typeof ImageBitmap!=='undefined'&&previous.image instanceof ImageBitmap)previous.image.close();
   }
   render(seat:SeatTransform,dt:number,time:number,connected:boolean):void {
     const visible=this.user.presence==='present'||this.user.presence==='stale';
@@ -109,7 +112,9 @@ export class Avatar {
     this.body.material.uniforms.opacity!.value=this.opacity;
     const speaking=connected&&this.user.speaking==='active'&&this.user.presence==='present';
     this.glow+=((speaking?1:0)-this.glow)*(1-Math.exp(-dt/(speaking?.06:.18)));
+    if(this.glow<.001&&!speaking)this.glow=0;
     const intensity=this.glow*this.opacity*(.875+.125*Math.sin(time*Math.PI*.004));
+    this.outline.visible=this.body.visible&&intensity>.001;
     this.outline.material.uniforms.strength!.value=intensity;const glowScale=this.context.state()?.studio.post?.speechGlowScale??4;this.outline.material.uniforms.glowScale!.value=glowScale;this.custom?.update(this.opacity,intensity,this.context.state()?.studio.tableAnchor.position[1]??0,glowScale);
     this.gaussian?.update(this.opacity,intensity,glowScale);
     this.plate.position.fromArray(platePosition(seat));this.plate.rotation.y=seat.baseYawRad;
@@ -117,22 +122,21 @@ export class Avatar {
   /** A linked GLB studio model takes over this participant's visible body.
    * Keep the nameplate, speech fade and stale logic intact. */
   setMeshBodyActive(active:boolean):void{
-    if(active){
-      this.body.visible=this.outline.visible=false;
-      if(this.custom)this.custom.root.visible=false;
-      if(this.gaussian)this.gaussian.root.visible=false;
-    }else if(this.externalMeshActive){
-      this.body.visible=this.outline.visible=!this.custom&&this.gaussian?.status.phase!=='ready';
-      if(this.custom)this.custom.root.visible=true;
-      if(this.gaussian)this.gaussian.root.visible=true;
-    }
-    this.externalMeshActive=active;
+    if(active===this.externalMeshActive)return;
+    this.externalMeshActive=active;this.refreshBodyVisibility();
+  }
+  private refreshBodyVisibility():void{
+    const show=!this.externalMeshActive;
+    this.body.visible=show&&!this.custom&&this.gaussian?.status.phase!=='ready';
+    this.outline.visible=this.body.visible&&this.glow>.001;
+    if(this.custom)this.custom.root.visible=show;
+    if(this.gaussian)this.gaussian.root.visible=show;
   }
   faceCamera(position:THREE.Vector3):void{this.root.rotation.y=this.profile&&isGaussianProfile(this.profile)?this.baseYaw:avatarFacingYaw(this.baseYaw,position.x-this.root.position.x,position.z-this.root.position.z);}
   dispose():void {
-    this.disposed=true;this.customVersion++;this.textureVersion++;this.context.failures.delete(this.user.userId);this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;this.context.stage.remove(this.root,this.plate);
-    this.root.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();o.material.dispose();}});
-    const texture=this.body.material.uniforms.map!.value as THREE.Texture;texture.dispose();if(texture.image instanceof ImageBitmap)texture.image.close();
-    disposeObject(this.plate);
+    if(this.disposed)return;
+    this.disposed=true;this.customVersion++;this.textureVersion++;this.context.failures.delete(this.user.userId);
+    this.custom?.dispose();this.custom=null;this.gaussian?.dispose();this.gaussian=null;
+    disposeObject(this.root);disposeObject(this.plate);
   }
 }

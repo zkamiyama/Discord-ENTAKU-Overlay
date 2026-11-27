@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import type {GaussianRuntime} from '../gaussian/runtime.ts';
+import {DEFAULT_GAUSSIAN_SETTINGS} from '../../assets/gaussian-profile.ts';
 import type {AppSnapshot,CameraPose} from '../../contracts/domain.ts';
 import {DEFAULT_POST,resolvePostFocus} from '../../studio/post-effects.ts';
 import {DEFAULT_QUALITY} from '../../studio/quality.ts';
@@ -17,7 +19,7 @@ export class ProgramRenderer {
  private fallbackLights=createFallbackLights();
  private wasSplit=false;
  private disposed=false;
- constructor(private renderer:THREE.WebGLRenderer,private scene:THREE.Scene,private stage:THREE.Group,private camera:THREE.PerspectiveCamera,private avatars:Map<string,Avatar>){
+ constructor(private renderer:THREE.WebGLRenderer,private scene:THREE.Scene,private stage:THREE.Group,private camera:THREE.PerspectiveCamera,private avatars:ReadonlyMap<string,Avatar>,private gaussian:GaussianRuntime){
   scene.add(this.fallbackLights);this.exposureRenderer=new ExposureRenderer(renderer,this.fallbackLights);this.splitRenderer=new SplitRenderer(renderer);
  }
  get report(){return this.exposureRenderer.report;}
@@ -31,6 +33,7 @@ export class ProgramRenderer {
     debug.focusDistance=String(focus.distance);debug.focusRange=String(focus.range);debug.excludeAvatars=String(post.excludeAvatars);
     const panels=state?.camera.shot.kind==='SPLIT'&&connected&&visual.readyForCamera?state.camera.panels:undefined;
     const split=!!panels&&splitRenderer.supported;
+    this.gaussian.setBudget(state?.studio.gaussian?.lodSplatCount??DEFAULT_GAUSSIAN_SETTINGS.lodSplatCount,split?2:1);
     if(split!==this.wasSplit){if(split)exposureRenderer.releaseQuality();else splitRenderer.dispose();this.wasSplit=split;}
     const exposure=state?.studio.exposure??DEFAULT_EXPOSURE,quality=state?.studio.quality??DEFAULT_QUALITY;
     const meterSource=String(visual.renderGeneration);

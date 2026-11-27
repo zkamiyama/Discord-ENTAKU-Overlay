@@ -146,7 +146,7 @@ test('participant speech, stale, leave, rejoin and seat movement reach the same 
     root:new THREE.Group(),plate:new THREE.Group(),opacity:0,glow:0,
     body:{material:{uniforms:{opacity:{value:0}}}},outline:{material:{uniforms:{strength:{value:0},glowScale:{value:4}}}},
     nameplate:{setName:()=>{}},context:{camera:new THREE.PerspectiveCamera(),state:()=>null},
-    profile:p,profileKey:JSON.stringify(p),gaussian:visual,custom:null,
+    profile:p,gaussian:visual,custom:null,
     user:{userId:'1',displayName:'fixture',presence:'present',speaking:'inactive'},
   }) as Avatar;
   avatar.root.add(visual.root);const seats=makeLayout(6).seats;let time=0;

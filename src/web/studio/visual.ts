@@ -18,6 +18,7 @@ export class StudioVisual {
   private broadcast: BroadcastSet | null = null;
   private definition: StudioScene | null = null;
   private meshSpeakers:MeshSpeechGlow[]=[];
+  private meshSpeakerIds=new Set<string>();
   private meshVisibilityVersion=0;
   loading = false;
   error = '';
@@ -28,7 +29,7 @@ export class StudioVisual {
   /** Separate visibility changes from geometry generation and exposure history. */
   get meshVisibilityRevision():number{return this.meshVisibilityVersion;}
   /** A linked studio mesh substitutes for the speaker's flat avatar image. */
-  hasMeshSpeaker(userId:string):boolean{return this.root.visible&&this.meshSpeakers.some(m=>m.speakerUserId===userId);}
+  hasMeshSpeaker(userId:string):boolean{return this.root.visible&&this.meshSpeakerIds.has(userId);}
   /** Avatar owns voice fades. Rendering only consumes current per-user strength. */
   setMeshSpeech(states:ReadonlyMap<string,{visible:boolean;opacity:number;intensity:number}>,scale:number):void{
     let visibilityChanged=false;
@@ -93,6 +94,7 @@ export class StudioVisual {
       const previous = this.loaded,previousSpeakers=this.meshSpeakers;
       this.root.add(stage);
       this.loaded = stage;this.meshSpeakers=candidateSpeakers;
+      this.meshSpeakerIds=new Set(candidateSpeakers.map(m=>m.speakerUserId));
       for(const glow of previousSpeakers)glow.dispose();
       this.broadcast = broadcast;
       this.definition = definition;
@@ -119,7 +121,7 @@ export class StudioVisual {
   dispose(): void {
     this.disposed = true;
     this.generation++;
-    for(const glow of this.meshSpeakers)glow.dispose();this.meshSpeakers=[];
+    for(const glow of this.meshSpeakers)glow.dispose();this.meshSpeakers=[];this.meshSpeakerIds.clear();
     if (this.loaded) disposeObject(this.loaded);
     this.loaded = this.broadcast = null;
     this.definition = null;

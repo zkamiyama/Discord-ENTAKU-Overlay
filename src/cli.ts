@@ -94,7 +94,7 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
     const shutdown=()=>{
       if(stopping)return;stopping=true;clearInterval(persistenceTimer);
       void (async()=>{
-        await provider?.stop();persist();await persistChain;await app.stop();
+        await provider?.stop();await app.stop();persist();await persistChain;
         process.off('SIGINT',shutdown);process.off('SIGTERM',shutdown);
         if(storageFailed)process.exitCode=1;resolveStopped();
       })().catch(()=>{console.error('SHUTDOWN_FAILED');process.exitCode=1;resolveStopped();});

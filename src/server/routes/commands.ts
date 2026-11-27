@@ -20,7 +20,10 @@ export function commandRoute(context:RouteContext):HttpRoute {
                 if (!request.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON_REQUIRED' }, 415);
         let raw:string,c:ReturnType<typeof parseCommand>;
         try{raw=await boundedText(request,256*1024);c=parseCommand(JSON.parse(raw));}
-        catch(error){return error instanceof Error&&error.message==='COMMAND_TOO_LARGE'?json({error:'COMMAND_TOO_LARGE'},413):json({error:'COMMAND_REJECTED'},422);}
+        catch(error){
+          if(error instanceof Error&&error.message==='COMMAND_TOO_LARGE')return json({error:'COMMAND_TOO_LARGE'},413);
+          return json({error:error instanceof Error&&error.message==='INVALID_COMMAND'?'INVALID_COMMAND':'COMMAND_REJECTED'},422);
+        }
         const digest=createHash('sha256').update(raw).digest('hex');
         return serial(async()=>{
         try {

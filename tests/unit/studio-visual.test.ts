@@ -101,7 +101,7 @@ test('camera blocker edits do not rebuild visual resources',async()=>{
  const visual=new StudioVisual(client,renderer,async()=>{loads++;return a.group;});
  try{
   const first=scene('one');await visual.update(first);
-  await visual.update({...first,revision:1,camera:{blockers:[{min:[-1,0,0],max:[1,2,1]}]}});
+  await visual.update({...first,revision:1,camera:{blockers:[{id:'wall',min:[-1,0,0],max:[1,2,1]}]}});
   expect(loads).toBe(1);expect(a.disposed()).toBe(0);
  }finally{visual.dispose();}
 });

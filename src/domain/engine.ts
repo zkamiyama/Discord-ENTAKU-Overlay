@@ -9,7 +9,7 @@ import {DEFAULT_DIRECTION} from '../studio/direction.ts';
 import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
 import { validateProfile, type AvatarProfile } from '../assets/avatar-profile.ts';
-import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
+import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, Participant, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
 import { TABLE } from './defaults.ts';
 import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
