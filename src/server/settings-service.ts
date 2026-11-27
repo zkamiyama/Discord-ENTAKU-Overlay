@@ -6,6 +6,8 @@ import type {PresetStore} from '../presets/store.ts';
 import {capturePreset,validatePreset} from '../presets/schema.ts';
 import type {SettingsData,SettingsStore} from '../storage/settings-store.ts';
 import {presetPreferences} from '../storage/settings-schema.ts';
+import {validateMisskeySettings} from '../misskey/settings.ts';
+import type {MisskeySettings} from '../contracts/misskey.ts';
 
 /** Await asset validation, then plan and durably commit in one synchronous
  * domain transaction. Failed writes never require compensating filesystem I/O. */
@@ -30,11 +32,20 @@ export class SettingsService {
     const state=this.engine.snapshot(),source=this.engine.source;
     this.settings.commit(settings,state.channel&&source!=='replay'?{source,session:state.session}:undefined);
   }
+  misskey():{generation:number;settings:MisskeySettings}{
+    const current=this.settings.snapshot();return {generation:current.generation,settings:current.misskey};
+  }
+  setMisskey(input:unknown,generation:number):{generation:number;settings:MisskeySettings}{
+    const clean=validateMisskeySettings(input),before=this.settings.snapshot();
+    if(generation!==before.generation)throw new Error('SETTINGS_CONFLICT');
+    this.settings.commit({...before,misskey:clean});
+    return this.misskey();
+  }
   async scene(input:unknown,revision:number):Promise<void>{
     const check=this.guard(revision),clean=await this.studios.validateDraft(input);
     check();
     const before=this.settings.snapshot();clean.revision=before.studio.revision+1;
-    this.engine.setStudioScene(clean,revision,this.now(),()=>this.commit({studio:clean,avatarProfiles:before.avatarProfiles,preferences:before.preferences}));
+    this.engine.setStudioScene(clean,revision,this.now(),()=>this.commit({...before,studio:clean}));
   }
   async avatar(input:unknown,revision:number):Promise<void>{
     const check=this.guard(revision),profile=await this.avatars.validateDraft(input);
@@ -46,7 +57,7 @@ export class SettingsService {
   private async profiles(profiles:AvatarProfile[],revision:number,check:()=>void):Promise<void>{
     const clean=await this.avatars.validateProfiles(profiles);check();
     const before=this.settings.snapshot();
-    this.engine.setAvatarProfiles(clean,revision,this.now(),()=>this.commit({studio:before.studio,avatarProfiles:clean,preferences:before.preferences}));
+    this.engine.setAvatarProfiles(clean,revision,this.now(),()=>this.commit({...before,avatarProfiles:clean}));
   }
   async preset(name:string,revision:number):Promise<Record<string,unknown>>{
     const check=this.guard(revision,true),p=await this.presets.read(name);
@@ -60,7 +71,7 @@ export class SettingsService {
     let signature='';
     this.engine.applyPreset(clean,revision,this.now(),()=>{
       signature=JSON.stringify(capturePreset(this.engine.snapshot(),p.theme));
-      this.commit({studio:clean.studio,avatarProfiles:clean.avatarProfiles,preferences:presetPreferences(clean)});
+      this.commit({...this.settings.snapshot(),studio:clean.studio,avatarProfiles:clean.avatarProfiles,preferences:presetPreferences(clean)});
     });
     return {presetName:name,theme:p.theme,presetSignature:signature};
   }

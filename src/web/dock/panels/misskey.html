@@ -1,0 +1,29 @@
+<details class="pane" id="misskey-panel">
+ <summary>Misskey · ハッシュタグカード <span id="misskey-badge">停止中</span></summary>
+ <p id="misskey-status" class="metadata" role="status">接続待ち</p>
+ <div class="controls"><button id="misskey-pause" type="button">表示を一時停止</button><button id="misskey-clear" type="button">全消去</button></div>
+ <p id="misskey-stats" class="metadata">表示 0 / 30</p>
+ <form id="misskey-form">
+  <label class="misskey-check"><input id="misskey-enabled" type="checkbox">受信・表示を有効にする</label>
+  <label for="misskey-instance">インスタンス</label><input id="misskey-instance" type="url" value="https://otomad.site" required maxlength="255" spellcheck="false">
+  <label for="misskey-tag">ハッシュタグ</label><input id="misskey-tag" value="NicoMiss" required maxlength="128" spellcheck="false">
+  <label class="misskey-check"><input id="misskey-local" type="checkbox" checked>このインスタンスの投稿者に限定</label>
+  <label class="misskey-check"><input id="misskey-home" type="checkbox">ホーム公開のノートも含める</label>
+  <p class="metadata">通常はパブリックのみ。ホーム公開は匿名でも閲覧できますが、公開タイムラインには載りません。フォロワー限定・ダイレクトは取得しません。</p>
+  <div class="misskey-grid">
+   <label>同時表示の上限<input id="misskey-max" type="number" min="1" max="30" step="1" value="30" required></label>
+   <label>同じ投稿者の上限<input id="misskey-per-user" type="number" min="1" max="3" step="1" value="1" required></label>
+   <label>表示時間（秒）<input id="misskey-lifetime" type="number" min="5" max="120" step="1" value="45" required></label>
+   <label>本文の上限文字数<input id="misskey-characters" type="number" min="40" max="400" step="1" value="180" required></label>
+  </div>
+  <details class="misskey-moderation"><summary>除外する語句・投稿者</summary>
+   <label for="misskey-words">追加の除外語句（1行に1つ・最大128件）</label><textarea id="misskey-words" rows="5" spellcheck="false"></textarea>
+   <p class="metadata">初期辞書の脅迫表現に加え、ここで指定した語句を部分一致で照合します。引用や否定文も該当する場合があります。画像・動画は読み込まず、CW付き・センシティブ指定のノートは表示しません。</p>
+   <label for="misskey-users">除外する投稿者ID（1行に1つ・最大256件）</label><textarea id="misskey-users" rows="3" spellcheck="false"></textarea>
+  </details>
+  <button id="misskey-save" type="submit" disabled>設定を保存</button>
+ </form>
+ <p id="misskey-feedback" class="metadata" role="status"></p>
+ <details><summary>表示中のノートと除外状況</summary><div id="misskey-notes" aria-label="表示中のMisskeyノート"></div><p id="misskey-rejections" class="metadata"></p></details>
+ <p class="metadata">本文は保存しません。受信したノートは重複・反復・語句を検査し、長文を省略します。一時停止すると表示と待機中のノートを消し、再開後の新着から表示します。</p>
+</details>

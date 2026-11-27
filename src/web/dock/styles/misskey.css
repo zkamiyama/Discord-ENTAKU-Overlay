@@ -1,0 +1,10 @@
+#misskey-badge{display:block;color:var(--muted);font-size:11px;font-weight:400;margin-top:3px}
+#misskey-status[data-status=live]{color:var(--green)}
+#misskey-status[data-status=error],#misskey-feedback[data-error=true]{color:var(--red)}
+.misskey-check{display:flex;gap:8px;align-items:flex-start}.misskey-check input{flex:0 0 16px;margin:0}
+.misskey-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}.misskey-grid label{min-width:0}.misskey-grid input{margin-top:4px}
+.misskey-moderation{margin:12px 0}.misskey-moderation summary,#misskey-panel>details>summary{cursor:pointer;font-size:12px}
+#misskey-save{margin-top:12px;background:var(--primary);color:var(--on-primary);border-color:transparent;width:100%}
+#misskey-notes{max-height:260px;overflow:auto;overflow-wrap:anywhere}.misskey-note{padding:10px 0;border-bottom:1px solid var(--border)}
+.misskey-note a{font-size:12px;color:var(--primary)}.misskey-note p{font-size:12px;white-space:pre-wrap;margin:4px 0}.misskey-note small{font-size:10px;color:var(--muted)}
+.misskey-block{display:flex;margin-top:6px;font-size:11px;height:26px}

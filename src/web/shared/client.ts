@@ -2,6 +2,7 @@ import type {FramePerformance} from '../../contracts/diagnostics.ts';
 import {StateReceiver} from '../../contracts/state-stream.ts';
 import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
+import {parseMisskeyState,type MisskeyState,type MisskeySettings} from '../../contracts/misskey.ts';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import type {StoredGaussianAsset} from '../../assets/gaussian-store.ts';
@@ -15,6 +16,10 @@ export class StudioClient {
   onChat:(state:VcChatState|null)=>void=()=>{};
   private wantsChat=false;
   watchChat():void{this.wantsChat=true;if(this.greeted)this.send({type:'vc-chat-subscribe'});}
+  misskey:MisskeyState|null=null;
+  onMisskey:(state:MisskeyState|null)=>void=()=>{};
+  private wantsMisskey=false;
+  watchMisskey():void{this.wantsMisskey=true;if(this.greeted)this.send({type:'misskey-subscribe'});}
   private socket: WebSocket | null = null;
   private lifetime:AbortController|null=null;
   private greeted=false;
@@ -49,6 +54,7 @@ export class StudioClient {
     this.connected=false;this.chat=null;
     if(previous)previous.onmessage=previous.onclose=previous.onerror=null;
     this.onChat(null);
+    this.misskey=null;this.onMisskey(null);
     return previous;
   }
   disconnect(): void {
@@ -96,7 +102,7 @@ export class StudioClient {
         if (message.type === 'hello') {
           if(this.greeted)return;
           this.greeted=true;this.bestRtt=Infinity;this.lastMessage=performance.now();
-          this.onConnection('状態を同期中');this.ping();if(this.wantsChat)this.watchChat();
+          this.onConnection('状態を同期中');this.ping();if(this.wantsChat)this.watchChat();if(this.wantsMisskey)this.watchMisskey();
           if(this.socket!==socket)return;
           this.pingTimer=setInterval(()=>this.ping(),5000);
         } else if (!this.greeted)return;
@@ -116,6 +122,12 @@ export class StudioClient {
           if(recovered&&this.socket===socket)this.onConnection('接続済み');
         } else if(message.type==='vc-chat'&&this.wantsChat&&message.state){
           this.chat=message.state as VcChatState;this.onChat(this.chat);
+        } else if(message.type==='misskey'&&this.wantsMisskey){
+          const state=parseMisskeyState(message.state);
+          // Malformed social data must never retain an earlier on-air card.
+          if(!state){this.misskey=null;this.onMisskey(null);return;}
+          if(this.misskey&&state.revision<this.misskey.revision)return;
+          this.misskey=state;this.onMisskey(state);
         } else if (message.type === 'pong') {
           if(message.clientTime!==this.pingSentAt||typeof message.clientTime!=='number'||typeof message.serverTime!=='number'||!Number.isFinite(message.serverTime))return;
           const time=performance.now(),rtt=time-message.clientTime;this.pingSentAt=undefined;
@@ -148,6 +160,28 @@ export class StudioClient {
   }
   reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number},metrics?:FramePerformance):void{
     if(this.greeted)this.send({type:'render-status',status,frameMs,drawCalls,triangles,...exposure,...metrics});
+  }
+  async misskeySettings():Promise<{generation:number;settings:MisskeySettings}>{
+    const lifetime=this.lifetime;
+    if(!lifetime)throw new Error('サーバーとの接続を確認してください');
+    const value=await (await this.localFetch('/api/misskey/settings',{signal:lifetime.signal})).json();
+    if(lifetime!==this.lifetime||lifetime.signal.aborted)throw commandConnectionChanged();
+    return value;
+  }
+  async setMisskeySettings(settings:MisskeySettings,generation:number):Promise<{generation:number;settings:MisskeySettings}>{
+    return this.misskeyRequest('/api/misskey/settings',{settings,generation}) as Promise<{generation:number;settings:MisskeySettings}>;
+  }
+  async controlMisskey(action:'clear'|'pause',paused?:boolean):Promise<void>{
+    await this.misskeyRequest('/api/misskey/control',action==='pause'?{action,paused}:{action});
+  }
+  private async misskeyRequest(url:string,body:unknown):Promise<unknown>{
+    if(!this.connected||!this.lifetime)throw new Error('サーバーとの接続を確認してください');
+    const lifetime=this.lifetime;
+    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:lifetime.signal});
+    const result=await response.json();
+    if(lifetime!==this.lifetime||lifetime.signal.aborted)throw commandConnectionChanged();
+    if(!response.ok)throw new Error(result.error??'MISSKEY_REQUEST_FAILED');
+    return result;
   }
   async localFetch(url:string,init:RequestInit={}):Promise<Response>{
     const response=await fetch(url,init);

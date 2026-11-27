@@ -9,6 +9,16 @@ async function setup(page:Page){
  await page.route('**/static/gaussian-render-probe.js',route=>route.fulfill({contentType:'text/javascript',body:probe}));
  await page.goto('/gaussian-render-probe');await page.waitForFunction(()=>!!(window as any).gaussianRenderProbe,{},{timeout:90000});return errors;
 }
+test('Misskey background cards do not cover Gaussian people after a stage translation',async({page})=>{
+ test.setTimeout(120000);const errors=await setup(page);
+ const result=await page.evaluate(()=>(window as any).gaussianRenderProbe.misskeyBehindGaussian());
+ expect(result.baseline[0]-result.baseline[1]).toBeGreaterThan(80);
+ expect(result.withCard[0]-result.withCard[1]).toBeGreaterThan(80);
+ for(let c=0;c<4;c++)expect(Math.abs(result.withCard[c]-result.baseline[c])).toBeLessThanOrEqual(4);
+ // Positive control: the card exists beside the person in the same view.
+ for(let c=0;c<3;c++)expect(result.cardEdge[c]).toBeGreaterThan(210);
+ expect(result.cardEdge[3]).toBeGreaterThan(245);expect(errors).toEqual([]);
+});
 test('Spark appearance reaches official SSR; proxies do not erase main-view color',async({page})=>{
  test.setTimeout(180000);const errors=await setup(page);
  const result=await page.evaluate(async()=>{

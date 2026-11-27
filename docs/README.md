@@ -19,6 +19,7 @@
 | スタジオ・画質 | [スタジオ](studio.md)、[露出](exposure.md)、[画質と机](quality-and-desk.md)、[ポストエフェクト](post-effects.md) |
 | カメラ・席 | [RC.15](rc15-controls-and-camera.md)、[発話終了](rc11-speech-end.md)、[分割](rc10-dialogue-split.md)、[プリセットと席](rc12-presets-and-seats.md) |
 | Discord | [認証とスタジオ](rc13-auth-and-studio.md)、[VC-CHAT](rc14-vc-chat.md)、[チャット検証](vc-chat-probe.md) |
+| Misskey | [ハッシュタグ受信・3Dカード](misskey-hashtag-cards.md)（設定、制限、荒らし対策、実験）、[ADR 0029](adr/0029-public-hashtag-cards.md)（入力と描画の設計） |
 
 ## 過去の検証記録
 

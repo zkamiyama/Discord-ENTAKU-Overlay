@@ -11,6 +11,8 @@ This application bundles JavaScript, WebAssembly decoders, and the Bun runtime. 
 | Basis Universal | Unmodified KTX2 transcoder shipped with Three.js | Apache-2.0; `licenses/Apache-2.0.txt`, `licenses/Basis-README.md`; Copyright 2019-2026 Binomial LLC |
 | meshoptimizer | Official decoder included in Three.js addons | MIT; Copyright 2016-2026 Arseny Kapoulkine; `licenses/meshoptimizer-LICENSE.md` |
 | fflate 0.8.3 | Bounded ZIP import and release packaging | MIT; Copyright 2023 Arjun Barrett; `licenses/fflate-LICENSE.txt` |
+| mfm-js 0.28.0 | Parse Misskey text into a static, bounded text representation | MIT; Copyright 2020-2022 Marihachi and other contributors; `licenses/mfm-js-LICENSE.txt` |
+| @misskey-dev/emoji-data 17.0.3 | Emoji matching used by mfm-js | Upstream package declares MIT AND CC-BY-4.0 AND Unicode-3.0; the package notice and every shipped LICENSE-* are preserved as `licenses/emoji-data-*`; no emoji image assets are fetched or bundled by ENTAKU |
 | Bun 1.4.4 and bundled components | Compiled application runtime | `licenses/Bun-LICENSE.md` preserves upstream's license and component/source list |
 
 Draco source: https://github.com/google/draco
@@ -18,6 +20,10 @@ Draco source: https://github.com/google/draco
 Basis Universal source: https://github.com/BinomialLLC/basis_universal
 
 Meshoptimizer source: https://github.com/zeux/meshoptimizer
+
+MFM parser source: https://github.com/misskey-dev/mfm.js
+
+Misskey emoji definitions and upstream attribution: https://github.com/misskey-dev/emojis
 
 Bun source and bundled-library notices: https://github.com/oven-sh/bun/tree/bun-v1.4.4
 
