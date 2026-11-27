@@ -20,6 +20,8 @@
 
 ## 所有権と復元
 
+2026-11-27の改修ブランチでは、OverlaySceneがシーンと参加者の配置を管理し、ProgramRendererが全ビュー共通のSceneEffectsIndexを所有する。カメラ別の描画ターゲット、ソート、LoD選択は共用しない。GLBの素材はStudioModelRegistryから参照し、配置ごとの変更可能なマテリアルと骨格は各インスタンスが所有する。詳細は[ADR 0026](adr/0026-state-stream-and-resource-ownership.md)を参照する。最新実装は[引き継ぎ](handoff-2026-11-27.md)に記録したブラウザ試験の失敗が残っている。
+
 ProgramRendererが単独・分割レンダラーと標準照明を所有する。EffectTargetsは画面効果のターゲットを必要時に確保し、Three.js標準のsetSizeとdisposeを呼ぶ。読み込み中のスタジオ候補は表示中のスタジオと別の所有者である。
 
 QualityRenderer、PostRenderer、DisplayComposite、SplitRendererは、複数パスで変更した状態をsaveRenderStateで復元する。対象は描画先、キューブ面・mip、viewport、scissor、クリア色、背景、色空間、レイヤー、autoClear、影の自動更新である。正常終了・例外のどちらでも復元し、出力テクスチャの中身は解放しない。

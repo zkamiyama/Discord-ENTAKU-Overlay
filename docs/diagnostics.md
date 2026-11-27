@@ -2,6 +2,19 @@
 
 Dockには接続状態、カメラの判断理由、最短維持時間の残り、話者の実発話時間を表示します。「診断とイベント記録」では映像ページの状態、フレーム間隔、draw calls、三角形数を確認できます。フレーム間隔はブラウザの計測値であり、GPU処理時間やOBSの出力fpsそのものではありません。
 
+## 性能計測（PR #6）
+
+2026-11-27の改修ブランチでは、診断APIに次の項目を追加した。フレームとCPUの標本は最大240件、GPUの標本は最大32件。
+
+| JSONの項目 | 内容 |
+|---|---|
+| `frameSamples`、`frameP50Ms`、`frameP95Ms`、`frameP99Ms` | 描画フレーム間隔の標本数とパーセンタイル |
+| `prepareP95Ms` | CPUによるシーン・カメラ等の準備時間のP95 |
+| `submitP95Ms` | CPUによる描画命令送信時間のP95。GPU時間とは異なる |
+| `gpuSamples`、`gpuP95Ms` | WebGL2の非同期GPUタイマーの標本数とP95。未対応または標本なしでは省略 |
+
+GPU時間はProgramRendererの処理全体に対する計測で、パス別のGPU時間やGPUメモリ使用量ではない。フレームの例外を報告する `RENDER_FAILED` も追加した。対応するコミットと実機の未検証事項は[引き継ぎ](handoff-2026-11-27.md)に記録している。
+
 ## 読み取り方
 
 `READY`はスタジオ読み込みが完了した状態です。`STUDIO_LOADING`は処理中、`STUDIO_LOAD_FAILED`は素材を読み込めない状態です。`STUDIO_CAPACITY_OVERFLOW`は机の拡張が背景の想定範囲を超えています。`CAMERA_SAFE_FALLBACK`は有効な撮影位置がないため背景を隠した状態です。`CUSTOM_AVATAR_UNAVAILABLE`は人物画像の読込失敗、`WEBGL_CONTEXT_LOST`は描画コンテキストの喪失です。
