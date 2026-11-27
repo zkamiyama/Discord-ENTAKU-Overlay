@@ -1,7 +1,7 @@
 import {expect,test} from 'bun:test';
 import * as THREE from 'three';
 import {SparkRenderer,SplatMesh} from '@sparkjsdev/spark';
-import {MAX_GAUSSIAN_SPEAKERS,hasSpeakingGaussian,fillGaussianSpeechRanges,setGaussianSpeechGlow,clearGaussianSpeechGlow,installGaussianSpeechGlow} from '../../src/web/gaussian/speech-glow.ts';
+import {MAX_GAUSSIAN_SPEAKERS,hasSpeakingGaussian,fillGaussianSpeechRanges,setGaussianSpeechGlow,clearGaussianSpeechGlow,setGaussianSpeechBounds,installGaussianSpeechGlow} from '../../src/web/gaussian/speech-glow.ts';
 
 const ranges=()=>Array.from({length:MAX_GAUSSIAN_SPEAKERS},()=>new THREE.Vector4());
 const record=(node:SplatMesh,base:number,count:number)=>({node,base,count,version:0});
@@ -47,10 +47,11 @@ test('adapter guards published shaders and restores its instance without changin
  expect(spark.material.fragmentShader).toContain('rgba.a * exp(-0.5 * z2)');
  expect(spark.material.depthTest).toBe(true);expect(spark.material.depthWrite).toBe(false);
  expect(effect.uniforms.rimMode.value).toBe(2);
- expect(effect.uniforms.speechBackdropPass.value).toBe(0);
- expect(spark.material.fragmentShader).toContain('backdropA');
+ expect(effect.uniforms.speechMaskPass.value).toBe(0);
  expect(spark.material.vertexShader).toContain('vSpeech');
- expect(spark.material.vertexShader).toContain('if(speechBackdropPass==1&&vSpeech<=.001)return;');
+ // Halo scale must not multiply per-splat raster work or alter native UVs.
+ expect(spark.material.vertexShader).toContain('vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;');
+ expect(spark.material.vertexShader).toContain('vSplatUv = position.xy * adjustedStdDev;');
  expect(JSON.stringify(THREE.ShaderChunk)).toBe(chunks);
  effect.dispose();expect(spark.onBeforeRender).toBe(before);
  expect(spark.material.vertexShader).toBe(source);expect(spark.material.fragmentShader).toBe(fragment);
@@ -81,5 +82,20 @@ test('speaking backdrop is drawn only for visible live instances',()=>{
  mesh.visible=true;root.visible=false;expect(hasSpeakingGaussian(scene)).toBe(false);
  root.visible=true;setGaussianSpeechGlow(mesh,0);expect(hasSpeakingGaussian(scene)).toBe(false);
  setGaussianSpeechGlow(mesh,.4);root.remove(mesh);expect(hasSpeakingGaussian(scene)).toBe(false);
+ clearGaussianSpeechGlow(mesh);
+});
+
+test('offscreen sources are culled while a halo at the screen edge remains eligible',()=>{
+ const mesh=new THREE.Object3D() as unknown as SplatMesh,camera=new THREE.PerspectiveCamera(60,1,.1,20);
+ camera.position.z=5;camera.updateMatrixWorld(true);
+ setGaussianSpeechBounds(mesh,new THREE.Box3(new THREE.Vector3(-.1,-.1,-.1),new THREE.Vector3(.1,.1,.1)));
+ setGaussianSpeechGlow(mesh,1);const mapping=[record(mesh,0,20)],out=ranges();
+ mesh.position.x=20;mesh.updateMatrixWorld(true);expect(fillGaussianSpeechRanges(mapping,out,camera,480)).toBe(0);
+ mesh.position.x=3.1;mesh.updateMatrixWorld(true);expect(fillGaussianSpeechRanges(mapping,out,camera,480)).toBe(1);
+ mesh.position.set(0,0,10);mesh.updateMatrixWorld(true);expect(fillGaussianSpeechRanges(mapping,out,camera,480)).toBe(0);
+ // An off-axis camera has a projection offset as well as focal scaling.
+ camera.setViewOffset(960,480,480,0,480,480);
+ mesh.position.set(-.2,0,0);mesh.updateMatrixWorld(true);expect(fillGaussianSpeechRanges(mapping,out,camera,480)).toBe(1);
+ mesh.position.x=-2;mesh.updateMatrixWorld(true);expect(fillGaussianSpeechRanges(mapping,out,camera,480)).toBe(0);
  clearGaussianSpeechGlow(mesh);
 });

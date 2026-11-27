@@ -72,10 +72,13 @@ test('GLTFLoader preserves high-unit model lights and auto exposure avoids a whi
   const scene={...original,broadcast:{enabled:false,title:'',subtitle:''},camera:{blockers:[]},exposure:{mode:'auto',compensationEV:0,manualExposure:1,lighting:'auto'},objects:[{id:'lighting-fixture',kind:'model',bundleId:bundle.bundleId,transform:{position:[0,0,0],yawDeg:0,scale:[1,1,1]}},{id:'gray-floor',kind:'plane',size:[20,40],color:'#808080',transform:{position:[0,-.05,0],yawDeg:0,scale:[1,1,1]}}]};
   await apply(scene);await expect(overlay.locator('#scene')).toHaveAttribute('data-authored-lights','9');await expect(overlay.locator('#scene')).toHaveAttribute('data-fallback-lights','false');await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','AUTO');
   await expect.poll(async()=>Number(await overlay.locator('#scene').getAttribute('data-exposure'))).toBeLessThan(.03);
-  const whiteness=async()=>{const png=await overlay.locator('#scene').screenshot();return overlay.evaluate(async b64=>{const img=await createImageBitmap(new Blob([Uint8Array.from(atob(b64),c=>c.charCodeAt(0))],{type:'image/png'}));const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const x=c.getContext('2d')!;x.drawImage(img,0,0);img.close();const d=x.getImageData(0,0,c.width,c.height).data;let all=0,white=0;for(let i=0;i<d.length;i+=4){if(d[i+3]!<250)continue;all++;if(d[i]!>247&&d[i+1]!>247&&d[i+2]!>247)white++;}return white/Math.max(1,all);},png.toString('base64'));};
-  await page.waitForTimeout(1800);const autoWhite=await whiteness();await overlay.screenshot({path:'.work/high-unit-studio-auto.png',omitBackground:true});
+  // Analyze the captured PNG on the non-WebGL page with a readback-oriented
+  // canvas. Sending it back through the busy overlay GPU adds another upload /
+  // readback stall. The evidence file is the exact frame used by the assertion.
+  const whiteness=async(path:string)=>{const png=await overlay.locator('#scene').screenshot({path});return page.evaluate(async b64=>{const img=await createImageBitmap(new Blob([Uint8Array.from(atob(b64),c=>c.charCodeAt(0))],{type:'image/png'}));const c=document.createElement('canvas');c.width=img.width;c.height=img.height;const x=c.getContext('2d',{willReadFrequently:true})!;x.drawImage(img,0,0);img.close();const d=x.getImageData(0,0,c.width,c.height).data;let all=0,white=0;for(let i=0;i<d.length;i+=4){if(d[i+3]!<250)continue;all++;if(d[i]!>247&&d[i+1]!>247&&d[i+2]!>247)white++;}return white/Math.max(1,all);},png.toString('base64'));};
+  await page.waitForTimeout(1800);const autoWhite=await whiteness('.work/high-unit-studio-auto.png');
   await apply({...scene,exposure:{...scene.exposure,mode:'manual',manualExposure:1}});await expect(overlay.locator('#scene')).toHaveAttribute('data-exposure-status','MANUAL');
-  const manualWhite=await whiteness();await overlay.screenshot({path:'.work/high-unit-studio-manual.png',omitBackground:true});
+  const manualWhite=await whiteness('.work/high-unit-studio-manual.png');
   expect(manualWhite).toBeGreaterThan(autoWhite+.20);
  }finally{await apply(original);}
 });

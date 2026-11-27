@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import type {SparkRenderer, SplatMesh} from '@sparkjsdev/spark';
 import {prepareGaussianColor} from './color-space.ts';
-import {gaussianScreenGlowRadius,clearGaussianSpeechBounds} from './speech-screen.ts';
+import {gaussianScreenGlowRadius,gaussianSpeechIntersectsView,clearGaussianSpeechBounds,MAX_GAUSSIAN_HALO_RADIUS} from './speech-screen.ts';
 export {setGaussianSpeechBounds} from './speech-screen.ts';
 
 /** Speech uniforms are instance-local, not part of shared PackedSplats.
  * Updating speech must not regenerate the asset, LoD tree or accumulator.
  */
 const speech = new WeakMap<SplatMesh, {strength:number;scale:number}>();
+const viewFrustum=new THREE.Frustum(),viewProjection=new THREE.Matrix4();
 export const MAX_GAUSSIAN_SPEAKERS = 32;
 export function setGaussianSpeechGlow(mesh:SplatMesh,strength:number,scale=4):void {
  const value=Number.isFinite(strength)?THREE.MathUtils.clamp(strength,0,1):0;
@@ -27,10 +28,24 @@ export function hasSpeakingGaussian(scene:THREE.Scene):boolean {
  */
 export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mapping'],ranges:THREE.Vector4[],camera?:THREE.Camera,framebufferHeight?:number):number {
  for(const range of ranges)range.set(0,0,0,0);
+ if(camera){
+  viewProjection.copy(camera.projectionMatrix);
+  // Keep the possible halo just beyond the screen edge. The calibrated box
+  // alone must not cull an offscreen body whose outline is still visible.
+  if(framebufferHeight&&framebufferHeight>0){
+   const aspect=Math.abs(viewProjection.elements[5]!/viewProjection.elements[0]!)||1;
+   const padding=Math.max(8,Math.min(MAX_GAUSSIAN_HALO_RADIUS,framebufferHeight*.13));
+   const xScale=1+2*padding/(framebufferHeight*aspect),yScale=1+2*padding/framebufferHeight;
+   // Scale complete clip-space rows, including off-axis projection offsets.
+   for(const column of [0,4,8,12]){viewProjection.elements[column]!/=xScale;viewProjection.elements[column+1]!/=yScale;}
+  }
+  viewFrustum.setFromProjectionMatrix(viewProjection.multiply(camera.matrixWorldInverse),camera.coordinateSystem);
+ }
  let count=0;
  for(const record of mapping){
   const state=speech.get(record.node as SplatMesh);
   if(!state||record.count<=0)continue;
+  if(camera&&!gaussianSpeechIntersectsView(record.node as SplatMesh,viewFrustum))continue;
   let visible=true;
   for(let parent:THREE.Object3D|null=record.node;parent;parent=parent.parent){if(!parent.visible){visible=false;break;}}
   if(!visible)continue;
@@ -40,18 +55,17 @@ export function fillGaussianSpeechRanges(mapping:SparkRenderer['display']['mappi
  return count;
 }
 
-/** Spark 2.4.0 adapter: original falloff, sorting and depth test are retained.
- * Fresnel alone fails on near-planar and isotropic human PLYs. Render a low
- * alpha expanded backdrop BEFORE the normal splat color; the normal pass covers
- * the inside, while the silhouette remains. One extra color draw while someone
- * speaks, with no new geometry, sort worker or full-screen render target.
+/** Spark 2.4.0 adapter. The normal draw keeps native projected footprints,
+ * alpha falloff, sorting and depth. A separate mask uses the SAME displayed
+ * accumulator; its screen-space halo never expands individual splat quads.
+ * Speech uniforms belong to a view, not to shared PackedSplats or its LoD tree.
  */
 export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>SparkRenderer=()=>spark) {
  const m=spark.material;
  const vertex=m.vertexShader,fragment=m.fragmentShader,originalBefore=spark.onBeforeRender;
  if(spark.covSplats)throw new Error('GAUSSIAN_SPEECH_REQUIRES_SCALE_QUATERNION_ENCODING');
  const u={
-  rimMode:{value:2},speakerCount:{value:0},speechBackdropPass:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},haloOpacity:{value:0.035},haloIntensity:{value:2.0},
+  rimMode:{value:2},speakerCount:{value:0},speechMaskPass:{value:0},rimPower:{value:2.6},rimIntensity:{value:2.0},
   rimTint:{value:new THREE.Color().setRGB(.04,1,.22)},
   speakerRanges:{value:Array.from({length:MAX_GAUSSIAN_SPEAKERS},()=>new THREE.Vector4())},
  };
@@ -61,99 +75,56 @@ export function installGaussianSpeechGlow(spark:SparkRenderer,activeView:()=>Spa
   return src.replace(needle,value);
  };
  m.vertexShader=replace(m.vertexShader,'void main() {',`
- uniform int rimMode,speakerCount,speechBackdropPass;
+ uniform int rimMode,speakerCount,speechMaskPass;
  uniform float rimPower;
  uniform vec4 speakerRanges[32];
  flat out float vRim;
  flat out float vSpeech;
- float speechPad=0.0;
- flat out vec2 vHaloScale;
+ flat out float vSpeechRadius;
  void main() {
-  vRim=0.0;vSpeech=0.0;vHaloScale=vec2(1.0);
+  vRim=0.0;vSpeech=0.0;vSpeechRadius=0.0;
  `);
  m.vertexShader=replace(m.vertexShader,'vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);',`
  vec4 viewQuaternion = quatQuat(renderToViewQuat, quaternion);
  if(rimMode>0&&speakerCount>0){
-  float speech=0.0;
   for(int owner=0;owner<32;owner++){
    if(owner>=speakerCount)break;
    vec4 range=speakerRanges[owner];
-   if(float(splatIndex)>=range.x&&float(splatIndex)<range.y){speech=range.z;speechPad=range.w;break;}
+   if(float(splatIndex)>=range.x&&float(splatIndex)<range.y){vSpeech=range.z;vSpeechRadius=range.w;break;}
   }
-  if(speech>0.0){
-  vSpeech=speech;
-  float lo=min(scales.x,min(scales.y,scales.z));
-  float hi=max(scales.x,max(scales.y,scales.z));
-  float mid=scales.x+scales.y+scales.z-lo-hi;
-  float confidence=1.0-smoothstep(.2,.65,lo/max(mid,1e-7));
-  vec3 axis=scales.x<=scales.y&&scales.x<=scales.z?vec3(1,0,0):scales.y<=scales.z?vec3(0,1,0):vec3(0,0,1);
-  vec3 n=normalize(quatVec(viewQuaternion,axis));
-  vec3 v=isOrthographic?vec3(0,0,1):normalize(-viewCenter);
-  vRim=speech*confidence*pow(clamp(1.0-abs(dot(n,v)),0.0,1.0),rimPower);
+  if(vSpeech>0.0&&speechMaskPass==0){
+   float lo=min(scales.x,min(scales.y,scales.z));
+   float hi=max(scales.x,max(scales.y,scales.z));
+   float mid=scales.x+scales.y+scales.z-lo-hi;
+   float confidence=1.0-smoothstep(.2,.65,lo/max(mid,1e-7));
+   vec3 axis=scales.x<=scales.y&&scales.x<=scales.z?vec3(1,0,0):scales.y<=scales.z?vec3(0,1,0):vec3(0,0,1);
+   vec3 n=normalize(quatVec(viewQuaternion,axis));
+   vec3 v=isOrthographic?vec3(0,0,1):normalize(-viewCenter);
+   vRim=vSpeech*confidence*pow(clamp(1.0-abs(dot(n,v)),0.0,1.0),rimPower);
   }
  }
  `);
- // A single participant may speak among eight: avoid rasterizing silent
- // Gaussian splats into the expensive expanded backdrop pass.
- m.vertexShader=replace(m.vertexShader,'if (enable2DGS && any(zeroScales)) {',`if(speechBackdropPass==1&&vSpeech<=.001)return;\n        if (enable2DGS && any(zeroScales)) {`);
- m.vertexShader=replace(m.vertexShader,'vec2 pixelOffset = position.x * eigenVec1 * scale1 + position.y * eigenVec2 * scale2;',`
- // Expand raster support only. Original Gaussian uv/alpha must not be rescaled.
- // Both expansions are screen pixels; thin projected splats have separate ratios.
- // speechPad is the per-speaker dilation in actual framebuffer pixels.
- // Multiply by focalAdjustment because Spark divides offsets by renderSize*focalAdjustment.
- float haloPad=((speechBackdropPass==1&&vSpeech>.001)?speechPad:(rimMode==2&&vRim>.0001)?speechPad*.59:0.0)*focalAdjustment;
- vHaloScale=vec2(1.0+haloPad/max(scale1,1e-4),1.0+haloPad/max(scale2,1e-4));
- vSplatUv=position.xy*adjustedStdDev*vHaloScale;
- vec2 pixelOffset = position.x * eigenVec1 * (scale1+haloPad) + position.y * eigenVec2 * (scale2+haloPad);
- `);
  m.fragmentShader=replace(m.fragmentShader,'void main() {',`
- uniform int rimMode,speechBackdropPass;
- uniform float rimIntensity,haloOpacity,haloIntensity;
+ uniform int speechMaskPass;
+ uniform float rimIntensity;
  uniform vec3 rimTint;
  flat in float vRim;
  flat in float vSpeech;
- flat in vec2 vHaloScale;
+ flat in float vSpeechRadius;
  void main() {
  `);
- m.fragmentShader=replace(m.fragmentShader,'if (z2 > (adjustedStdDev * adjustedStdDev)) {',`
- float haloZ2=dot(vSplatUv/vHaloScale,vSplatUv/vHaloScale);
- if (haloZ2 > (adjustedStdDev * adjustedStdDev)) {
- `);
- // Keep the official falloff (including LoD opacity >1) exactly as published.
- m.fragmentShader=replace(m.fragmentShader,'if (rgba.a < minAlpha) {',`
- if(z2>adjustedStdDev*adjustedStdDev)rgba.a=0.0;
- float originalAlpha=rgba.a;
- float haloA=(rimMode==2)?min(0.12,haloOpacity*vRim*min(vRgba.a,1.0)*exp(-.5*haloZ2)):0.0;
- // The backdrop is drawn BEFORE the normal, fully sorted Gaussian color.
- // Dense interior splats are subsequently covered, leaving the silhouette halo.
- float backdropA=0.0;
- if(speechBackdropPass==1&&vSpeech>.001){
-  // The footprint expands by a calibrated SCREEN-SPACE pixel radius.
-  // Fade across that expanded band, preserving the Gaussian's soft falloff.
-  vec2 radial=vSplatUv/vHaloScale;
-  float expandedRadius=length(radial)/max(adjustedStdDev,1e-5);
-  vec2 direction=normalize(radial+vec2(1e-6));
-  float originalBoundary=inversesqrt(max(1e-6,dot(direction*vHaloScale,direction*vHaloScale)));
-  float outside=clamp((expandedRadius-originalBoundary)/max(1e-5,1.0-originalBoundary),0.0,1.0);
-  float fade=1.0-smoothstep(0.0,1.0,outside);
-  // Respect each Gaussian's soft falloff: dense real PLYs would otherwise
-  // accumulate a solid neon slab rather than a translucent edge glow.
-  backdropA=min(0.15,0.035*vSpeech*min(vRgba.a,1.0)*fade*exp(-0.5*haloZ2));
- }
- float finalAlpha=speechBackdropPass==1?backdropA:originalAlpha+(1.0-originalAlpha)*haloA;
- if (finalAlpha < minAlpha) {
- `);
  m.fragmentShader=replace(m.fragmentShader,'#ifdef PREMULTIPLIED_ALPHA',`
- // Keep silent splats byte-equivalent to native rendering. Emission is added
- // in linear light on BOTH direct-sRGB and render-target paths.
- if(speechBackdropPass==1){
-  rgba.a=finalAlpha;
-  rgba.rgb=encodeLinear?rimTint:sRGBTransferOETF(vec4(rimTint,1.0)).rgb;
- }else if(vRim>0.0){
+ if(speechMaskPass==1){
+  // Premultiplied emission and its radius. Silent foreground splats still
+  // contribute alpha, correctly occluding a speaker that uses the same asset.
+  // Use the same pixel bound as the screen-space distance field.
+  fragColor=vec4(vSpeech,vSpeech*vSpeechRadius/${MAX_GAUSSIAN_HALO_RADIUS.toFixed(1)},0.0,1.0)*rgba.a;
+  #include <logdepthbuf_fragment>
+  return;
+ }
+ if(vRim>0.0){
   vec3 linearRgb=encodeLinear?rgba.rgb:sRGBTransferEOTF(vec4(rgba.rgb,1.0)).rgb;
-  vec3 premul=linearRgb*originalAlpha + rimTint*(rimIntensity*vRim*originalAlpha + haloIntensity*(1.0-originalAlpha)*haloA);
-  rgba.a=finalAlpha;
-  vec3 linearOut=finalAlpha>0.0?premul/finalAlpha:vec3(0.0);
+  vec3 linearOut=linearRgb+rimTint*rimIntensity*vRim;
   rgba.rgb=encodeLinear?linearOut:sRGBTransferOETF(vec4(linearOut,1.0)).rgb;
  }
  #ifdef PREMULTIPLIED_ALPHA

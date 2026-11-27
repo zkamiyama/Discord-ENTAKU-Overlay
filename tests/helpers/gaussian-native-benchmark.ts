@@ -8,7 +8,7 @@ import {QualityRenderer} from '../../src/web/studio/quality-renderer.ts';
 import {SplitRenderer} from '../../src/web/studio/split-renderer.ts';
 import {DEFAULT_QUALITY} from '../../src/studio/quality.ts';
 import {DEFAULT_POST} from '../../src/studio/post-effects.ts';
-import {makeBust} from '../../experiments/gaussian-fresnel-preview/fixture.ts';
+import {makeBust} from './gaussian-bust.ts';
 const canvas=document.querySelector('canvas')!,renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:false,preserveDrawingBuffer:true});
 renderer.setPixelRatio(1);renderer.setSize(1280,720,false);renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.AgXToneMapping;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(40,16/9,.05,100);camera.layers.enable(1);

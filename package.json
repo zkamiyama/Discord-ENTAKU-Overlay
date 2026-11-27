@@ -31,8 +31,8 @@
     "fixtures:gaussian": "bun run scripts/generate-gaussian-fixtures.ts",
     "test:gaussian": "bun test tests/unit/gaussian-*.test.ts tests/integration/gaussian-*.test.ts",
     "test:gaussian:browser": "bun run build:web && playwright test e2e/gaussian-*.spec.ts",
-    "preview:gaussian-glow": "bun run scripts/render-gaussian-fresnel.ts",
-    "bench:gaussian-native": "bun run scripts/benchmark-gaussian-native.ts"
+    "bench:gaussian-native": "bun run scripts/benchmark-gaussian-native.ts",
+    "bench:gaussian-speech": "bun run scripts/benchmark-gaussian-speech.ts"
   },
   "dependencies": {
     "@sparkjsdev/spark": "2.4.0",

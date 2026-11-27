@@ -1,11 +1,11 @@
 # ENTAKU 開発資料
 
-最新の作業状況と過去の実装記録を区別する。開発者・引き継ぎ担当者は、まず次の文書を読む。
+最新の作業状況と過去の実装記録を区別する。開発者・引き継ぎ担当者はまず次の文書を読む。
 
 | 目的 | 文書 |
 |---|---|
-| 作業を再開する | [2026-11-27 改修の引き継ぎ](handoff-2026-11-27.md)（PR、実装SHA、CI失敗、再現手順、残作業） |
-| 現行の設計判断を理解する | [ADR 0026](adr/0026-state-stream-and-resource-ownership.md)（差分通信と資源所有権）、[描画パイプライン](render-pipeline.md) |
+| 作業を再開する | [アーキテクチャの現状](architecture-status.md)（PR、構成、検証範囲、再現手順） |
+| 現行の設計判断を理解する | [ADR 0026](adr/0026-state-stream-and-resource-ownership.md)（差分通信と資源所有権）、[ADR 0027](adr/0027-durable-settings-and-command-transactions.md)（保存と設定操作）、[ADR 0028](adr/0028-render-generation-and-screen-halo.md)（表示世代と発話グロー）、[描画パイプライン](render-pipeline.md) |
 | 利用・開発環境を準備する | [起動とOBSへの登録](getting-started.md)、[ルートREADME](../README.md)、[開発ルール](../AGENTS.md) |
 | 検証する | [診断と発話イベント再生](diagnostics.md)、[ブラウザCIの設計](ci-render-tests.md)、[受け入れ条件](acceptance.md)、[配布候補の確認](release-checklist.md) |
 
@@ -26,6 +26,7 @@
 
 | 文書 | 内容 |
 |---|---|
+| [2026-11-27 改修の引き継ぎ](handoff-2026-11-27.md) | PR #6の途中段階。実装a160eacと文書67bac9eの時点の失敗と調査 |
 | [開発・検証状況](implementation-status.md) | 2026-11-09までのRC別の検証 |
 | [3DGS検証記録](gaussian-validation.md) | 静的3DGS導入時の自動テストと測定 |
 | [2026-11-10 監査](refactoring-audit-2026-11-10.md)、[進捗](refactoring-progress-2026-11-10.md)、[第2段階](refactoring-stage2-2026-11-10.md)、[完了記録](refactoring-completion-2026-11-10.md) | 以前のリファクタリングの経緯 |

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {PackedSplats} from '@sparkjsdev/spark';
 /** Original procedural surface-aligned 3D Gaussians; NOT a trained scan.
- * Deliberately smooth normals are a best-case control for the rim experiment.
+ * Deliberately smooth normals are a best-case control for speech rendering.
  */
 export async function makeBust(jacket:[number,number,number]=[.20,.30,.45]){
  const packed=new PackedSplats();await packed.initialized;
