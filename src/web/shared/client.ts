@@ -1,3 +1,4 @@
+import type {FramePerformance} from '../../contracts/diagnostics.ts';
 import {StateReceiver} from '../../contracts/state-stream.ts';
 import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
@@ -102,8 +103,8 @@ export class StudioClient {
     if (!response.ok) throw new Error(result.error ?? 'COMMAND_FAILED');
     return result;
   }
-  reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number}):void{
-    if(this.connected&&this.socket?.readyState===1 /* WebSocket.OPEN */)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure}));
+  reportRender(status:string,frameMs:number,drawCalls:number,triangles:number,exposure?:{exposure:number;exposureStatus:string;authoredLights:number;fallbackLights:boolean;qualityStatus?:string;shadowLights?:number;msaaSamples?:number},metrics?:FramePerformance):void{
+    if(this.connected&&this.socket?.readyState===1 /* WebSocket.OPEN */)this.socket.send(JSON.stringify({type:'render-status',status,frameMs,drawCalls,triangles,...exposure,...metrics}));
   }
   async localFetch(url:string,init:RequestInit={}):Promise<Response>{
     const response=await fetch(url,init);

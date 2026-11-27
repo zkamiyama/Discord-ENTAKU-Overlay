@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {ProgramRenderer} from './program-renderer.ts';
+import {FrameMetrics,GpuFrameSampler} from './frame-metrics.ts';
 import {OverlayScene} from './scene.ts';
 import {StudioClient} from '../shared/client.ts';
 import type {GaussianRuntime} from '../gaussian/runtime.ts';
@@ -9,6 +10,7 @@ const canvas=document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer=new THREE.WebGLRenderer({canvas,alpha:true,antialias:true,powerPreference:'high-performance'});
 renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.AgXToneMapping;renderer.info.autoReset=false;
 const world=new OverlayScene(client,renderer);
+const metrics=new FrameMetrics(),gpu=new GpuFrameSampler(renderer.getContext() as WebGL2RenderingContext,metrics.gpu);
 const program=new ProgramRenderer(renderer,world.scene,world.stage,world.camera,world.roster.avatars,world.gaussian);
 (window as unknown as {entakuGaussianDiagnostics:()=>ReturnType<GaussianRuntime['diagnostics']>}).entakuGaussianDiagnostics=()=>world.gaussian.diagnostics();
 client.onState=next=>world.apply(next);
@@ -29,17 +31,20 @@ window.addEventListener('resize',resize);resize();
 function publish(values:Record<string,string>):void{
  for(const [key,value] of Object.entries(values))if(canvas.dataset[key]!==value)canvas.dataset[key]=value;
 }
-let previous=performance.now(),reportAt=0,frameMs=16.7,nextDetailedStatus=0;
+let previous=performance.now(),reportAt=0,frameMs=16.7,nextDetailedStatus=0,frameFailed=false,lastFailure=-Infinity;
 function frame(time:number):void{
  if(disposed)return;
  frameId=requestAnimationFrame(frame);
  const delta=Math.max(0,time-previous);previous=time;
  frameMs=frameMs*.9+Math.min(1000,delta)*.1;
- if(!contextLost){
-  resize();renderer.info.reset();
+ if(!contextLost)try{
+  const started=performance.now();resize();renderer.info.reset();
   const state=world.state,prepared=world.prepare(client.now(),time,Math.min(delta/1000,.05),client.connected);
   const {pose,length,offsetZ,near,studioStatus}=prepared;
-  const debug=program.render(state,pose,world.studio,client.connected,time,length,offsetZ,near);
+  const prepareMs=performance.now()-started,submittedAt=performance.now();
+  gpu.begin(time);
+  const debug=(()=>{try{return program.render(state,pose,world.studio,client.connected,time,length,offsetZ,near);}finally{gpu.end();}})();
+  metrics.record(delta,prepareMs,performance.now()-submittedAt);frameFailed=false;
   const summary=world.gaussian.frameSummary();
   publish({...debug,cameraNear:String(near),studioStatus,gaussianInstances:String(summary.instances),
    gaussianAssets:String(summary.assets),gaussianSelectedSplats:String(summary.selectedSplats),
@@ -51,13 +56,16 @@ function frame(time:number):void{
    nextDetailedStatus=time+100;
    publish({gaussianStatus:JSON.stringify([...world.roster.avatars.values()].filter(a=>a.gaussian).map(a=>({userId:a.user.userId,...a.gaussian!.status})))});
   }
+ }catch(error){
+  frameFailed=true;
+  if(time-lastFailure>=1000){lastFailure=time;console.warn('OVERLAY_FRAME_FAILED',error instanceof Error?error.name:'Unknown');}
  }
  if(time-reportAt>=1000){
-  reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':world.failures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report);
+  reportAt=time;client.reportRender(contextLost?'WEBGL_CONTEXT_LOST':frameFailed?'RENDER_FAILED':world.failures.size?'CUSTOM_AVATAR_UNAVAILABLE':canvas.dataset.studioStatus??'READY',frameMs,renderer.info.render.calls,renderer.info.render.triangles,program.report,metrics.report());
  }
 }
 frameId=requestAnimationFrame(frame);client.connect();
 window.addEventListener('pagehide',()=>{
  disposed=true;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);client.disconnect();
- program.dispose();world.dispose();renderer.dispose();renderer.forceContextLoss();
+ gpu.dispose();program.dispose();world.dispose();renderer.dispose();renderer.forceContextLoss();
 },{once:true});

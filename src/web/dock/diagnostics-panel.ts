@@ -35,7 +35,7 @@ export class DiagnosticsPanel {
       this.current=d;
       const quality:Record<string,string>={DIRECT:'直接描画',EFFECTS:'描画効果 ON',EFFECTS_UNAVAILABLE:'このGPUでは効果を無効化',EFFECTS_FAILED:'効果エラー：直接描画へ復帰'};
       $('quality-status').textContent=d.render?`${quality[d.render.qualityStatus??'DIRECT']} · MSAA ${d.render.msaaSamples??0}x · 影 ${d.render.shadowLights??0}灯 · ${d.render.frameMs.toFixed(1)}ms`:'映像ページの描画待ち';
-      $('renderer-status').textContent=d.render?`${d.render.status} · フレーム間隔 ${d.render.frameMs.toFixed(1)}ms · ${d.render.drawCalls} draws · ${d.render.triangles.toLocaleString()} triangles`:'映像ページの接続待ち';
+      $('renderer-status').textContent=d.render?`${d.render.status} · フレーム間隔 ${d.render.frameMs.toFixed(1)}ms · ${d.render.drawCalls} draws · ${d.render.triangles.toLocaleString()} triangles${d.render.frameP95Ms===undefined?'':` · P95 ${d.render.frameP95Ms.toFixed(1)}ms / P99 ${d.render.frameP99Ms!.toFixed(1)}ms · CPU 準備 ${d.render.prepareP95Ms!.toFixed(1)}ms / 描画送信 ${d.render.submitP95Ms!.toFixed(1)}ms${d.render.gpuP95Ms===undefined?'':` · GPU P95 ${d.render.gpuP95Ms.toFixed(1)}ms`}`}`:'映像ページの接続待ち';
       $('recording-status').textContent=`${d.recording.active?'記録中':'停止'} · ${d.recording.eventCount}イベント${d.recording.limitReached?' · 記録上限に達しました':''}`;
       $<HTMLButtonElement>('record-start').disabled=d.source==='replay'||d.recording.active;$<HTMLButtonElement>('record-stop').disabled=!d.recording.active;
       $<HTMLButtonElement>('record-export').disabled=d.recording.eventCount===0;

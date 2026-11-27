@@ -29,9 +29,9 @@ test('out-of-order candidates and dispose cannot attach late-loaded resources',a
   const visual=new StudioVisual(client,renderer,async(_c,_r,id)=>new Promise(resolve=>pending.set(id,resolve)));
   const old=visual.update(scene('old'));await Promise.resolve();
   const latest=visual.update(scene('latest'));await Promise.resolve();
-  const a=asset(),b=asset();pending.get('latest')!(b.group);await latest;pending.get('old')!(a.group);await old;await Promise.resolve();await Promise.resolve();
+  const a=asset(),b=asset();pending.get('latest')!(b.group);await latest;pending.get('old')!(a.group);await old;await Bun.sleep(0);
   expect(a.disposed()).toBe(1);expect(b.disposed()).toBe(0);expect(visual.root.children).toHaveLength(1);expect(visual.renderGeneration).toBe(1);
-  const later=visual.update(scene('disposed')),c=asset();await Promise.resolve();visual.dispose();pending.get('disposed')!(c.group);await later;await Promise.resolve();await Promise.resolve();
+  const later=visual.update(scene('disposed')),c=asset();await Promise.resolve();visual.dispose();pending.get('disposed')!(c.group);await later;await Bun.sleep(0);
   expect(c.disposed()).toBe(1);expect(b.disposed()).toBe(1);expect(visual.readyForCamera).toBe(false);expect(visual.root.children).toHaveLength(0);
 });
 test('active scene stays visible while loading and old resources release once on success',async()=>{
