@@ -71,3 +71,15 @@ test('AUTO cancels a queued manual shot during layout growth', () => {
   e.control({type:'mode',mode:'AUTO'},1,150);
   e.tick(2000);expect(e.snapshot().camera.shot.kind).toBe('WIDE');
 });
+
+test('render-only studio changes never reset an active manual camera',()=>{
+ const e=setup();e.apply(snapshot(['1','2']));e.tick(3000);
+ e.control({type:'shot',shot:{kind:'SINGLE',userIds:['1']}},0,3000);
+ const before=e.snapshot();
+ e.setStudioScene({...before.studio,revision:before.studio.revision+1,gaussian:{lodSplatCount:1_000_000}},e.currentRevision,3100);
+ const after=e.snapshot();
+ expect(after.camera).toEqual(before.camera);expect(after.mode).toBe(before.mode);
+ expect(after.autoResumeAtMs).toBe(before.autoResumeAtMs);expect(after.revision).toBe(before.revision+1);
+ const person=e.participant('1')!;person.displayName='mutated';
+ expect(e.participant('1')!.displayName).toBe('1');
+});

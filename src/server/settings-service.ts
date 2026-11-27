@@ -40,7 +40,7 @@ export class SettingsService {
       if (this.engine.settingsContextVersion !== context) {
         throw new Error(preset ? 'PRESET_CONTEXT_CHANGED' : 'SETTINGS_CONTEXT_CHANGED');
       }
-      if (this.engine.snapshot().revision !== revision) throw new Error('REVISION_CONFLICT');
+      if (this.engine.currentRevision !== revision) throw new Error('REVISION_CONFLICT');
     };
     check();
     return check;
@@ -62,12 +62,12 @@ export class SettingsService {
     const check = this.guard(revision);
     const profile = await this.avatars.validateDraft(input);
     check();
-    await this.profiles([...this.engine.snapshot().avatarProfiles.filter(p => p.userId !== profile.userId), profile], revision, check);
+    await this.profiles([...this.engine.avatarProfiles().filter(p => p.userId !== profile.userId), profile], revision, check);
   }
 
   async resetAvatar(userId: string, revision: number): Promise<void> {
     const check = this.guard(revision);
-    await this.profiles(this.engine.snapshot().avatarProfiles.filter(p => p.userId !== userId), revision, check);
+    await this.profiles(this.engine.avatarProfiles().filter(p => p.userId !== userId), revision, check);
   }
 
   private async profiles(profiles: ReturnType<AvatarStore['snapshot']>, revision: number, check: () => void): Promise<void> {

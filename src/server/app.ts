@@ -1,3 +1,4 @@
+import {WorkQueue} from './work-queue.ts';
 import {GAUSSIAN_LIMITS} from '../assets/gaussian-profile.ts';
 import {headers,json} from './http.ts';
 import {statusRoutes} from './routes/status.ts';
@@ -47,9 +48,16 @@ export function startServer(options: ServerOptions) {
   const presets=options.presets??new PresetStore();
   const customAssets = options.avatarStore ?? new AvatarStore();
   const settings=new SettingsService(engine,studioStore,customAssets,presets,now);
-  let mutationQueue = Promise.resolve();
-  const serial = <T>(work:()=>Promise<T>):Promise<T> => {
-    const result=mutationQueue.then(work);mutationQueue=result.then(()=>{},()=>{});return result;
+  // The single writer protects cross-store transactions; bounded admission also
+  // protects the process from retaining unlimited uploaded assets or commands.
+  const mutations=new WorkQueue(8);
+  const serial = async(work:()=>Promise<Response>):Promise<Response> => {
+    const result=mutations.tryRun(work);
+    if(!result)return json({error:'SERVER_BUSY'},503);
+    try{return await result;}catch(error){
+      if(error instanceof Error&&error.message==='WORK_CANCELLED')return json({error:'SERVER_STOPPING'},503);
+      throw error;
+    }
   };
 
   let broadcastAt = -Infinity;
@@ -129,6 +137,11 @@ export function startServer(options: ServerOptions) {
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
-    async stop() { offEvents(); offChat(); clearInterval(timer); for (const socket of clients) socket.close(1001, 'SHUTDOWN'); await server.stop(true); },
+    async stop() {
+      offEvents();offChat();clearInterval(timer);
+      const drained=mutations.close();
+      for(const socket of clients)socket.close(1001,'SHUTDOWN');
+      await server.stop(true);await drained;
+    },
   };
 }

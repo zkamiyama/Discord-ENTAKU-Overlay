@@ -1,3 +1,4 @@
+import {studioCameraKey} from '../studio/change-keys.ts';
 import {MembershipState} from './membership-state.ts';
 import {updateSeatLayout} from './layout-coordinator.ts';
 import {CameraContext} from './camera-context.ts';
@@ -40,6 +41,12 @@ export class AppEngine {
   private generation = -1;
   private contextVersion = 0;
   get settingsContextVersion(): number {return this.contextVersion;}
+  get currentRevision():number{return this.revision;}
+  get source():AppSnapshot['source']{return this.options.source;}
+  participant(id:string):Participant|undefined {
+    const person=this.membership.participants.get(id);return person?structuredClone(person):undefined;
+  }
+  avatarProfiles():AvatarProfile[]{return structuredClone([...this.profiles.values()]);}
   private now = 0;
   private seq = 0;
   private revision = 0;
@@ -182,13 +189,14 @@ export class AppEngine {
   }
   private replaceStudioScene(scene: StudioScene, expectedRevision: number, now: number): void {
     if(expectedRevision!==this.revision)throw new Error('REVISION_CONFLICT');
-    const clean=validateStudioScene(scene);this.advance(now);this.cameraContext.invalidate();
-    const geometry=(s:StudioScene)=>JSON.stringify({...s,revision:0,exposure:undefined,quality:undefined,post:undefined,direction:undefined});
+    const clean=validateStudioScene(scene);this.advance(now);
     const previous=this.studio.direction??DEFAULT_DIRECTION,next=clean.direction??DEFAULT_DIRECTION;
     const framingChanged=['portraitFov','wideHeightRatio','nearClip'].some(key=>previous[key as keyof typeof previous]!==next[key as keyof typeof next]);
     const directionChanged=JSON.stringify(previous)!==JSON.stringify(next);
-    const exposureOnly=geometry(clean)===geometry(this.studio);this.studio=clean;this.configureDirection();
-    if(exposureOnly){
+    const structureChanged=studioCameraKey(clean)!==studioCameraKey(this.studio);
+    this.studio=clean;
+    if(directionChanged){this.cameraContext.invalidate();this.configureDirection();}
+    if(!structureChanged){
       this.revision++;this.seq++;
       if(framingChanged){
         // Parameter edits are manual operations: reframe the current shot now,
@@ -198,6 +206,7 @@ export class AppEngine {
       if(directionChanged)this.tick(this.now);
       return;
     }
+    this.cameraContext.invalidate();
     this.revision++;this.seq++;this.pendingManual=null;this.director.reset();
     this.layoutHoldUntil=this.now+1000;this.layoutHoldReason='STUDIO_CHANGED';
     this.forceWide('STUDIO_CHANGED');this.tick(this.now);

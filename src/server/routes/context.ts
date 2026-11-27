@@ -11,6 +11,6 @@ export interface RouteContext {
  options:ServerOptions;now:()=>number;settings:SettingsService;studioStore:StudioStore;
  customAssets:AvatarStore;presets:PresetStore;avatars:AvatarCache;recording:ProviderRecording;
  vcChat:VcChatFeed;diagnostic:()=>RuntimeDiagnostics;broadcast:()=>void;
- serial:<T>(work:()=>Promise<T>)=>Promise<T>;
+ serial:(work:()=>Promise<Response>)=>Promise<Response>;
 }
 export type HttpRoute=(request:Request,url:URL,port:number)=>Promise<Response|undefined>;

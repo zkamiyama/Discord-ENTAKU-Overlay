@@ -86,7 +86,7 @@ export function assetRoutes(context:RouteContext):HttpRoute {
       }
       const avatarMatch = /^\/api\/avatars\/(\d{1,20})$/.exec(url.pathname);
       if (request.method === 'GET' && avatarMatch) {
-        const person = engine.snapshot().participants.find(p => p.userId === avatarMatch[1]);
+        const person = engine.participant(avatarMatch[1]!);
         if (!person?.avatarUrl) return json({ error: 'AVATAR_NOT_FOUND' }, 404);
         try { const data = await avatars.get(person.avatarUrl); return new Response(new Blob([data as Uint8Array<ArrayBuffer>]), { headers: headers('image/png') }); }
         catch { return json({ error: 'AVATAR_UNAVAILABLE' }, 502); }
