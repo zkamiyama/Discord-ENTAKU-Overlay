@@ -1,3 +1,4 @@
+import {StateReceiver} from '../../contracts/state-stream.ts';
 import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
 import type { StudioBundle } from '../../studio/store.ts';
@@ -13,6 +14,8 @@ export class StudioClient {
   private wantsChat=false;
   watchChat():void{this.wantsChat=true;if(this.connected)this.socket?.send(JSON.stringify({type:'vc-chat-subscribe'}));}
   private socket: WebSocket | null = null;
+  private readonly stream=new StateReceiver();
+  private awaitingFull=false;
   private offset = 0;
   private bestRtt = Infinity;
   private lastMessage=0;
@@ -34,7 +37,7 @@ export class StudioClient {
     this.retry = this.pingTimer = this.watchdog = undefined;
   }
   disconnect(): void {
-    this.clearTimers();
+    this.clearTimers();this.stream.reset();this.awaitingFull=false;
     const previous = this.socket; this.socket = null;
     this.connected = false; this.chat = null; this.onChat(null);
     previous?.close(1000, 'CLIENT_STOPPED');
@@ -57,15 +60,16 @@ export class StudioClient {
     },Math.min(1000,this.staleMs));
     socket.onmessage = event => {
       if (this.socket !== socket) return;
-      this.lastMessage=performance.now();
       try {
         const message = JSON.parse(String(event.data));
         if (message.type === 'hello') {
-          this.connected = true; this.bestRtt = Infinity;
+          this.connected = true; this.bestRtt = Infinity;this.lastMessage=performance.now();
           this.onConnection('接続済み'); this.ping();if(this.wantsChat)this.watchChat();
           clearInterval(this.pingTimer); this.pingTimer = setInterval(() => this.ping(), 5000);
-        } else if (message.type === 'snapshot' && message.state?.protocolVersion === 1) {
-          const state = message.state as AppSnapshot;
+        } else if (message.type === 'snapshot'||message.type==='snapshot-delta') {
+          const state=this.stream.accept(message);
+          if(!state){if(!this.awaitingFull){this.awaitingFull=true;this.resync();}return;}
+          this.awaitingFull=false;this.lastMessage=performance.now();
           if (state.serverEpoch !== this.epoch) { this.epoch = state.serverEpoch; this.bestRtt = Infinity; }
           if (this.bestRtt === Infinity) this.offset = state.serverNowMs - performance.now();
           this.state = state; this.stateReceivedAt=performance.now(); this.onState(state);
@@ -79,7 +83,7 @@ export class StudioClient {
     };
     socket.onclose = event => {
       if (this.socket !== socket) return;
-      this.socket = null; this.clearTimers();
+      this.socket = null; this.clearTimers();this.stream.reset();this.awaitingFull=false;
       this.connected = false; this.chat=null;this.onChat(null);this.onConnection(event.code === 1008 ? '接続設定を確認してください' : '再接続待ち');
       if (event.code !== 1008) this.retry = setTimeout(() => this.connect(), this.retryMs);
     };
@@ -91,7 +95,7 @@ export class StudioClient {
     await this.requestCommand(command,expectedRevision);
   }
   async requestCommand(command: Command, expectedRevision = this.state?.revision): Promise<Record<string,unknown>> {
-    if (!this.state) throw new Error('サーバーとの接続を確認してください');
+    if (!this.connected||!this.state||!this.stream.ready) throw new Error('サーバーとの接続を確認してください');
     const response = await fetch('/api/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...command, requestId: crypto.randomUUID(), expectedRevision }) });
     const result = await response.json();

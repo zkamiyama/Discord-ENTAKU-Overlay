@@ -1,3 +1,4 @@
+import {StatePublisher} from '../contracts/state-stream.ts';
 import {WorkQueue} from './work-queue.ts';
 import {GAUSSIAN_LIMITS} from '../assets/gaussian-profile.ts';
 import {headers,json} from './http.ts';
@@ -20,7 +21,7 @@ import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { chat?:boolean; messages: number; windowStart: number }
+interface SocketData { chat?:boolean; messages: number; windowStart: number; frame?:number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
@@ -61,23 +62,29 @@ export function startServer(options: ServerOptions) {
   };
 
   let broadcastAt = -Infinity;
-  const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): void => {
-    if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return; }
-    socket.send(message);
+  const stream=new StatePublisher();
+  const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): boolean => {
+    if (socket.getBufferedAmount() > 1024 * 1024) { socket.close(1013, 'SLOW_CLIENT'); return false; }
+    return socket.send(message)!==0;
   };
-  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => sendEncoded(socket, JSON.stringify(message));
+  const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {sendEncoded(socket, JSON.stringify(message));};
   const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
-  const snapshot = (state=engine.snapshot(now())): unknown => {const playback=options.replay?.status();return {type:'snapshot',state:{...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1}};};
   const broadcast = (): void => {
-    const state=engine.snapshot(now());
-    journal.state(state);
-    // Keep the journal current even with no UI, but don't serialize a packet
-    // that nobody will consume. New clients receive their own initial snapshot.
-    if (clients.size) {
-      const message = JSON.stringify(snapshot(state));
-      for (const socket of clients) sendEncoded(socket, message);
-    }
-    broadcastAt = performance.now();
+    const time=now();
+    if(clients.size){
+      const state=engine.snapshot(time),playback=options.replay?.status();journal.state(state);
+      const packet=stream.publish({...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1});
+      for(const socket of clients){
+        const message=socket.data.frame===packet.base&&packet.delta!==undefined?packet.delta:packet.full();
+        socket.data.frame=sendEncoded(socket,message)?packet.frame:undefined;
+      }
+    }else journal.state(engine.journalState(time));
+    broadcastAt=performance.now();
+  };
+  const sendFull=(socket:ServerWebSocket<SocketData>):void=>{
+    const packet=stream.latest;
+    if(!packet){broadcast();return;}
+    socket.data.frame=sendEncoded(socket,packet.full())?packet.frame:undefined;
   };
   const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,diagnostic,broadcast,serial};
   const routes=[statusRoutes(context),assetRoutes(context),commandRoute(context)];
@@ -104,7 +111,9 @@ export function startServer(options: ServerOptions) {
         if (clients.size >= 8) { socket.close(1013, 'CLIENT_LIMIT'); return; }
         clients.add(socket);
         send(socket, { type: 'hello' });
-        send(socket, snapshot());
+        // Initial snapshots are full and current. Established sockets receive
+        // the same new wire frame as a delta, keeping one baseline globally.
+        broadcast();
       },
       message(socket, message) {
         try {
@@ -122,11 +131,11 @@ export function startServer(options: ServerOptions) {
             const quality=['DIRECT','EFFECTS','EFFECTS_UNAVAILABLE','EFFECTS_FAILED'].includes(String(p.qualityStatus))&&typeof p.shadowLights==='number'&&Number.isInteger(p.shadowLights)&&p.shadowLights>=0&&p.shadowLights<=8?{qualityStatus:String(p.qualityStatus),shadowLights:p.shadowLights}:{};
             reports.set(socket,{status:String(p.status),frameMs:p.frameMs as number,drawCalls:p.drawCalls as number,triangles:p.triangles as number,updatedAtMs:performance.now(),...exposure,...quality,...(typeof p.msaaSamples==='number'&&[0,2,4,8].includes(p.msaaSamples)?{msaaSamples:p.msaaSamples}:{})});
           }
-          else if (p.type === 'resync') send(socket, snapshot());
+          else if (p.type === 'resync') sendFull(socket);
           else socket.close(1008, 'INVALID_MESSAGE');
         } catch { socket.close(1008, 'INVALID_MESSAGE'); }
       },
-      close(socket) { clients.delete(socket); reports.delete(socket); },
+      close(socket) { clients.delete(socket); reports.delete(socket);if(!clients.size)stream.reset(); },
     },
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });

@@ -41,7 +41,9 @@ export class OverlayScene {
  }
  apply(next:AppSnapshot):void{
   if(this.stopped)return;
-  this.state=next;void this.studio.update(next.studio);this.roster.sync(next);
+  const previous=this.state;this.state=next;
+  if(!previous||previous.studio!==next.studio)void this.studio.update(next.studio);
+  if(!previous||previous.serverEpoch!==next.serverEpoch||previous.participants!==next.participants||previous.session!==next.session||previous.avatarProfiles!==next.avatarProfiles||previous.studio.quality?.nameplates!==next.studio.quality?.nameplates)this.roster.sync(next);
  }
  prepare(now:number,time:number,dt:number,connected:boolean):PreparedFrame{
   const state=this.state,{length,offsetZ,progress}=sampleStage(state,now),motion=state?.layoutMotion;

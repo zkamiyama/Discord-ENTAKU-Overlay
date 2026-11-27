@@ -1,4 +1,6 @@
 import {expect,test} from 'bun:test';
+import {StatePublisher} from '../../src/contracts/state-stream.ts';
+import {AppEngine} from '../../src/domain/engine.ts';
 import {StudioClient} from '../../src/web/shared/client.ts';
 
 class FakeSocket {
@@ -64,4 +66,21 @@ test('an established socket also reconnects after becoming silent',async()=>{
     for(let i=0;i<100&&sockets.length<2;i++)await Bun.sleep(5);
     expect(sockets.length).toBeGreaterThanOrEqual(2);expect(client.connected).toBe(false);
   }finally{client.disconnect();}
+});
+
+test('a delta gap requests exactly one full resync and recovers',()=>{
+ const {client,sockets}=fixture();
+ const sender=new StatePublisher(),state=new AppEngine({source:'demo',serverEpoch:'test'}).snapshot();
+ try{
+  client.connect();const socket=sockets[0]!;socket.receive({type:'hello'});
+  socket.receive(JSON.parse(sender.publish(state).full()));
+  sender.publish({...state,serverNowMs:100});
+  const later=sender.publish({...state,serverNowMs:200});
+  socket.receive(JSON.parse(later.delta!));socket.receive(JSON.parse(later.delta!));
+  expect(client.state?.serverNowMs).toBe(state.serverNowMs);
+  expect(socket.sent.filter(s=>s.includes('"type":"resync"'))).toHaveLength(1);
+  socket.receive(JSON.parse(later.full()));expect(client.state?.serverNowMs).toBe(200);
+  const newest=sender.publish({...state,serverNowMs:300});socket.receive(JSON.parse(newest.delta!));
+  expect(client.state?.serverNowMs).toBe(300);
+ }finally{client.disconnect();}
 });

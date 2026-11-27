@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import {StateReceiver} from '../../src/contracts/state-stream.ts';
 import { AppEngine } from '../../src/domain/engine.ts';
 import { startServer } from '../../src/server/app.ts';
 import { demoEvents } from '../../src/replay/demo.ts';
@@ -53,4 +54,28 @@ test('WebSocket connects without auth and rejects a foreign Origin',async()=>{
       });
     }finally{invalid.close();}
   }finally{ws.close();await app.stop();}
+});
+
+test('live sockets receive ordered state deltas and can request an independent full snapshot',async()=>{
+ const {engine,app,origin}=setup(),receiver=new StateReceiver();
+ const ws=new BunWebSocket(origin.replace('http:','ws:')+'/ws',{headers:{Origin:origin}});
+ const messages:any[]=[];let rejected=0;
+ ws.onmessage=e=>{
+  const m=JSON.parse(String(e.data));messages.push(m);
+  if(m.type==='snapshot'||m.type==='snapshot-delta')if(!receiver.accept(m))rejected++;
+ };
+ const until=async(predicate:()=>boolean)=>{
+  const end=performance.now()+3000;
+  while(!predicate()&&performance.now()<end)await Bun.sleep(5);
+  expect(predicate()).toBe(true);
+ };
+ try{
+  await until(()=>messages.some(m=>m.type==='snapshot'));
+  engine.control({type:'mode',mode:'HOLD'},engine.currentRevision,0);app.broadcast();
+  await until(()=>messages.some(m=>m.type==='snapshot-delta'&&m.changes.mode==='HOLD'));
+  ws.send(JSON.stringify({type:'resync'}));
+  await until(()=>messages.filter(m=>m.type==='snapshot').length>=2);
+  expect(messages.filter(m=>m.type==='snapshot').at(-1)?.state.mode).toBe('HOLD');
+  expect(rejected).toBe(0);
+ }finally{ws.close();await app.stop();}
 });

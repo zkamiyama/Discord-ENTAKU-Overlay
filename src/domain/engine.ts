@@ -10,7 +10,7 @@ import { protectStudioCamera } from '../studio/camera-safety.ts';
 import { DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene } from '../studio/manifest.ts';
 import { validateProfile, type AvatarProfile } from '../assets/avatar-profile.ts';
 import type { AppSnapshot, CameraPlan, Channel, ConnectionStatus, Decision, DirectorMode, Participant, ProviderEvent, SeatSession, SeatTransform, Shot } from '../contracts/domain.ts';
-import { TABLE } from './defaults.ts';
+import { APP,TABLE } from './defaults.ts';
 import { makeLayout, makeSessionLayout } from '../geometry/capsule.ts';
 import { newSession, SeatAllocator } from './seat-allocator.ts';
 import { ShotDirector } from './shot-director.ts';
@@ -317,10 +317,13 @@ export class AppEngine {
     this.observers=observers;
   }
   sessions(): SeatSession[] { return [...this.allocators.values()].map(a => a.snapshot()); }
+  journalState(now=this.now):Pick<AppSnapshot,'camera'|'mode'|'connection'|'serverNowMs'>{
+    return {camera:structuredClone(this.camera),mode:this.director.mode,connection:this.connection,serverNowMs:Math.max(this.now,now)};
+  }
   snapshot(now = this.now): AppSnapshot {
     if (!Number.isFinite(now)) throw new Error('INVALID_TIME');
     return structuredClone({
-      protocolVersion: 1, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
+      protocolVersion: APP.protocolVersion, serverEpoch: this.options.serverEpoch, seq: this.seq, revision: this.revision, serverNowMs: Math.max(this.now, now),
       speech:this.presentIds().map(userId=>{const s=this.membership.tracker.stats(userId,this.now);return {userId,activeMs:s.activeMs,ratio:s.ratio,qualified:s.qualified,speechWindowMs:s.windowMs,speechMs10s:this.membership.tracker.intervals(userId,this.now,10000).reduce((n,i)=>n+i.end-i.start,0)};}),
       studio:this.studio, avatarProfiles:[...this.profiles.values()],
       connection: this.connection, errorCode: this.error, channel: this.channel, participants: [...this.membership.participants.values()],

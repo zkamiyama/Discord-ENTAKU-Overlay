@@ -14,16 +14,16 @@ export interface RosterVisual {
 export class AvatarRoster<T extends RosterVisual>{
  readonly avatars=new Map<string,T>();
  private profiles=new Map<string,AvatarProfile>();
- private profileRevision=-1;
+ private lastProfiles?:AvatarProfile[];
  private epoch='';
  private stopped=false;
  constructor(private readonly create:(person:Participant,profile?:AvatarProfile)=>T){}
  sync(state:AppSnapshot):void {
   if(this.stopped)return;
   if(state.serverEpoch!==this.epoch){
-   this.clear();this.epoch=state.serverEpoch;this.profileRevision=-1;
+   this.clear();this.epoch=state.serverEpoch;this.lastProfiles=undefined;
   }
-  if(state.revision!==this.profileRevision){
+  if(state.avatarProfiles!==this.lastProfiles){
    // Preserve references for unchanged profiles even when another setting was
    // edited. Avatar.update therefore needs no per-snapshot serialization.
    const profiles=new Map<string,AvatarProfile>();
@@ -31,7 +31,7 @@ export class AvatarRoster<T extends RosterVisual>{
     const previous=this.profiles.get(profile.userId);
     profiles.set(profile.userId,previous&&JSON.stringify(previous)===JSON.stringify(profile)?previous:profile);
    }
-   this.profiles=profiles;this.profileRevision=state.revision;
+   this.profiles=profiles;this.lastProfiles=state.avatarProfiles;
   }
   const assigned=new Set(state.session.reservations.map(r=>r.userId));
   const incoming=new Map(state.participants.map(p=>[p.userId,p]));
@@ -50,6 +50,6 @@ export class AvatarRoster<T extends RosterVisual>{
   for(const [id,avatar] of this.avatars)if(avatar.user.presence==='absent'&&avatar.opacity<=.005)this.remove(id,avatar);
  }
  private remove(id:string,avatar:T):void{this.avatars.delete(id);avatar.dispose();}
- private clear():void{for(const [id,avatar] of this.avatars)this.remove(id,avatar);this.profiles.clear();}
+ private clear():void{for(const [id,avatar] of this.avatars)this.remove(id,avatar);this.profiles.clear();this.lastProfiles=undefined;}
  dispose():void{if(!this.stopped){this.stopped=true;this.clear();}}
 }

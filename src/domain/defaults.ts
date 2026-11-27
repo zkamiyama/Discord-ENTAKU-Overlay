@@ -9,7 +9,7 @@ export const DIRECTOR = Object.freeze({
   dominanceRatio: 1.6, dominanceMarginMs: 1000,
 });
 export const APP = Object.freeze({
-  host: '127.0.0.1', port: 31337, protocolVersion: 1,
+  host: '127.0.0.1', port: 31337, protocolVersion: 2,
   maxFrameBytes: 8 * 1024 * 1024, rpcTimeoutMs: 5000,
   authTimeoutMs: 120000, heartbeatMs: 5000,
 });
