@@ -1,0 +1,23 @@
+<details class="pane" id="note-introduction-panel" open>
+ <summary>ノート紹介 <span id="note-introduction-badge">接続待ち</span></summary>
+ <p class="metadata">VCチャットに許可インスタンスのノートURLを貼ると、映像に1件表示します。次のURLで差し替えます。</p>
+ <p id="note-introduction-status" class="metadata" role="status">ENTAKUとの接続待ちです。</p>
+ <article id="note-introduction-current" hidden aria-label="現在紹介しているノート">
+  <a id="note-introduction-link" target="_blank" rel="noopener noreferrer"></a>
+  <p id="note-introduction-body"></p>
+  <p id="note-introduction-source" class="metadata"></p>
+ </article>
+ <p id="note-introduction-pending" class="metadata" hidden>取得中: <a id="note-introduction-pending-link" target="_blank" rel="noopener noreferrer"></a></p>
+ <button id="note-introduction-dismiss" type="button" disabled>紹介を取り下げる</button>
+ <details id="note-introduction-settings">
+  <summary>設定ファイル</summary>
+  <dl><div><dt>自動紹介</dt><dd id="note-introduction-enabled">接続待ち</dd></div><div><dt>公開範囲</dt><dd id="note-introduction-scope">—</dd></div></dl>
+  <p class="metadata">許可インスタンス</p>
+  <ul id="note-introduction-instances" aria-label="ノート紹介を許可するインスタンス"></ul>
+  <p id="note-introduction-instances-empty" class="metadata">設定を読み込みます。</p>
+  <div class="controls"><button id="note-introduction-import" type="button" disabled>JSONを読み込む</button><button id="note-introduction-export" type="button" disabled>JSONを書き出す</button></div>
+  <input id="note-introduction-file" type="file" accept=".json,application/json" hidden aria-label="ノート紹介の設定JSON">
+  <p class="metadata">許可先や有効・無効はJSONファイルで変更します。読み込んだ設定はこの環境に保存されます。上限32 KiB。</p>
+ </details>
+ <p id="note-introduction-feedback" class="metadata" role="status"></p>
+</details>

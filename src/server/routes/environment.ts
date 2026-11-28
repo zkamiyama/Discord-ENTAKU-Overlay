@@ -64,6 +64,7 @@ export function environmentRoutes(context:RouteContext):HttpRoute {
      const result=await environment.import(bytes,input),current=settings.misskey().settings;
      // Live feeds are reconfigured only after assets, runtime and SQLite commit.
      misskey.configure(current);misskeyStream?.configure(current);
+     context.noteIntroduction.configure(settings.noteIntroduction().settings);
      context.options.onChange?.();context.broadcast();return json(result);
     }catch(error){return failure(error);}
    },request.signal);

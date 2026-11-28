@@ -8,6 +8,8 @@ import type {SettingsData,SettingsStore} from '../storage/settings-store.ts';
 import {presetPreferences} from '../storage/settings-schema.ts';
 import {validateMisskeySettings} from '../misskey/settings.ts';
 import type {MisskeySettings} from '../contracts/misskey.ts';
+import type {NoteIntroductionSettings} from '../contracts/note-introduction.ts';
+import {validateNoteIntroductionSettings} from '../note-introduction/settings.ts';
 
 /** Await asset validation, then plan and durably commit in one synchronous
  * domain transaction. Failed writes never require compensating filesystem I/O. */
@@ -40,6 +42,15 @@ export class SettingsService {
     if(generation!==before.generation)throw new Error('SETTINGS_CONFLICT');
     this.settings.commit({...before,misskey:clean});
     return this.misskey();
+  }
+  noteIntroduction():{generation:number;settings:NoteIntroductionSettings}{
+    const current=this.settings.snapshot();return {generation:current.generation,settings:current.noteIntroduction};
+  }
+  setNoteIntroduction(input:unknown,generation:number):{generation:number;settings:NoteIntroductionSettings}{
+    const clean=validateNoteIntroductionSettings(input),before=this.settings.snapshot();
+    if(generation!==before.generation)throw new Error('SETTINGS_CONFLICT');
+    this.settings.commit({...before,noteIntroduction:clean});
+    return this.noteIntroduction();
   }
   async scene(input:unknown,revision:number):Promise<void>{
     const check=this.guard(revision),clean=await this.studios.validateDraft(input);

@@ -5,6 +5,13 @@ export interface VcChatMessage {
   content: string; timestamp: string; editedTimestamp: string | null;
   attachmentCount: number; truncated: boolean;
 }
+/** Live dispatches only; history hydration never starts an introduction. An
+ * unretained partial edit can invalidate an already tracked source message. */
+export type ChatChange=
+  | {type:'create'|'update';message:VcChatMessage;previous?:VcChatMessage}
+  | {type:'delete';messageId:string;channelId:string}
+  | {type:'invalidate';messageId:string;channelId:string;content?:string}
+  | {type:'reset'};
 export interface VcChatState {
   revision: number; status: VcChatStatus; channelId: string | null; channelName: string | null;
   errorCode: string | null; rpcCode: number | null;

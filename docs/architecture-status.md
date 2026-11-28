@@ -1,8 +1,8 @@
 # アーキテクチャの現状
 
-対象はブランチ`feat/portable-scene-packages`。[PR #7](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/pull/7)の`38b0aed`から分岐し、現在の設定と素材を1つのZIPで移す環境パッケージを追加した。この文書と同じコミットの実装を説明する。mainと配布済みの実行ファイルへの反映は、PRとリリースの状態で確認する。
+対象はブランチ`feat/vc-note-introduction`。環境パッケージを含むコミット`64a91a6`から分岐し、VCチャットのURLからノートを紹介するカードを追加した。この文書と同じコミットの実装を説明する。mainと配布済みの実行ファイルへの反映は、PRとリリースの状態で確認する。
 
-最新HEADの検証結果は[対象ブランチのCI](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/actions?query=branch%3Afeat%2Fportable-scene-packages)を参照する。過去の合格を新しいHEADへ流用しない。[2026-11-27の引き継ぎ](handoff-2026-11-27.md)はa160eac／67bac9e時点の記録として保持する。
+最新HEADの検証結果は[対象ブランチのCI](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/actions?query=branch%3Afeat%2Fvc-note-introduction)を参照する。過去の合格を新しいHEADへ流用しない。[2026-11-27の引き継ぎ](handoff-2026-11-27.md)はa160eac／67bac9e時点の記録として保持する。
 
 ## 構成
 
@@ -10,6 +10,7 @@
 |---|---|---|
 | 通話入力とドメイン | Discord provider、AppEngine | 参加者、発話、席、カメラ計画を更新する。席のない退出者の履歴を解放する |
 | 公開ノート | MisskeyStream、MisskeyFeed | 匿名hashtag購読、有限の補完、審査、表示30件＋待機60件、削除と期限を扱う。通話状態や録画へ本文を入れない |
+| ノート紹介 | VcChatFeed、NoteIntroductionFeed | チャットの新しいURLから公開ノートを取得し、表示1件と最新の取得待ち1件を管理する。Dockで終了する |
 | 設定操作 | WorkQueue、SettingsService | 受付数と要求の寿命を管理し、素材検証後に状態変更と保存を実行する |
 | 環境の共有 | EnvironmentService、environment/package | 現在の設定と素材をZIPで移す。確認後の競合を検査し、保存時の出演者は独立したプレビューへ渡す |
 | 保存 | SettingsStore、SessionWriter | SQLiteへ設定と現在の座席を同時に保存する。通常の座席保存はチャンネルごとの最新変更へまとめる |
@@ -35,6 +36,8 @@ Misskeyはsocketのopenと購読ACKを区別し、切断時に表示と待機を
 
 Misskeyカードは共有PlaneGeometryを使い、各ビューの画面と平行に表示する。XYZの装飾回転とカードごとの位置へのlookAtを除き、画面端でも文字と辺を水平・垂直に揃える。SPLITの左右やカメラアニメーションで前のビューの姿勢を流用しない。反復判定は長い歓声・笑いを許可し、長さ・文字の種類・回数・全文に占める割合が条件を満たすフレーズの連続反復を除外する。
 
+VCチャットのURLによる紹介は独立したDOMカードで、画面幅80%・高さ最大50%へ全文を収める。カメラやSPLITの描画先に依存せず、切り替え時に下から入退場する。設定JSONの許可先と公開範囲を確認し、遅い旧応答で表示を上書きしない。紹介元の削除ではその投稿に対応するカードと取得待ちを取り下げる。切断や手動の取り下げでは待機処理も取り消す。[利用手順](note-introduction.md)と[ADR 0033](adr/0033-vc-note-introduction.md)を参照する。
+
 ## データの移行
 
 現在の環境を他のPCへ渡す場合は[環境パッケージ](environment-package.md)を使う。設定に加え、参照中の画像・StudioBundle・GaussianAssetと保存時の人物情報をZIPにまとめる。Discordの保存アイコンは独立したプレビューにだけ使用し、ライブ側は現在のDiscord画像を使う。素材を検査・公開してから設定を確定するため、失敗や確認後の競合で現設定を部分的に置き換えない。[ADR 0032](adr/0032-portable-environment-packages.md)に詳細を記録した。
@@ -53,6 +56,7 @@ Misskeyカードは共有PlaneGeometryを使い、各ビューの画面と平行
 | 環境パッケージ | 空環境への素材と設定の復元、元ID・相対参照、ZIP破損・展開量・欠損、SQL失敗と確認後の競合、再起動後の再配布、ライブと保存プレビューの分離、Discordアイコン更新・削除 |
 | 通信 | 不正な全状態・差分、連番の欠落、旧接続の遅延イベント、編集要求の取り消し、受付上限、停止処理 |
 | Misskey | 範囲・MFM・重複・歓声とフレーズ反復・投稿者上限・期限、再接続と429、補完cursor、遅延応答、削除と反復過負荷、実Overlayの30枚とSPLIT、画面端の辺の水平・垂直、カメラ移動・roll・左右描画順・非一様scale、3DGS人物との描画順序 |
+| ノート紹介 | URL許可先、匿名公開範囲、全文と寸法、遅延応答、取り下げと古いrevision、独立購読、JSON設定、保存失敗、再起動、環境パッケージとの往復 |
 | 資源と非同期処理 | 最後の参照解放、古い候補の取り消し、遅れた成功・失敗、worker異常・タイムアウト、描画状態の復元 |
 | 長時間のドメイン更新 | 16話者、仮想2時間の更新。有限のカメラ値、席予約、診断履歴の上限 |
 | ブラウザ描画 | 初期状態待機、GLB発話停止、Gaussianの発話・遮蔽・複数話者、分割の逆向き視点、CUT、リサイズ、描画予算、ポストエフェクト |
@@ -60,7 +64,7 @@ Misskeyカードは共有PlaneGeometryを使い、各ビューの画面と平行
 
 保存までを反映したae208c2の[CI](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/actions/runs/46028554489)はLinux／Windowsそれぞれ393テスト、実行ファイルのビルド、SQLite保存・再起動のsmokeに成功した。Windowsの配布ZIP検証も成功した。この記録より後のGaussian変更を含む結果は、同じHEADのChecksで確認する。
 
-この作業環境はAF_UNIXを作成できず、ローカルのIPC模擬試験12件がソケット作成時点で失敗した。Linux／WindowsのCIでは同じ試験が成功している。環境制約のためのskipやテスト上限の緩和は追加していない。
+この変更のローカル`bun run check`は型検査を通過し、541件成功・12件失敗だった。失敗した12件は既存のIPC模擬試験で、この作業環境ではAF_UNIXのlistenが許可されず、ソケット作成時点で停止した。全体検査の成功とは扱わない。前記のLinux／Windows CIでは同じ試験が成功しているが、今回の検証結果とは区別する。環境制約のためのskipやテスト上限の緩和は追加していない。
 
 実GPU、実際のDiscordデスクトップアプリ、WindowsのOBS/CEF、長時間の実配信は未検証。仮想時間の試験は実時間でのGPU資源やOBSの出力fpsの測定ではない。
 

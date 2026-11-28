@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "instances": ["https://otomad.site"],
+  "includeHome": false
+}

@@ -14,9 +14,10 @@ export const DEFAULT_BLOCKED_PHRASES:readonly string[]=Object.freeze([
 const segmenter=new Intl.Segmenter('ja',{granularity:'grapheme'});
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 export const validMisskeyId=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(v);
-const cleanDisplay=(text:string):string=>text.replace(/\r\n?/g,'\n')
-  .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g,'')
-  .replace(/\t/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+const cleanDisplay=(text:string,preserveWhitespace=false):string=>{
+  const safe=text.replace(/\r\n?/g,'\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g,'');
+  return preserveWhitespace?safe:safe.replace(/\t/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+};
 
 export function normalizeModerationText(text:string):string {
   return text.normalize('NFKC').toLowerCase().replace(/[\p{P}\p{Z}\p{Cf}\p{Cc}]/gu,'');
@@ -25,7 +26,7 @@ export function normalizeModerationText(text:string):string {
 interface StaticMfm {text:string;tags:string[]}
 /** Formatting and animation are interpreted only as text. No HTML, images,
  * custom emoji downloads, links, or MFM evaluation are created. */
-function staticMfm(input:string):StaticMfm {
+function staticMfm(input:string,preserveWhitespace=false):StaticMfm {
   const tree=parse(input,{nestLimit:8}),stack:Array<MfmNode|string>=[...tree].reverse();
   const out:string[]=[],tags:string[]=[];let visited=0,units=0;
   const append=(text:string)=>{units+=text.length;if(units>MISSKEY_MAX_INPUT_UNITS+1024)throw Error('MFM_TOO_LARGE');out.push(text);};
@@ -52,11 +53,11 @@ function staticMfm(input:string):StaticMfm {
       }
     }
   }
-  return {text:cleanDisplay(out.join('')),tags};
+  return {text:cleanDisplay(out.join(''),preserveWhitespace),tags};
 }
-export function staticMfmText(input:string):string {
+export function staticMfmText(input:string,options:{preserveWhitespace?:boolean}={}):string {
   if(input.length>MISSKEY_MAX_INPUT_UNITS)throw Error('MFM_TOO_LARGE');
-  return staticMfm(input).text;
+  return staticMfm(input,options.preserveWhitespace).text;
 }
 
 /** Count visible grapheme clusters, preserving emoji sequences and combining

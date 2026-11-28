@@ -3,6 +3,8 @@ import {StateReceiver} from '../../contracts/state-stream.ts';
 import type {Command} from '../../contracts/commands.ts';
 import type {VcChatState} from '../../contracts/vc-chat.ts';
 import {parseMisskeyState,type MisskeyState,type MisskeySettings} from '../../contracts/misskey.ts';
+import {parseNoteIntroductionState,type NoteIntroductionState,type NoteIntroductionSettings} from '../../contracts/note-introduction.ts';
+import {validateNoteIntroductionSettings} from '../../note-introduction/settings.ts';
 import type { StudioBundle } from '../../studio/store.ts';
 import type { StoredImage } from '../../assets/store.ts';
 import type {StoredGaussianAsset} from '../../assets/gaussian-store.ts';
@@ -22,6 +24,10 @@ export class StudioClient {
   onMisskey:(state:MisskeyState|null)=>void=()=>{};
   private wantsMisskey=false;
   watchMisskey():void{if(this.environmentPreview)return;this.wantsMisskey=true;if(this.greeted)this.send({type:'misskey-subscribe'});}
+  noteIntroduction:NoteIntroductionState|null=null;
+  onNoteIntroduction:(state:NoteIntroductionState|null)=>void=()=>{};
+  private wantsNoteIntroduction=false;
+  watchNoteIntroduction():void{if(this.environmentPreview)return;this.wantsNoteIntroduction=true;if(this.greeted)this.send({type:'note-introduction-subscribe'});}
   private socket: WebSocket | null = null;
   private lifetime:AbortController|null=null;
   private greeted=false;
@@ -61,6 +67,7 @@ export class StudioClient {
     if(previous)previous.onmessage=previous.onclose=previous.onerror=null;
     this.onChat(null);
     this.misskey=null;this.onMisskey(null);
+    this.noteIntroduction=null;this.onNoteIntroduction(null);
     return previous;
   }
   disconnect(): void {
@@ -108,7 +115,7 @@ export class StudioClient {
         if (message.type === 'hello') {
           if(this.greeted)return;
           this.greeted=true;this.bestRtt=Infinity;this.lastMessage=performance.now();
-          this.onConnection('状態を同期中');this.ping();if(this.wantsChat)this.watchChat();if(this.wantsMisskey)this.watchMisskey();
+          this.onConnection('状態を同期中');this.ping();if(this.wantsChat)this.watchChat();if(this.wantsMisskey)this.watchMisskey();if(this.wantsNoteIntroduction)this.watchNoteIntroduction();
           if(this.socket!==socket)return;
           this.pingTimer=setInterval(()=>this.ping(),5000);
         } else if (!this.greeted)return;
@@ -134,6 +141,8 @@ export class StudioClient {
           if(!state){this.misskey=null;this.onMisskey(null);return;}
           if(this.misskey&&state.revision<this.misskey.revision)return;
           this.misskey=state;this.onMisskey(state);
+        } else if(message.type==='note-introduction'&&this.wantsNoteIntroduction){
+          this.acceptNoteIntroduction(message.state);
         } else if (message.type === 'pong') {
           if(message.clientTime!==this.pingSentAt||typeof message.clientTime!=='number'||typeof message.serverTime!=='number'||!Number.isFinite(message.serverTime))return;
           const time=performance.now(),rtt=time-message.clientTime;this.pingSentAt=undefined;
@@ -189,6 +198,43 @@ export class StudioClient {
     const result=await response.json();
     if(lifetime!==this.lifetime||lifetime.signal.aborted)throw commandConnectionChanged();
     if(!response.ok)throw new Error(result.error??'MISSKEY_REQUEST_FAILED');
+    return result;
+  }
+  private acceptNoteIntroduction(value:unknown):NoteIntroductionState|null {
+    const state=parseNoteIntroductionState(value);
+    if(!state){this.noteIntroduction=null;this.onNoteIntroduction(null);return null;}
+    if(this.noteIntroduction&&state.revision<this.noteIntroduction.revision)return state;
+    this.noteIntroduction=state;this.onNoteIntroduction(state);return state;
+  }
+  async noteIntroductionSettings():Promise<{generation:number;settings:NoteIntroductionSettings}>{
+    return this.noteIntroductionSettingsResponse(await this.noteIntroductionRequest('/api/note-introduction/settings'));
+  }
+  async setNoteIntroductionSettings(settings:NoteIntroductionSettings,generation:number):Promise<{generation:number;settings:NoteIntroductionSettings}>{
+    return this.noteIntroductionSettingsResponse(await this.noteIntroductionRequest('/api/note-introduction/settings',{settings,generation}));
+  }
+  private noteIntroductionSettingsResponse(value:unknown):{generation:number;settings:NoteIntroductionSettings}{
+    if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('NOTE_INTRODUCTION_SETTINGS_INVALID');
+    const result=value as {generation:number;settings:unknown};
+    if(!Number.isSafeInteger(result.generation)||result.generation<0)throw new Error('NOTE_INTRODUCTION_SETTINGS_INVALID');
+    return {generation:result.generation,settings:validateNoteIntroductionSettings(result.settings)};
+  }
+  async dismissNoteIntroduction(revision:number):Promise<void>{
+    const result=await this.noteIntroductionRequest('/api/note-introduction/control',{action:'dismiss',revision}) as {state?:unknown};
+    if(!this.acceptNoteIntroduction(result?.state))throw new Error('NOTE_INTRODUCTION_STATE_INVALID');
+  }
+  private async noteIntroductionRequest(url:string,body?:unknown):Promise<unknown>{
+    if(body!==undefined)this.assertEditable();
+    if(!this.connected||!this.state||!this.stream.ready||!this.lifetime)throw new Error('サーバーとの接続を確認してください');
+    const lifetime=this.lifetime;
+    const response=await fetch(url,{...(body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),signal:lifetime.signal});
+    const result=await response.json().catch(()=>({error:'NOTE_INTRODUCTION_REQUEST_FAILED'}));
+    if(lifetime!==this.lifetime||lifetime.signal.aborted)throw commandConnectionChanged();
+    if(!response.ok){
+      // A newer link may have arrived while the operator clicked dismiss. Keep
+      // it on air, then request its current state through the same subscription.
+      if(response.status===409&&url.endsWith('/control'))this.watchNoteIntroduction();
+      throw new Error(result?.error??'NOTE_INTRODUCTION_REQUEST_FAILED');
+    }
     return result;
   }
   async localFetch(url:string,init:RequestInit={}):Promise<Response>{

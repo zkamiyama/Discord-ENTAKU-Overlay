@@ -1,6 +1,6 @@
 import {expect,test} from 'bun:test';
 import {VcChatFeed} from '../../src/chat/vc-chat-feed.ts';
-import {CHAT_BYTE_LIMIT} from '../../src/contracts/vc-chat.ts';
+import {CHAT_BYTE_LIMIT,type ChatChange} from '../../src/contracts/vc-chat.ts';
 import {DiscordError} from '../../src/discord/errors.ts';
 const selected={id:'200',name:'Test VC',type:2};
 const message=(id='1',content='synthetic',channel_id='200')=>({id,channel_id,author:{id:'42',username:'Synthetic author'},content,timestamp:new Date(1700000000000+Number(id)).toISOString()});
@@ -77,4 +77,37 @@ test('startup cutoff rejects earlier history and edits, remains fixed across rec
  feed.disconnect();await feed.start(f.rpc,selected,{...selected,messages:[message('9'),message('11')]});expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['11']);
  await feed.start(f.rpc,{...selected,id:'201'},{...selected,id:'201',messages:[message('9','old','201'),message('12','new VC','201')]});expect(feed.snapshot().messages.map(m=>m.id)).toEqual(['12']);
  feed.disconnect();
+});
+
+test('change observers receive live normalized create/update/delete/reset only, with detached previous values',async()=>{
+ const f=setup(),changes:ChatChange[]=[];f.feed.observeChanges(()=>{throw Error('listener failure');});
+ f.feed.observeChanges(change=>{if(change.type==='create')change.message.content='listener mutation';});
+ const off=f.feed.observeChanges(change=>changes.push(change));
+ await f.feed.start(f.rpc,selected,{...selected,messages:[message('1','history URL')]});
+ expect(changes).toEqual([{type:'reset'}]);f.feed.mergeHistory({...selected,messages:[message('2','another history URL')]});expect(changes).toHaveLength(1);
+ f.send('MESSAGE_CREATE',message('3','live URL'));f.send('MESSAGE_CREATE',message('3','duplicate'));f.send('MESSAGE_UPDATE',{id:'3',content:'live URL'});
+ expect(changes).toHaveLength(2);expect(changes[1]).toMatchObject({type:'create',message:{id:'3',content:'live URL'}});
+ f.send('MESSAGE_UPDATE',{id:'3',content:'edited URL'});expect(changes.at(-1)).toMatchObject({type:'update',message:{id:'3',content:'edited URL'},previous:{id:'3',content:'live URL'}});
+ expect(f.feed.snapshot().messages.at(-1)?.content).toBe('edited URL');
+ f.send('MESSAGE_DELETE',{id:'3'});expect(changes.at(-1)).toEqual({type:'delete',messageId:'3',channelId:'200'});
+ f.feed.disconnect();expect(changes.at(-1)).toEqual({type:'reset'});const count=changes.length;off();f.feed.disconnect();expect(changes).toHaveLength(count);
+});
+
+test('delete and blocked dispatches invalidate source IDs even after their chat rows have been evicted',async()=>{
+ const f=setup();await f.feed.start(f.rpc,selected);const changes:ChatChange[]=[];f.feed.observeChanges(change=>changes.push(change));
+ for(let i=1;i<=102;i++)f.send('MESSAGE_CREATE',message(String(i)));
+ expect(f.feed.snapshot().messages.some(m=>m.id==='1')).toBe(false);
+ f.send('MESSAGE_DELETE',{id:'1'});expect(changes.at(-1)).toEqual({type:'delete',messageId:'1',channelId:'200'});
+ f.send('MESSAGE_UPDATE',{id:'2',blocked:true});expect(changes.at(-1)).toEqual({type:'delete',messageId:'2',channelId:'200'});
+ f.send('MESSAGE_DELETE',{id:'999'});expect(changes.at(-1)).toEqual({type:'delete',messageId:'999',channelId:'200'});
+ const count=changes.length;f.send('MESSAGE_UPDATE',message('1','late URL'));f.send('MESSAGE_DELETE',{id:'999'});expect(changes).toHaveLength(count);f.feed.disconnect();
+});
+
+test('partial unretained content edits emit only invalidation and prevent stale history from reinstalling their old text',async()=>{
+ const f=setup();await f.feed.start(f.rpc,selected);const changes:ChatChange[]=[];f.feed.observeChanges(change=>changes.push(change));
+ f.send('MESSAGE_UPDATE',{id:'3',content:'new\u202e URL'});expect(changes).toEqual([{type:'invalidate',messageId:'3',channelId:'200',content:'new URL'}]);
+ expect(f.feed.snapshot().messages).toHaveLength(0);f.feed.mergeHistory({...selected,messages:[message('3','old URL')]});expect(f.feed.snapshot().messages).toHaveLength(0);
+ f.send('MESSAGE_UPDATE',{id:'4',content:null});expect(changes.at(-1)).toEqual({type:'invalidate',messageId:'4',channelId:'200'});
+ const count=changes.length;f.send('MESSAGE_UPDATE',{id:'5',edited_timestamp:new Date().toISOString()});f.send('MESSAGE_UPDATE',{id:'3',content:'wrong channel'},'201');
+ expect(changes).toHaveLength(count);f.feed.disconnect();
 });

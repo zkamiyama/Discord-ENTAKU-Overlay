@@ -4,8 +4,10 @@ import {FrameMetrics,GpuFrameSampler} from './frame-metrics.ts';
 import {OverlayScene} from './scene.ts';
 import {StudioClient} from '../shared/client.ts';
 import type {GaussianRuntime} from '../gaussian/runtime.ts';
+import {NoteIntroductionOverlay} from './note-introduction.ts';
 
 const client=new StudioClient();
+const noteIntroduction=new NoteIntroductionOverlay(document.querySelector<HTMLElement>('#note-introduction-layer')!);
 const canvas=document.querySelector<HTMLCanvasElement>('#scene')!;
 // World MSAA and final FXAA belong to QualityRenderer. Spark's alpha-blended
 // splats do not benefit from multisampling the default framebuffer as well.
@@ -17,6 +19,7 @@ const program=new ProgramRenderer(renderer,world.scene,world.stage,world.camera,
 (window as unknown as {entakuGaussianDiagnostics:()=>ReturnType<GaussianRuntime['diagnostics']>}).entakuGaussianDiagnostics=()=>world.gaussian.diagnostics();
 client.onState=next=>world.apply(next);
 client.onMisskey=state=>world.setMisskey(state);client.watchMisskey();
+client.onNoteIntroduction=state=>noteIntroduction.update(state);client.watchNoteIntroduction();
 
 let contextLost=false,disposed=false,frameId=0;
 canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;});
@@ -73,5 +76,5 @@ function frame(time:number):void{
 frameId=requestAnimationFrame(frame);client.connect();
 window.addEventListener('pagehide',()=>{
  disposed=true;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);client.disconnect();
- gpu.dispose();program.dispose();world.dispose();renderer.dispose();renderer.forceContextLoss();
+ noteIntroduction.dispose();gpu.dispose();program.dispose();world.dispose();renderer.dispose();renderer.forceContextLoss();
 },{once:true});

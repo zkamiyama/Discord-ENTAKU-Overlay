@@ -8,6 +8,7 @@ import {StudioStore} from '../studio/store.ts';
 import {safeStudioPath} from '../studio/manifest.ts';
 import {validatePreset} from '../presets/schema.ts';
 import {validateMisskeySettings} from '../misskey/settings.ts';
+import {validateNoteIntroductionSettings} from '../note-introduction/settings.ts';
 import {environmentHash,packEnvironmentArchive,unpackEnvironmentArchive} from './archive.ts';
 import {ENVIRONMENT_LIMITS as limits,validateEnvironmentPeople,type EnvironmentConfiguration,type EnvironmentFileReference,type EnvironmentPackageManifest,type EnvironmentPackageSummary} from './types.ts';
 
@@ -24,7 +25,8 @@ function configuration(value:unknown):EnvironmentConfiguration {
   const v=value as EnvironmentConfiguration;
   if(!v||typeof v!=='object'||typeof v.appVersion!=='string'||!v.appVersion||v.appVersion.length>128||/[\x00-\x1f\x7f]/.test(v.appVersion)||
     typeof v.createdAt!=='string'||v.createdAt.length>40||!Number.isFinite(Date.parse(v.createdAt)))return fail();
-  return {appVersion:v.appVersion,createdAt:v.createdAt,preset:validatePreset(v.preset),misskey:validateMisskeySettings(v.misskey),people:validateEnvironmentPeople(v.people)};
+  return {appVersion:v.appVersion,createdAt:v.createdAt,preset:validatePreset(v.preset),misskey:validateMisskeySettings(v.misskey),people:validateEnvironmentPeople(v.people),
+    ...(v.noteIntroduction===undefined?{}:{noteIntroduction:validateNoteIntroductionSettings(v.noteIntroduction)})};
 }
 function references(value:EnvironmentConfiguration) {
   const images=new Set<string>(),studios=new Set<string>(),gaussians=new Set<string>();
@@ -50,7 +52,7 @@ function fileReferences(value:unknown,maximum:number,safePath:(path:string)=>str
   }).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
 }
 function manifest(value:unknown):EnvironmentPackageManifest {
-  const v=shape(value,['schemaVersion','kind','appVersion','createdAt','preset','misskey','people','images','studios','gaussians','blobs']);
+  const v=shape(value,['schemaVersion','kind','appVersion','createdAt','preset','misskey','people','noteIntroduction','images','studios','gaussians','blobs']);
   if(v.schemaVersion!==1||v.kind!=='entaku-environment')return fail();
   const config=configuration(value),required=references(config);
   if(!Array.isArray(v.images)||v.images.length>256||v.images.some(id=>!validHash(id))||
@@ -137,7 +139,7 @@ async function validateDetached(content:EnvironmentContent):Promise<void> {
 /** Collect only active references, keeping each bundle's original paths and
  * immutable Gaussian manifest. Per-person calibration stays in the preset. */
 export async function collectEnvironmentPackage(input:EnvironmentConfiguration,stores:EnvironmentStores,extraImages:ReadonlyMap<string,Uint8Array>=new Map()):Promise<EnvironmentContent> {
-  shape(input,['appVersion','createdAt','preset','misskey','people']);
+  shape(input,['appVersion','createdAt','preset','misskey','people','noteIntroduction']);
   const config=configuration(input),required=references(config),blobs=new Map<string,Uint8Array>();
   if(required.images.size>256||required.studios.size>32||required.gaussians.size>128)return fail('FILE_LIMIT');
   if([...extraImages.keys()].some(id=>!required.images.has(id)))return fail('REFERENCE_MISMATCH');
