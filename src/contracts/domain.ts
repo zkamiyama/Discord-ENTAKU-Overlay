@@ -8,7 +8,7 @@ export type ConnectionStatus = 'disconnected' | 'discovering' | 'authorizing' | 
 export type Vec3 = readonly [number, number, number];
 export interface Participant {
   userId: string; channelId: string; username: string; displayName: string;
-  avatarUrl?: string; nick?: string; globalName?: string;
+  avatarUrl?: string; iconAssetId?: string; nick?: string; globalName?: string;
   presence: Presence; speaking: SpeakingState;
   voice: { selfMute: boolean; selfDeaf: boolean; serverMute: boolean; serverDeaf: boolean };
 }

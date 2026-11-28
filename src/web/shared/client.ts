@@ -8,18 +8,20 @@ import type { StoredImage } from '../../assets/store.ts';
 import type {StoredGaussianAsset} from '../../assets/gaussian-store.ts';
 import type {GaussianAvatarManifest} from '../../assets/gaussian-profile.ts';
 import type { AppSnapshot } from '../../contracts/domain.ts';
+import {ENVIRONMENT_LIMITS,type EnvironmentStatus,type EnvironmentInspection,type EnvironmentImportResult,type EnvironmentExportRequest,type EnvironmentImportRequest} from '../../environment/types.ts';
 const commandConnectionChanged=()=>new Error('接続が切り替わりました。操作結果は再同期後の状態で確認してください');
 export class StudioClient {
+  readonly environmentPreview=typeof location!=='undefined'&&new URLSearchParams(location.search).get('environment')==='preview';
   state: AppSnapshot | null = null;
   connected = false;
   chat:VcChatState|null=null;
   onChat:(state:VcChatState|null)=>void=()=>{};
   private wantsChat=false;
-  watchChat():void{this.wantsChat=true;if(this.greeted)this.send({type:'vc-chat-subscribe'});}
+  watchChat():void{if(this.environmentPreview)return;this.wantsChat=true;if(this.greeted)this.send({type:'vc-chat-subscribe'});}
   misskey:MisskeyState|null=null;
   onMisskey:(state:MisskeyState|null)=>void=()=>{};
   private wantsMisskey=false;
-  watchMisskey():void{this.wantsMisskey=true;if(this.greeted)this.send({type:'misskey-subscribe'});}
+  watchMisskey():void{if(this.environmentPreview)return;this.wantsMisskey=true;if(this.greeted)this.send({type:'misskey-subscribe'});}
   private socket: WebSocket | null = null;
   private lifetime:AbortController|null=null;
   private greeted=false;
@@ -38,7 +40,11 @@ export class StudioClient {
   onConnection: (status: string) => void = () => {};
   constructor(
     private readonly createSocket: (url: string) => WebSocket = url => new WebSocket(url),
-    private readonly socketUrl: () => string = () => `ws://${location.host}/ws`,
+    private readonly socketUrl: () => string = () => {
+      const url=new URL('/ws',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';
+      if(this.environmentPreview)url.searchParams.set('environment','preview');
+      return url.href;
+    },
     private readonly retryMs = 2000,
     private readonly staleMs = 10_000,
   ) {}
@@ -147,6 +153,7 @@ export class StudioClient {
     await this.requestCommand(command,expectedRevision);
   }
   async requestCommand(command: Command, expectedRevision = this.state?.revision): Promise<Record<string,unknown>> {
+    this.assertEditable();
     if (!this.connected||!this.state||!this.stream.ready||!this.lifetime) throw new Error('サーバーとの接続を確認してください');
     const lifetime=this.lifetime;
     const response = await fetch('/api/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -175,6 +182,7 @@ export class StudioClient {
     await this.misskeyRequest('/api/misskey/control',action==='pause'?{action,paused}:{action});
   }
   private async misskeyRequest(url:string,body:unknown):Promise<unknown>{
+    this.assertEditable();
     if(!this.connected||!this.lifetime)throw new Error('サーバーとの接続を確認してください');
     const lifetime=this.lifetime;
     const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:lifetime.signal});
@@ -188,7 +196,36 @@ export class StudioClient {
     if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error??'REQUEST_FAILED');}
     return response;
   }
+  async environmentStatus(signal?:AbortSignal):Promise<EnvironmentStatus>{
+    return this.environmentRequest('/api/environment',{signal},response=>response.json());
+  }
+  async exportEnvironment(request:EnvironmentExportRequest,signal?:AbortSignal):Promise<Blob>{
+    return this.environmentRequest('/api/environment/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request),signal},response=>response.blob());
+  }
+  async inspectEnvironment(file:File,signal?:AbortSignal):Promise<EnvironmentInspection>{
+    if(file.size>ENVIRONMENT_LIMITS.archiveBytes)throw new Error('ENVIRONMENT_ARCHIVE_TOO_LARGE');
+    const form=new FormData();form.set('archive',file,file.name);
+    return this.environmentRequest('/api/environment/inspect',{method:'POST',body:form,signal},response=>response.json());
+  }
+  async importEnvironment(file:File,request:EnvironmentImportRequest,signal?:AbortSignal):Promise<EnvironmentImportResult>{
+    if(file.size>ENVIRONMENT_LIMITS.archiveBytes)throw new Error('ENVIRONMENT_ARCHIVE_TOO_LARGE');
+    const form=new FormData();form.set('archive',file,file.name);
+    form.set('sha256',request.sha256);form.set('expectedRevision',String(request.expectedRevision));form.set('expectedGeneration',String(request.expectedGeneration));
+    return this.environmentRequest('/api/environment/import',{method:'POST',body:form,signal},response=>response.json());
+  }
+  private async environmentRequest<T>(url:string,init:RequestInit,read:(response:Response)=>Promise<T>):Promise<T>{
+    if(init.method&&init.method!=='GET')this.assertEditable();
+    if(!this.connected||!this.state||!this.stream.ready||!this.lifetime)throw new Error('サーバーとの接続を確認してください');
+    const lifetime=this.lifetime,signal=init.signal?AbortSignal.any([lifetime.signal,init.signal]):lifetime.signal;
+    const response=await fetch(url,{...init,signal});
+    const result=response.ok?await read(response):await response.json().catch(()=>({error:'ENVIRONMENT_REQUEST_FAILED'}));
+    if(lifetime!==this.lifetime||lifetime.signal.aborted)throw commandConnectionChanged();
+    signal.throwIfAborted();
+    if(!response.ok)throw new Error((result as {error?:string}).error??'ENVIRONMENT_REQUEST_FAILED');
+    return result as T;
+  }
   async importStudio(files:readonly File[],entry?:string):Promise<StudioBundle>{
+    this.assertEditable();
     const form=new FormData();
     if(entry)form.set('entry',entry);
     if(files.length===1&&/\.zip$/i.test(files[0]!.name))form.set('archive',files[0]!);
@@ -196,6 +233,7 @@ export class StudioClient {
     return (await this.localFetch('/api/studio/import',{method:'POST',body:form})).json();
   }
   async importImage(file: Blob): Promise<StoredImage> {
+    this.assertEditable();
     const response=await fetch('/api/assets',{method:'POST',headers:{'Content-Type':file.type},body:file});
     const value=await response.json();if(!response.ok)throw new Error(value.error??'ASSET_IMPORT_FAILED');return value as StoredImage;
   }
@@ -206,6 +244,7 @@ export class StudioClient {
     return (await this.localFetch(`/api/gaussian-assets/${encodeURIComponent(assetId)}`)).json();
   }
   async importGaussian(file:File,proxy?:File,preview?:File):Promise<StoredGaussianAsset> {
+    this.assertEditable();
     const form=new FormData();
     form.set(/\.zip$/i.test(file.name)?'archive':'splat',file,file.name);
     if(proxy)form.set('proxy',proxy,proxy.name);
@@ -222,8 +261,9 @@ export class StudioClient {
     if(!response.ok)throw new Error('ASSET_NOT_FOUND');
     return this.decodeImage(await response.blob(),signal);
   }
-  async avatar(userId: string,signal?:AbortSignal): Promise<ImageBitmap> {
-    const response = await fetch(`/api/avatars/${encodeURIComponent(userId)}`,{signal});
+  async avatar(userId: string,signal?:AbortSignal,iconAssetId?:string): Promise<ImageBitmap> {
+    const url=iconAssetId?`/api/assets/${encodeURIComponent(iconAssetId)}`:`/api/avatars/${encodeURIComponent(userId)}`;
+    const response = await fetch(url,{signal});
     if (!response.ok) throw new Error('AVATAR_UNAVAILABLE');
     return this.decodeImage(await response.blob(),signal,{imageOrientation:'flipY'});
   }
@@ -233,4 +273,5 @@ export class StudioClient {
     if(signal?.aborted){bitmap.close();signal.throwIfAborted();}
     return bitmap;
   }
+  private assertEditable():void {if(this.environmentPreview)throw new Error('ENVIRONMENT_PREVIEW_READ_ONLY');}
 }

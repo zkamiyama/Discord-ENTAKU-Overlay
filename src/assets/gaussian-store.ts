@@ -5,7 +5,7 @@ import {Unzip,UnzipInflate,unzipSync,zipSync} from 'fflate';
 import {inspectGltfEntry} from '../studio/gltf.ts';
 import {inspectImage} from './image.ts';
 import {GAUSSIAN_LIMITS,safeGaussianPath,validateGaussianManifest,type GaussianAvatarManifest,type GaussianAvatarProfile} from './gaussian-profile.ts';
-import {inspectGaussianSource,type GaussianSourceInfo} from './gaussian-format.ts';
+import {inspectGaussianSourceAsync,type GaussianSourceInfo} from './gaussian-format.ts';
 export interface GaussianFile {path:string;bytes:Uint8Array}
 export interface StoredGaussianAsset {
   schemaVersion:1;assetId:string;manifest:GaussianAvatarManifest;
@@ -76,7 +76,7 @@ export class GaussianStore {
   constructor(private directory:string|null=null){}
   async importZip(bytes:Uint8Array):Promise<StoredGaussianAsset>{return this.importFiles(unpackGaussianZip(bytes));}
   async importRaw(splat:GaussianFile,extras:GaussianFile[]=[],manifest?:unknown):Promise<StoredGaussianAsset>{
-    const source=inspectGaussianSource(splat.bytes,splat.path);
+    const source=await inspectGaussianSourceAsync(splat.bytes,splat.path);
     const draft=manifest??{...defaultGaussianManifest(splat.path,source),...(extras.find(f=>/\.glb$/i.test(f.path))?{proxy:extras.find(f=>/\.glb$/i.test(f.path))!.path}:{}),...(extras.find(f=>/\.png$/i.test(f.path))?{preview:extras.find(f=>/\.png$/i.test(f.path))!.path}:{})};
     return this.importFiles([{path:'manifest.json',bytes:new TextEncoder().encode(JSON.stringify(draft))},splat,...extras]);
   }
@@ -88,7 +88,7 @@ export class GaussianStore {
       if(total>GAUSSIAN_LIMITS.unpackedBytes)throw new Error('GAUSSIAN_ARCHIVE_TOO_LARGE');files.set(path,item.bytes);}
     const rawManifest=files.get('manifest.json');if(!rawManifest)throw new Error('GAUSSIAN_MANIFEST_MISSING');
     let manifest:GaussianAvatarManifest;try{manifest=validateGaussianManifest(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(rawManifest)));}catch(e){throw e instanceof Error&&e.message.startsWith('GAUSSIAN_')?e:new Error('GAUSSIAN_MANIFEST_INVALID');}
-    const source=files.get(manifest.splat);if(!source)throw new Error('GAUSSIAN_REFERENCE_MISSING');const info=inspectGaussianSource(source,manifest.splat);
+    const source=files.get(manifest.splat);if(!source)throw new Error('GAUSSIAN_REFERENCE_MISSING');const info=await inspectGaussianSourceAsync(source,manifest.splat);
     const referenced=new Set(['manifest.json',manifest.splat]);
     if(manifest.proxy){const proxy=files.get(manifest.proxy);if(!proxy)throw new Error('GAUSSIAN_REFERENCE_MISSING');referenced.add(manifest.proxy);
       let doc;try{doc=inspectGltfEntry(proxy,manifest.proxy);}catch{throw new Error('GAUSSIAN_PROXY_INVALID');}

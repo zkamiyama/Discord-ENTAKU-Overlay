@@ -34,6 +34,12 @@ export class PresetPanel {
   if(!this.busy&&this.stateKey!==key){this.stateKey=key;this.select.value=this.name&&!dirty?this.name:'';}
  }
  private remember(signature:string):void {this.dirtyKey='';this.signature=signature;try{localStorage.setItem('entaku-active-preset',JSON.stringify({name:this.name,signature}));}catch{}}
+ resetActive():void {
+  this.name='';this.signature='';this.stateKey='';this.dirtyKey='';this.select.value='';
+  try{localStorage.removeItem('entaku-active-preset');}catch{}
+  get('preset-feedback').textContent='環境パッケージの設定を適用しました。';
+  if(this.client.state)this.update(this.client.state);
+ }
  private async refresh():Promise<void>{
   if(this.listing)return;this.listing=true;
   try{

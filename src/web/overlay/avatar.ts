@@ -43,7 +43,7 @@ export class Avatar {
   get opacity():number{return this.envelope.opacity;}
   get glow():number{return this.envelope.glow;}
   get speechIntensity():number{return this.envelope.intensity;}
-  user:Participant; disposed=false; textureVersion=0; avatarUrl?:string;
+  user:Participant; disposed=false; textureVersion=0; avatarUrl?:string; iconAssetId?:string;
   custom:CustomAvatarVisual|null=null; gaussian:GaussianAvatarVisual|null=null; profile?:AvatarProfile; customVersion=0;
   constructor(private context:AvatarContext,user:Participant,profile?:AvatarProfile){
     this.user=user; this.root.visible=this.plate.visible=false;
@@ -95,15 +95,15 @@ export class Avatar {
     this.nameplate.setName(user.displayName,this.context.state()?.studio.quality?.nameplates??DEFAULT_QUALITY.nameplates);
     const oldName=this.user.displayName;this.user=user;
     // Keep the Discord icon ready as an isolated fallback for either asset type.
-    if(user.avatarUrl!==this.avatarUrl){this.avatarUrl=user.avatarUrl;const version=++this.textureVersion;
+    if(user.avatarUrl!==this.avatarUrl||user.iconAssetId!==this.iconAssetId){this.avatarUrl=user.avatarUrl;this.iconAssetId=user.iconAssetId;const version=++this.textureVersion;
       this.iconLoad?.abort();this.iconLoad=undefined;
-      if(user.avatarUrl){const controller=new AbortController();this.iconLoad=controller;void this.context.client.avatar(user.userId,controller.signal).then(bitmap=>{
+      if(user.avatarUrl||user.iconAssetId){const controller=new AbortController();this.iconLoad=controller;void this.context.client.avatar(user.userId,controller.signal,user.iconAssetId).then(bitmap=>{
         if(this.disposed||version!==this.textureVersion){bitmap.close();return;}
         const texture=new THREE.Texture(bitmap);texture.needsUpdate=true;texture.colorSpace=THREE.SRGBColorSpace;
         this.replaceIcon(texture);
       }).catch(()=>{});}
       else this.replaceIcon(placeholder(user));
-    }else if(!user.avatarUrl&&oldName!==user.displayName)this.replaceIcon(placeholder(user));
+    }else if(!user.avatarUrl&&!user.iconAssetId&&oldName!==user.displayName)this.replaceIcon(placeholder(user));
   }
   private replaceIcon(texture:THREE.Texture):void{
     const previous=this.body.material.uniforms.map!.value as THREE.Texture;

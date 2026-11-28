@@ -48,7 +48,7 @@ function seat(v:unknown):boolean {
 }
 function participant(v:unknown):boolean {
  return record(v)&&id(v.userId)&&id(v.channelId)&&string(v.username)&&string(v.displayName)&&
-  optional(v.avatarUrl,string)&&optional(v.nick,string)&&optional(v.globalName,string)&&
+  optional(v.avatarUrl,string)&&optional(v.iconAssetId,x=>string(x)&&/^[a-f0-9]{64}$/.test(x))&&optional(v.nick,string)&&optional(v.globalName,string)&&
   oneOf(v.presence,['present','absent','stale'])&&oneOf(v.speaking,['active','inactive','unknown'])&&
   record(v.voice)&&['selfMute','selfDeaf','serverMute','serverDeaf'].every(key=>boolean((v.voice as Record<string,unknown>)[key]));
 }
