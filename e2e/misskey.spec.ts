@@ -1,0 +1,48 @@
+import {expect,test} from './fixtures.ts';
+test.use({misskeyFixture:true});
+test('public hashtag cards render in bounded resources, survive split views, and disappear on edits, pause and loss',async({page,request,context})=>{
+ test.setTimeout(90000);
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/dock');
+ await page.locator('#misskey-panel').evaluate((el:HTMLDetailsElement)=>el.open=true);
+ await expect(page.locator('#misskey-status')).toContainText('受信中');
+ const overlay=await context.newPage();overlay.on('pageerror',e=>errors.push(e.message));await overlay.goto('/overlay');
+ const scene=overlay.locator('#scene');await expect(scene).toHaveAttribute('data-studio-status','READY');
+ await request.post('http://127.0.0.1:31341/',{data:{action:'seed',count:30}});
+ await expect(scene).toHaveAttribute('data-misskey-cards','30');await expect(scene).toHaveAttribute('data-misskey-allocated','30');
+ expect(Number(await scene.getAttribute('data-misskey-texture-bytes'))).toBe(30*512*256*4);
+ const updates=await scene.getAttribute('data-misskey-texture-updates');
+ await overlay.waitForTimeout(400);expect(await scene.getAttribute('data-misskey-texture-updates')).toBe(updates);
+ await overlay.screenshot({path:'.work/misskey-cards-overlay.png'});
+ await page.locator('#camera-settings > summary').click();await page.locator('#camera-split').check();
+ const people=page.locator('.person');for(const i of [1,2])await people.nth(i).getByRole('button',{name:'発話 ON',exact:true}).click();
+ await expect(scene).toHaveAttribute('data-split-count','2',{timeout:20000});await expect(scene).toHaveAttribute('data-misskey-cards','30');
+ expect(await scene.getAttribute('data-misskey-texture-updates')).toBe(updates);
+ await scene.screenshot({path:'.work/misskey-cards-split.png',omitBackground:true});
+ await page.locator('#camera-split').uncheck();
+ await expect(scene).toHaveAttribute('data-split-count','1',{timeout:20000});
+ const state=await (await request.get('/api/diagnostics')).json();expect(JSON.stringify(state)).not.toContain('NicoMiss');
+ await request.post('http://127.0.0.1:31341/',{data:{action:'edit',id:'1',text:'changed'}});await expect(scene).toHaveAttribute('data-misskey-cards','29');
+ await request.post('http://127.0.0.1:31341/',{data:{action:'delete',id:'2'}});await expect(scene).toHaveAttribute('data-misskey-cards','28');
+ await page.locator('#misskey-pause').click();await expect(scene).toHaveAttribute('data-misskey-cards','0');await expect(page.locator('#misskey-status')).toContainText('一時停止');
+ await page.locator('#misskey-pause').click();await expect(scene).toHaveAttribute('data-misskey-cards','0');
+ await request.post('http://127.0.0.1:31341/',{data:{action:'disconnect'}});await expect(page.locator('#misskey-status')).toContainText('再接続');
+ expect(errors).toEqual([]);
+});
+test('Dock settings and synthetic input handle scope, safe text, responsive layout and suppression controls',async({page,request})=>{
+ await page.goto('/dock');await page.locator('#misskey-panel').evaluate((el:HTMLDetailsElement)=>el.open=true);
+ await expect(page.locator('#misskey-save')).toBeEnabled();
+ await page.locator('#misskey-max').fill('12');await page.locator('#misskey-home').check();await page.locator('#misskey-save').click();
+ await expect(page.locator('#misskey-feedback')).toContainText('保存しました');
+ const settings=await (await request.get('/api/misskey/settings')).json();expect(settings.settings.maxCards).toBe(12);expect(settings.settings.includeHome).toBe(true);
+ await request.post('http://127.0.0.1:31341/',{data:{action:'live'}});
+ await request.post('http://127.0.0.1:31341/',{data:{action:'seed',count:1,text:'#NicoMiss <img src="https://invalid.example/a" onerror="alert(1)"> 合成本文'}});
+ await page.locator('#misskey-notes').locator('..').evaluate((el:HTMLDetailsElement)=>el.open=true);
+ await expect(page.locator('.misskey-note')).toHaveCount(1);await expect(page.locator('#misskey-notes img')).toHaveCount(0);
+ await expect(page.locator('.misskey-note a')).toHaveAttribute('rel','noopener noreferrer');
+ for(const width of [390,1280]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:`.work/misskey-dock-${width}.png`,fullPage:true});}
+ await page.locator('.misskey-block').click();await expect(page.locator('#misskey-feedback')).toContainText('この投稿者を除外しました');await expect(page.locator('.misskey-note')).toHaveCount(0);
+ const blocked=await (await request.get('/api/misskey/settings')).json();expect(blocked.settings.blockedUsers).toEqual(['user1']);
+ await request.post('http://127.0.0.1:31341/',{data:{action:'live'}});await request.post('http://127.0.0.1:31341/',{data:{action:'seed',count:1}});
+ await expect(page.locator('.misskey-note')).toHaveCount(1);await page.locator('#misskey-clear').click();await expect(page.locator('.misskey-note')).toHaveCount(0);
+ await page.locator('#misskey-enabled').uncheck();await page.locator('#misskey-save').click();await expect(page.locator('#misskey-status')).toContainText('停止中');
+});

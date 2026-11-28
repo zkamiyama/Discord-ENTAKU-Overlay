@@ -10,6 +10,8 @@ import {SplitRenderer} from '../../src/web/studio/split-renderer.ts';
 import {DEFAULT_QUALITY,type QualitySettings} from '../../src/studio/quality.ts';
 import {DEFAULT_POST,type PostSettings} from '../../src/studio/post-effects.ts';
 import type {SplitPanel} from '../../src/contracts/domain.ts';
+import {emptyMisskeyState} from '../../src/contracts/misskey.ts';
+import {MisskeyCards} from '../../src/web/overlay/misskey-cards.ts';
 
 // Original, deterministic synthetic splats: no model downloads or third-party
 // character assets. These exercise the real packaged Spark shaders and workers.
@@ -110,6 +112,21 @@ async function moveCamera(x:number,count=12){camera.position.x=x;camera.lookAt(0
 function pixels(){const gl=renderer.getContext(),data=new Uint8Array(width*height*4);gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,data);return data;}
 function save(name:string){snapshots.set(name,pixels());return stats();}
 function sample(y=.8){const v=new THREE.Vector3(front.position.x,y,front.position.z).project(camera),gl=renderer.getContext(),data=new Uint8Array(4);gl.readPixels(Math.floor((v.x+1)*width/2),Math.floor((v.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,data);return [...data];}
+async function misskeyBehindGaussian(){
+ // Spark's draw node stays at the scene origin. Translating the person and
+ // camera makes center-only transparent sorting wrong for a real card behind it.
+ configure({avatarZ:10.3,proxy:false});camera.position.set(0,2.1,15);camera.lookAt(0,.7,10);camera.updateMatrixWorld(true);
+ await settleFrames(24);const baseline=sample(),cards=new MisskeyCards(),now=Date.now();scene.add(cards.root);
+ try{
+  cards.setState({...emptyMisskeyState(),status:'live',cards:[{id:'probe',userId:'probe',username:'probe',authorName:'描画確認',text:'人物の後ろのカード',url:'https://otomad.site/notes/probe',createdAt:new Date(now).toISOString(),shownAt:now-1000,expiresAt:now+30000,slot:0,truncated:false}]});
+  cards.prepare(0,0,true,now);const sprite=cards.root.children[0]!;
+  const cardY=2.1+(.8-2.1)*(15-9)/(15-10.3);
+  cards.root.position.set(-sprite.position.x,cardY-sprite.position.y,9-sprite.position.z);cards.root.updateMatrixWorld(true);
+  await settleFrames(16);const withCard=sample(),edge=new THREE.Vector3(.7,cardY,9).project(camera),gl=renderer.getContext(),pixel=new Uint8Array(4);
+  gl.readPixels(Math.floor((edge.x+1)*width/2),Math.floor((edge.y+1)*height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+  return {baseline,withCard,cardEdge:[...pixel]};
+ }finally{cards.dispose();configure();}
+}
 function bounds(){const point=new THREE.Vector3(0,.04,front.position.z).project(camera);return {floorTop:Math.floor((point.y+1)*height/2)-6};}
 function stats(){
  const data=pixels(),b=bounds();let red=0,blue=0,transparent=0,redFloor=0,blueFloor=0,leftRed=0,leftBlue=0,rightRed=0,rightBlue=0;
@@ -165,5 +182,5 @@ function shadowMovement(beforeOff:string,beforeOn:string,afterOff:string,afterOn
 }
 function status(){const sorted=frames.slice(4).sort((a,b)=>a-b),source=denseMode?densePacked!:packed,r=runtime.diagnostics();return {quality:quality.status,memory:{...renderer.info.memory},runtime:r,activeViews:r.views.filter(v=>splitMode?v.camera!==camera.uuid:v.camera===camera.uuid),source:{inputSplats:source.numSplats,lodSplats:source.lodSplats?.numSplats??0,originalCpuBytes:packedCpuBytes(source),lodCpuBytes:packedCpuBytes(source.lodSplats)},native:nativeSurfaceDiagnostics(scene),sceneState:{revision:serial,avatarPosition:front.position.toArray(),lightPosition:light.position.toArray()},p50:sorted[Math.floor(sorted.length*.5)]??0,p95:sorted[Math.floor(sorted.length*.95)]??0,stats:stats(),sample:sample()};}
 function dispose(){native.dispose();nativeRear.dispose();quality.dispose();split.dispose();singleTarget.dispose();present.material.dispose();present.dispose();releaseVisual();runtime.dispose();for(const mesh of [front,rear,denseFront,denseRear])if(mesh){mesh.packedSplats=undefined;mesh.splats=undefined;mesh.dispose();}packed.dispose();densePacked?.dispose();for(const mesh of [proxy,floor,blocker]){mesh.geometry.dispose();mesh.material.dispose();}renderer.dispose();}
-(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,settleLod,moveLight,moveCamera,draw,save,compare,reflectionAppearance,shadowMovement,stats,status,sample,dispose};
+(window as unknown as {gaussianRenderProbe:unknown}).gaussianRenderProbe={settle,settleLod,moveLight,moveCamera,draw,save,compare,reflectionAppearance,shadowMovement,stats,status,sample,misskeyBehindGaussian,dispose};
 configure();draw();

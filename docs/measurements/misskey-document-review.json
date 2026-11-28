@@ -1,0 +1,276 @@
+{
+  "schemaVersion": 1,
+  "tool": "yomiyasu 3.4.1",
+  "scope": "Misskey documentation and repository navigation updates",
+  "notCertification": "Lint and hash verification do not prove semantic correctness or readability.",
+  "manualReview": {
+    "implementationAndMeasurements": "Compared numeric bounds, visibility defaults, reconnect behavior and measured results with implementation, primary sources and recorded experiments.",
+    "materialFindings": "Code constants lack Japanese units; path names, report IDs and JST conversions were checked against files and tool output. Suggestions are choices, not measured effects.",
+    "retainedLint": "Primary sources and feature grouping are literal section labels. Replay clock contrast documents a real timing boundary. Existing README installer caveat and polite procedural endings were retained.",
+    "meaningChanges": "The feature branch, dependency addition, new document links and new functionality are intentional updates. Draft PR 6 remains in progress; previous CI results are not reused as current verification."
+  },
+  "documents": [
+    {
+      "file": "docs/misskey-hashtag-cards.md",
+      "id": "entaku-misskey-guide",
+      "exitCode": 0,
+      "statusLine": "yomiyasu-check: executed via=verify run=entaku-misskey-guide attempt=2 final=sha256:7d8a9b0789e3 mode=compose doc_type=manual checks=lint,materials meaning_risk=163 replay=skipped",
+      "attempt": 2,
+      "mode": "compose",
+      "finalSha256": "7d8a9b0789e3bdb3e1e212ecf8a0ed62bb5129c7a651939dd3ef43d7fc2f6976",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 164,
+            "meaning_risk_count": 163,
+            "from_materials": 181,
+            "not_in_sources": 589,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "docs/adr/0029-public-hashtag-cards.md",
+      "id": "entaku-misskey-adr",
+      "exitCode": 0,
+      "statusLine": "yomiyasu-check: executed via=verify run=entaku-misskey-adr attempt=2 final=sha256:f5308fbf95df mode=compose doc_type=article checks=lint,materials meaning_risk=57 replay=skipped",
+      "attempt": 2,
+      "mode": "compose",
+      "finalSha256": "f5308fbf95df1d6b85f0648424bf3719e3158d6e7cf1fb1061d97f90a59d3bb2",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 58,
+            "meaning_risk_count": 57,
+            "from_materials": 51,
+            "not_in_sources": 341,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "docs/architecture-status.md",
+      "id": "entaku-misskey-architecture",
+      "exitCode": 0,
+      "statusLine": "yomiyasu-check: executed via=verify run=entaku-misskey-architecture attempt=2 final=sha256:6fee82cb41d5 mode=rewrite doc_type=article checks=lint,diff,materials meaning_risk=17 replay=skipped",
+      "attempt": 2,
+      "mode": "rewrite",
+      "finalSha256": "6fee82cb41d51e1d23e0aac61a3a9d57b558d84cafd0484f496607f47d0e9190",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 0,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 0
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 17,
+            "meaning_risk_count": 10,
+            "fail_on_meaning_risk_count": 6,
+            "hunk_count": 6,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 8,
+            "meaning_risk_count": 7,
+            "from_materials": 12,
+            "not_in_sources": 49,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "docs/README.md",
+      "id": "entaku-misskey-index",
+      "exitCode": 0,
+      "statusLine": "yomiyasu-check: executed via=verify run=entaku-misskey-index attempt=1 final=sha256:01b88ed7d5ae mode=rewrite doc_type=manual checks=lint,diff,materials meaning_risk=3 replay=skipped",
+      "attempt": 1,
+      "mode": "rewrite",
+      "finalSha256": "01b88ed7d5aefd0b9de30a32fb1c5820da6659f9ee58ce906e3565c4c6e0c4a1",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 3,
+            "meaning_risk_count": 1,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 1,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 3,
+            "meaning_risk_count": 2,
+            "from_materials": 1,
+            "not_in_sources": 11,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "file": "README.md",
+      "id": "entaku-misskey-readme",
+      "exitCode": 0,
+      "statusLine": "yomiyasu-check: executed via=verify run=entaku-misskey-readme attempt=2 final=sha256:b6c9f7607637 mode=rewrite doc_type=manual checks=lint,diff,materials meaning_risk=3 replay=skipped",
+      "attempt": 2,
+      "mode": "rewrite",
+      "finalSha256": "b6c9f7607637ad5acc9c32d7767651e449e510c0f8d181117e35b9a97695e669",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "counts": {
+              "error": 0,
+              "warn": 1,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 14,
+            "meaning_risk_count": 2,
+            "fail_on_meaning_risk_count": 2,
+            "hunk_count": 3,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 3,
+            "not_in_sources": 18,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    }
+  ]
+}

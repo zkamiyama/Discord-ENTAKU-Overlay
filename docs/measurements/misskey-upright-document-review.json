@@ -1,0 +1,343 @@
+{
+  "kind": "misskey-screen-parallel-document-review",
+  "reviewedAt": "2026-11-28T03:44:51.001916+00:00",
+  "baseCommit": "e646c7c9e325611bad4cf1a847147ab2c3675371",
+  "tool": "yomiyasu 3.4.1",
+  "documents": [
+    {
+      "path": "docs/adr/0031-screen-parallel-cards.md",
+      "sha256": "65eb8c1f811d84b6196296a2b6bcffbd769a25c1a206e312e295980f84423998",
+      "runId": "20261128T034120Z-e5cc5308",
+      "mode": "compose",
+      "checkStatus": "executed",
+      "verifyExitCode": 0,
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 3,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 3
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 36,
+            "meaning_risk_count": 35,
+            "from_materials": 58,
+            "not_in_sources": 171,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/adr/0030-tilted-cards-and-phrase-moderation.md",
+      "sha256": "4c84588e880ef814224c2e0459c57a4fbaa53d9173155ccfb9d16a60c5cfa06a",
+      "runId": "20261128T034143Z-39ce7816",
+      "mode": "rewrite",
+      "checkStatus": "executed",
+      "verifyExitCode": 0,
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 2
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 6,
+            "meaning_risk_count": 1,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 1,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 2,
+            "not_in_sources": 3,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "2649293b721aae2891696b74a5b44e6e960a2b892f586ae7df1e86dd5f5792ed",
+      "runId": "20261128T034143Z-83328ca3",
+      "mode": "rewrite",
+      "checkStatus": "executed",
+      "verifyExitCode": 0,
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 4,
+            "meaning_risk_count": 2,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 1,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 5,
+            "not_in_sources": 1,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/architecture-status.md",
+      "sha256": "a776a00b901c44d54b37657a3ec057e3736ed8d94332e6f02a3e71df2e270ee1",
+      "runId": "20261128T034143Z-e203edd1",
+      "mode": "rewrite",
+      "checkStatus": "executed",
+      "verifyExitCode": 0,
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 0,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 0
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 8,
+            "meaning_risk_count": 2,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 3,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 9,
+            "not_in_sources": 1,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    },
+    {
+      "path": "docs/misskey-hashtag-cards.md",
+      "sha256": "3d52597e64ed674cded1dc808d9e377894d1ff528103d901f2999aef0a6a9fbc",
+      "runId": "20261128T034358Z-b6da0061",
+      "mode": "rewrite",
+      "checkStatus": "executed",
+      "verifyExitCode": 0,
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 2
+            },
+            "kept_marks": [
+              {
+                "rule": "calque",
+                "word": "版",
+                "lines": [
+                  162
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 25,
+            "meaning_risk_count": 10,
+            "fail_on_meaning_risk_count": 5,
+            "hunk_count": 12,
+            "stiffness_candidate_count": 1,
+            "stiffness_level": "review",
+            "stiffness_review_count": 1,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 19,
+            "not_in_sources": 14,
+            "dropped_certainty": 0
+          }
+        }
+      ]
+    }
+  ],
+  "reviewNotes": [
+    "Automated candidates were read against the original documents, production source, official Three.js r187 source, and newly generated measurements. This records execution and assistant review, not human approval or automatic proof of meaning preservation.",
+    "The removal of old angle ranges and addition of ADR 0031 and new measurement links are intentional. Their targets exist in this change. ADR 0030 retains the historical decision with an explicit superseding notice.",
+    "Benchmark values are rounded to one decimal place from misskey-upright.json. Historical Sprite and tilted-mesh measurements retain their original values and are clearly separated from current measurements. No speedup or hardware fps is inferred.",
+    "The lint candidate 版 is retained in its established software-version meaning. ADR headings and the source-reference headings are intentional section labels.",
+    "ADR API names, date, branch, resource dimensions, and source URLs were checked against repository metadata, actual source and user requirements. Lack of an exact text match in source code is not treated as missing evidence."
+  ],
+  "localValidation": {
+    "typecheck": "passed",
+    "webBuild": "passed",
+    "focusedUnit": {
+      "tests": 13,
+      "assertions": 3240,
+      "failed": 0
+    },
+    "playwright": {
+      "tests": 4,
+      "failed": 0,
+      "browser": "Chromium 158.0.8127.0 (@sparticuz/chromium 158.0.0)",
+      "renderer": "SwiftShader",
+      "coverage": [
+        "Gaussian-person foreground occlusion",
+        "screen-parallel geometry at center and edges, animation, roll, split AB/BA",
+        "actual Overlay 30 cards, split/single return, edit/delete/pause/disconnect",
+        "Dock settings and safe text"
+      ]
+    },
+    "benchmark": {
+      "frames": 40,
+      "width": 1280,
+      "height": 720,
+      "stableResources": true,
+      "unchangedPixels": true,
+      "details": "misskey-upright.json"
+    }
+  },
+  "images": {
+    "docs/images/misskey-card.png": "d53e417cb8e52ce7ed24029b82a635b4f1d4f1f8246a1c924fadb861dd3e2537",
+    "docs/images/misskey-overlay.png": "a50d93185df6d375517c7bcb131ac4ca73b37a441ba5f1e929d9bc5920011dba",
+    "docs/images/misskey-split.png": "28174deefa7f02cbc35113357e30b4512045454614eb667fe524307f8d480c7f"
+  }
+}

@@ -4,10 +4,11 @@ export {expect};
 export type {Page,Locator} from '@playwright/test';
 /** Every test owns an in-memory demo server. A failed editor or enclosure test
  * must not change the studio, participants or camera of the following test. */
-export const test=base.extend<{demoServer:void;chatFixture:boolean}>({
+export const test=base.extend<{demoServer:void;chatFixture:boolean;misskeyFixture:boolean}>({
  chatFixture:[false,{option:true}],
- demoServer:[async({chatFixture},use)=>{
-  const child=spawn('bun',['run','scripts/e2e-server.ts'],{stdio:['ignore','pipe','pipe'],env:{...process.env,ENTAKU_E2E_CHAT:chatFixture?'1':'0'}});
+ misskeyFixture:[false,{option:true}],
+ demoServer:[async({chatFixture,misskeyFixture},use)=>{
+  const child=spawn('bun',['run','scripts/e2e-server.ts'],{stdio:['ignore','pipe','pipe'],env:{...process.env,ENTAKU_E2E_CHAT:chatFixture?'1':'0',ENTAKU_E2E_MISSKEY:misskeyFixture?'1':'0'}});
   let log='';child.stderr.on('data',chunk=>{log=(log+chunk.toString()).slice(-12000);});
   const exited=new Promise<void>(resolve=>child.once('close',()=>resolve()));
   try{

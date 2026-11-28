@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "tool": "yomiyasu 3.4.1",
+  "scope": "Geometry cards, camera-specific poses, phrase repetition policy, and documentation navigation",
+  "notCertification": "Lint and hash verification do not certify semantic correctness or readability.",
+  "historicalReview": "misskey-document-review.json records the earlier Sprite documentation; its hashes are not current-document verification.",
+  "manualReview": {
+    "implementation": "Reviewed per-draw camera matrices, shared PlaneGeometry ownership, tilt bounds and phrase thresholds against code and focused tests.",
+    "measurements": "Compared the displayed table to the Sprite baseline and geometry JSON with the same viewport and frame counts. Times are rounded to 0.1 ms, and software WebGL is not presented as hardware or OBS performance.",
+    "meaningChanges": "Sprite-to-Mesh rendering and relaxed cheers with stricter multi-character phrases are intentional user-requested changes. New paths are existing files in this commit.",
+    "corrections": "Clarified that a changed character does not bypass rejection if another qualifying consecutive span remains. Scoped the IPC environment statement to those IPC tests.",
+    "retainedLint": "Decision, primary sources and feature grouping are literal headings. The historical replay-clock contrast records an actual timing boundary. Technical names and CPU/GPU definitions retain their precise meaning.",
+    "sourceChecks": "Verified Three.js 0.187.0, onBeforeRender ordering and matrix limitations against official docs and the installed r187 distribution. Japanese units and formatted numbers require manual comparison with TypeScript constants and JSON values."
+  },
+  "documents": [
+    {
+      "file": "docs/misskey-hashtag-cards.md",
+      "runId": "20261127T190852Z-655c27a6",
+      "attempt": 2,
+      "mode": "rewrite",
+      "finalSha256": "211fba4037e36e552628e8189b1e5ae4bb4c4b222f5dfb6334014986b43a34c6",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 34,
+            "meaning_risk_count": 20,
+            "fail_on_meaning_risk_count": 13,
+            "hunk_count": 12,
+            "stiffness_candidate_count": 2,
+            "stiffness_level": "review",
+            "stiffness_review_count": 2,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 15,
+            "meaning_risk_count": 14,
+            "from_materials": 13,
+            "not_in_sources": 90,
+            "dropped_certainty": 0
+          }
+        }
+      ],
+      "statusLine": "yomiyasu-check: executed via=verify run=20261127T190852Z-655c27a6 attempt=2 final=sha256:211fba4037e3 mode=rewrite doc_type=article checks=lint,diff,materials meaning_risk=34 replay=skipped"
+    },
+    {
+      "file": "docs/adr/0030-tilted-cards-and-phrase-moderation.md",
+      "runId": "20261127T190852Z-c2759059",
+      "attempt": 2,
+      "mode": "compose",
+      "finalSha256": "cae808f62ca4d87cbc0c7d0aa9129f7414c7bae5669cf4f8d626b3944b83a349",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 2
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 46,
+            "meaning_risk_count": 45,
+            "from_materials": 74,
+            "not_in_sources": 244,
+            "dropped_certainty": 0
+          }
+        }
+      ],
+      "statusLine": "yomiyasu-check: executed via=verify run=20261127T190852Z-c2759059 attempt=2 final=sha256:cae808f62ca4 mode=compose doc_type=article checks=lint,materials meaning_risk=45 replay=skipped"
+    },
+    {
+      "file": "docs/adr/0029-public-hashtag-cards.md",
+      "runId": "20261127T190852Z-e8bf7140",
+      "attempt": 1,
+      "mode": "rewrite",
+      "finalSha256": "3861454712da4b5d87a8823befcc13a86ad2d991efb2685ab83ef4ce82066e15",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 4,
+            "meaning_risk_count": 1,
+            "fail_on_meaning_risk_count": 0,
+            "hunk_count": 1,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "meaning_risk_count": 1,
+            "from_materials": 0,
+            "not_in_sources": 6,
+            "dropped_certainty": 0
+          }
+        }
+      ],
+      "statusLine": "yomiyasu-check: executed via=verify run=20261127T190852Z-e8bf7140 attempt=1 final=sha256:3861454712da mode=rewrite doc_type=article checks=lint,diff,materials meaning_risk=2 replay=skipped"
+    },
+    {
+      "file": "docs/architecture-status.md",
+      "runId": "20261127T190852Z-34b749ba",
+      "attempt": 1,
+      "mode": "rewrite",
+      "finalSha256": "d99d0f7771c06f46df20cc0bdbb7009e1c044cdbf45ab0cea0a5b832df1994a2",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 0,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 0
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 7,
+            "meaning_risk_count": 2,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 3,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 6,
+            "not_in_sources": 18,
+            "dropped_certainty": 0
+          }
+        }
+      ],
+      "statusLine": "yomiyasu-check: executed via=verify run=20261127T190852Z-34b749ba attempt=1 final=sha256:d99d0f7771c0 mode=rewrite doc_type=article checks=lint,diff,materials meaning_risk=3 replay=skipped"
+    },
+    {
+      "file": "docs/README.md",
+      "runId": "20261127T190852Z-7044ce25",
+      "attempt": 1,
+      "mode": "rewrite",
+      "finalSha256": "eca503f3263e97aff7d81e5c85c824686fd8157905fa610c32ccad6871bb9bd4",
+      "checks": [
+        {
+          "name": "lint",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 1,
+            "counts": {
+              "error": 0,
+              "warn": 0,
+              "info": 1
+            },
+            "kept_marks": []
+          }
+        },
+        {
+          "name": "diff",
+          "status": "ran",
+          "summary": {
+            "status": "has_candidates",
+            "candidate_count": 4,
+            "meaning_risk_count": 2,
+            "fail_on_meaning_risk_count": 1,
+            "hunk_count": 1,
+            "stiffness_candidate_count": 0,
+            "stiffness_level": "review",
+            "stiffness_review_count": 0,
+            "tone_candidate_count": 0,
+            "tone_level": "info",
+            "tone_review_count": 0,
+            "hedges_candidate_count": 0,
+            "hedges_level": "review",
+            "hedges_review_count": 0,
+            "immutable_candidate_count": 0,
+            "immutable_level": "review",
+            "immutable_review_count": 0,
+            "politeness_candidate_count": 0,
+            "politeness_level": "review",
+            "politeness_review_count": 0,
+            "register_candidate_count": 0,
+            "register_level": "review",
+            "register_review_count": 0
+          }
+        },
+        {
+          "name": "materials",
+          "status": "ran",
+          "summary": {
+            "candidate_count": 2,
+            "meaning_risk_count": 1,
+            "from_materials": 3,
+            "not_in_sources": 4,
+            "dropped_certainty": 0
+          }
+        }
+      ],
+      "statusLine": "yomiyasu-check: executed via=verify run=20261127T190852Z-7044ce25 attempt=1 final=sha256:eca503f3263e mode=rewrite doc_type=article checks=lint,diff,materials meaning_risk=3 replay=skipped"
+    }
+  ]
+}

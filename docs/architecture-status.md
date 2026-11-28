@@ -1,14 +1,15 @@
 # アーキテクチャの現状
 
-対象は[PR #6](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/pull/6)、ブランチ`fix/entaku-stability-performance-audit`。この文書と同じコミットの実装を説明する。mainと配布済みの実行ファイルへの反映は、PRとリリースの状態で確認する。
+対象はブランチ`feat/misskey-hashtag-cards`。[PR #6](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/pull/6)の`7b2931d`から分岐し、Misskeyの公開ハッシュタグ受信と3Dカードを追加した。この文書と同じコミットの実装を説明する。mainと配布済みの実行ファイルへの反映は、PRとリリースの状態で確認する。
 
-最新HEADの検証結果は[PRのChecks](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/pull/6/checks)を参照する。過去の合格を新しいHEADへ流用しない。[2026-11-27の引き継ぎ](handoff-2026-11-27.md)はa160eac／67bac9e時点の記録として保持する。
+最新HEADの検証結果は[対象ブランチのCI](https://github.com/zkamiyama/Discord-ENTAKU-Overlay/actions?query=branch%3Afeat%2Fmisskey-hashtag-cards)を参照する。過去の合格を新しいHEADへ流用しない。[2026-11-27の引き継ぎ](handoff-2026-11-27.md)はa160eac／67bac9e時点の記録として保持する。
 
 ## 構成
 
 | 層 | 主な所有者 | 役割 |
 |---|---|---|
 | 通話入力とドメイン | Discord provider、AppEngine | 参加者、発話、席、カメラ計画を更新する。席のない退出者の履歴を解放する |
+| 公開ノート | MisskeyStream、MisskeyFeed | 匿名hashtag購読、有限の補完、審査、表示30件＋待機60件、削除と期限を扱う。通話状態や録画へ本文を入れない |
 | 設定操作 | WorkQueue、SettingsService | 受付数と要求の寿命を管理し、素材検証後に状態変更と保存を実行する |
 | 保存 | SettingsStore、SessionWriter | SQLiteへ設定と現在の座席を同時に保存する。通常の座席保存はチャンネルごとの最新変更へまとめる |
 | 素材 | AvatarStore、StudioStore、PresetStore | 内容で識別する素材、named preset、インポート検査を扱う |
@@ -17,7 +18,7 @@
 | 資源 | ResourceCache、StudioModelRegistry、AlphaFieldQueue | 共有参照、所有者による取り消し、遅れて完了した資源の破棄を扱う |
 | 描画 | ProgramRenderer、GaussianRuntime | 世界座標の影・反射対象を共有し、視点ごとのLoD・ソート・描画先を管理する |
 
-ライブラリは既存のThree.js 0.187.0、Spark 2.4.0、fflate 0.8.3を使用する。保存にはBun 1.4.4標準の`bun:sqlite`を採用し、npmの実行時依存は追加していない。[ADR 0026](adr/0026-state-stream-and-resource-ownership.md)、[ADR 0027](adr/0027-durable-settings-and-command-transactions.md)、[ADR 0028](adr/0028-render-generation-and-screen-halo.md)に判断と代替案を記録した。
+ライブラリはThree.js 0.187.0、Spark 2.4.0、fflate 0.8.3に加え、MFMを静的テキストへ変換するため`mfm-js 0.28.0`を使用する。保存はBun 1.4.4標準の`bun:sqlite`を使う。[ADR 0026](adr/0026-state-stream-and-resource-ownership.md)、[ADR 0027](adr/0027-durable-settings-and-command-transactions.md)、[ADR 0028](adr/0028-render-generation-and-screen-halo.md)、[ADR 0029](adr/0029-public-hashtag-cards.md)、[ADR 0030](adr/0030-tilted-cards-and-phrase-moderation.md)、[ADR 0031](adr/0031-screen-parallel-cards.md)に判断と代替案を記録した。
 
 ## 障害時の動作
 
@@ -28,6 +29,10 @@
 スタジオの候補が失敗しても、完成済みの表示とカメラ計画を保持する。同じ設定のスタジオ読み込みと画質処理は500ms、2,000ms後に最大2回再試行する。画像workerは64件の受付上限と15秒のタイムアウトを持ち、実行中の処理を取り消した場合はworkerを終了する。GLBなどの取り消せないデコーダー処理は、遅れて完了した資源を破棄する。
 
 3DGSは元の大きさのSplatから発話マスクを作り、画面上の距離計算で外側グローを生成する。新しい視点はLoDとソートの準備を進め、初回から描画予算内の選択を使う。分割画面では各描画先の実画素viewportを復元する。[描画パイプライン](render-pipeline.md)と[発話グロー](gaussian-speech-glow.md)に詳細を記載する。
+
+Misskeyはsocketのopenと購読ACKを区別し、切断時に表示と待機を消してから再接続する。補完は最近2分、最大100件×3要求に限定し、埋まらない欠落をUIへ表示する。表示対象の削除・編集通知でも即時取り下げる。既存の通信と別の購読を使い、古い接続のHTTP応答・イベントは無効にする。[利用・調査記録](misskey-hashtag-cards.md)に実接続で確認できた範囲を記載した。
+
+Misskeyカードは共有PlaneGeometryを使い、各ビューの画面と平行に表示する。XYZの装飾回転とカードごとの位置へのlookAtを除き、画面端でも文字と辺を水平・垂直に揃える。SPLITの左右やカメラアニメーションで前のビューの姿勢を流用しない。反復判定は長い歓声・笑いを許可し、長さ・文字の種類・回数・全文に占める割合が条件を満たすフレーズの連続反復を除外する。
 
 ## データの移行
 
@@ -43,6 +48,7 @@
 |---|---|
 | 保存・再起動 | 一度だけの移行、元JSONの保持、別プロセスとの競合、設定と座席の同時保存、SQL途中失敗、強制終了からの復旧 |
 | 通信 | 不正な全状態・差分、連番の欠落、旧接続の遅延イベント、編集要求の取り消し、受付上限、停止処理 |
+| Misskey | 範囲・MFM・重複・歓声とフレーズ反復・投稿者上限・期限、再接続と429、補完cursor、遅延応答、削除と反復過負荷、実Overlayの30枚とSPLIT、画面端の辺の水平・垂直、カメラ移動・roll・左右描画順・非一様scale、3DGS人物との描画順序 |
 | 資源と非同期処理 | 最後の参照解放、古い候補の取り消し、遅れた成功・失敗、worker異常・タイムアウト、描画状態の復元 |
 | 長時間のドメイン更新 | 16話者、仮想2時間の更新。有限のカメラ値、席予約、診断履歴の上限 |
 | ブラウザ描画 | 初期状態待機、GLB発話停止、Gaussianの発話・遮蔽・複数話者、分割の逆向き視点、CUT、リサイズ、描画予算、ポストエフェクト |

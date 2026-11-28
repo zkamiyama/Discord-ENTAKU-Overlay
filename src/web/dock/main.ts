@@ -1,6 +1,7 @@
 import type {Command} from '../../contracts/commands.ts';
 import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {VcChatPanel} from './vc-chat-panel.ts';
+import {MisskeyPanel} from './misskey-panel.ts';
 import {seatLabel} from '../../geometry/seat-label.ts';
 import {PresetPanel} from './preset-panel.ts';
 import {StudioPanel} from './studio-panel.ts';
@@ -17,6 +18,7 @@ import {decorate,decorateShell,icon} from './icons.ts';
 import {installTheme} from './theme.ts';
 decorateShell();installTheme();
 const client=new StudioClient(),editor=new AvatarEditor(client);new VcChatPanel(client);
+new MisskeyPanel(client);
 const studioPanel=new StudioPanel(client),presetPanel=new PresetPanel(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client),directionPanel=new DirectionPanel(client);
 installNumericControls();
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;

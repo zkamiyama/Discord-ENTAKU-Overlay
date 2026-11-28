@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type {AppSnapshot,CameraPose} from '../../contracts/domain.ts';
 import type {RenderStatus} from '../../contracts/diagnostics.ts';
+import type {MisskeyState} from '../../contracts/misskey.ts';
 import {DEFAULT_DIRECTION} from '../../studio/direction.ts';
 import {StudioClient} from '../shared/client.ts';
 import {BroadcastDesk} from '../studio/broadcast-desk.ts';
@@ -11,6 +12,7 @@ import {Avatar} from './avatar.ts';
 import {AvatarRoster} from './roster.ts';
 import {ScenePresentation} from './scene-presentation.ts';
 import {cameraPose,sampleSeat,sampleStage,setLocalCamera} from './stage-frame.ts';
+import {MisskeyCards} from './misskey-cards.ts';
 
 export interface PreparedFrame {
  state:AppSnapshot|null;pose:CameraPose;length:number;offsetZ:number;near:number;studioStatus:RenderStatus;
@@ -27,6 +29,7 @@ export class OverlayScene {
  readonly roster:AvatarRoster<Avatar>;
  readonly failures=new Set<string>();
  readonly table=new BroadcastDesk(0);
+ readonly misskey=new MisskeyCards();
  state:AppSnapshot|null=null;
  private readonly presentation=new ScenePresentation();
  get presentedState():AppSnapshot|null{return this.presentation.resolve(this.state,this.studio.definition);}
@@ -36,13 +39,14 @@ export class OverlayScene {
  private stopped=false;
 
  constructor(client:StudioClient,renderer:THREE.WebGLRenderer){
-  this.scene.add(this.stage);this.stage.add(this.table);
+  this.scene.add(this.stage);this.stage.add(this.table,this.misskey.root);
   this.gaussian=new GaussianRuntime(renderer,this.scene);
   this.studio=new StudioVisual(client,renderer);this.scene.add(this.studio.root);
   this.roster=new AvatarRoster((person,profile)=>new Avatar({
    client,stage:this.stage,camera:this.camera,gaussian:this.gaussian,failures:this.failures,state:()=>this.presentedState,
   },person,profile));
  }
+ setMisskey(state:MisskeyState|null):void{if(!this.stopped)this.misskey.setState(state);}
  apply(next:AppSnapshot):void{
   if(this.stopped)return;
   const previous=this.state;this.state=next;
@@ -54,6 +58,7 @@ export class OverlayScene {
   const state=this.presentedState,{length,offsetZ,progress}=sampleStage(state,now),motion=state?.layoutMotion;
   if(Math.abs(length-this.lastLength)>.00001){this.table.update(length);this.lastLength=length;}
   this.table.position.z=offsetZ;
+  this.misskey.prepare(length,offsetZ,connected&&!!state);
   const pose=cameraPose(state,now,connected&&this.studio.readyForCamera);
   const near=state?.studio.direction?.nearClip??DEFAULT_DIRECTION.nearClip;
   setLocalCamera(this.camera,pose,near);
@@ -88,7 +93,7 @@ export class OverlayScene {
  }
  dispose():void{
   if(this.stopped)return;
-  this.stopped=true;this.roster.dispose();this.gaussian.dispose();this.studio.dispose();disposeObject(this.table);this.scene.clear();
+  this.stopped=true;this.roster.dispose();this.misskey.dispose();this.gaussian.dispose();this.studio.dispose();disposeObject(this.table);this.scene.clear();
   this.state=null;this.presentation.clear();this.meshVoices.clear();this.failures.clear();
  }
 }

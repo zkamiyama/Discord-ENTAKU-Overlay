@@ -16,6 +16,7 @@ const metrics=new FrameMetrics(),gpu=new GpuFrameSampler(renderer.getContext() a
 const program=new ProgramRenderer(renderer,world.scene,world.stage,world.camera,world.roster.avatars,world.gaussian);
 (window as unknown as {entakuGaussianDiagnostics:()=>ReturnType<GaussianRuntime['diagnostics']>}).entakuGaussianDiagnostics=()=>world.gaussian.diagnostics();
 client.onState=next=>world.apply(next);
+client.onMisskey=state=>world.setMisskey(state);client.watchMisskey();
 
 let contextLost=false,disposed=false,frameId=0;
 canvas.addEventListener('webglcontextlost',event=>{event.preventDefault();contextLost=true;});
@@ -48,9 +49,12 @@ function frame(time:number):void{
   const debug=(()=>{try{return program.render(state,pose,world.studio,client.connected,time,length,offsetZ,near);}finally{gpu.end();}})();
   metrics.record(delta,prepareMs,performance.now()-submittedAt);frameFailed=false;
   const summary=world.gaussian.frameSummary();
+  const cards=world.misskey.stats;
   publish({...debug,cameraNear:String(near),studioStatus,gaussianInstances:String(summary.instances),
    gaussianAssets:String(summary.assets),gaussianSelectedSplats:String(summary.selectedSplats),
-   meshSpeakerCount:String(world.studio.meshSpeechCount),meshSpeaking:String(world.studio.activeMeshSpeakers)});
+   meshSpeakerCount:String(world.studio.meshSpeechCount),meshSpeaking:String(world.studio.activeMeshSpeakers),
+   misskeyCards:String(cards.visible),misskeyAllocated:String(cards.allocated),misskeyTextureBytes:String(cards.textureBytes),misskeyTextureUpdates:String(cards.textureUpdates),
+   renderCalls:String(renderer.info.render.calls),renderTextures:String(renderer.info.memory.textures)});
   if(state)publish({studioRevision:String(state.studio.revision),composition:state.camera.composition??state.camera.shot.kind,
    transition:state.camera.transition,straightLength:String(length),deskOffsetZ:String(offsetZ),cameraPosition:world.camera.position.toArray().join(','),
    cameraLocalPosition:pose.position.join(','),cameraLocalTarget:pose.target.join(',')});

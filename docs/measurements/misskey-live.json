@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "testedSources": [
+    {
+      "path": "src/contracts/misskey.ts",
+      "sha256": "361ac9d7d380c9a4e2d918cde3d92e82c878207ff1d2ed8f761cc9d40dba4fce"
+    },
+    {
+      "path": "src/misskey/settings.ts",
+      "sha256": "4f5435b99ec62f5ed780c57cffee74776f1d9040fd26e9b4a0571134dc8e64a8"
+    },
+    {
+      "path": "src/misskey/moderation.ts",
+      "sha256": "efccddab81efb8fce177c4bb967a59a19351ee9be971a855f2447d57d8a30d89"
+    },
+    {
+      "path": "src/misskey/feed.ts",
+      "sha256": "05bd5942d7f8e84fe5b721d47984a70c79988a0bc0b54bb5dc905b9c36fe1537"
+    },
+    {
+      "path": "src/misskey/stream.ts",
+      "sha256": "f5d48ce219375a927d5ce8c271a4a26c800cfddb933ef18bd19cb94b6704af31"
+    },
+    {
+      "path": "scripts/probe-misskey.ts",
+      "sha256": "d339a7296e3634f53005d1485206f257972e754a0e3db06b59c003b9d1b47010"
+    }
+  ],
+  "startedAt": "2026-11-27T17:36:22.186Z",
+  "endedAt": "2026-11-27T17:39:22.193Z",
+  "durationMs": 180007,
+  "requestedSeconds": 180,
+  "includeHome": false,
+  "termination": "duration",
+  "transitions": [
+    {
+      "at": "2026-11-27T17:36:22.186Z",
+      "elapsedMs": 0,
+      "status": "connecting",
+      "errorCode": null,
+      "retryAt": null,
+      "received": 0,
+      "accepted": 0,
+      "rejected": {},
+      "reconnects": 0,
+      "recoveryTruncated": false,
+      "lastEventAt": null
+    },
+    {
+      "at": "2026-11-27T17:36:29.024Z",
+      "elapsedMs": 6838,
+      "status": "live",
+      "errorCode": null,
+      "retryAt": null,
+      "received": 0,
+      "accepted": 0,
+      "rejected": {},
+      "reconnects": 0,
+      "recoveryTruncated": false,
+      "lastEventAt": null
+    }
+  ],
+  "final": {
+    "status": "live",
+    "errorCode": null,
+    "retryAt": null,
+    "received": 1,
+    "accepted": 0,
+    "rejected": {
+      "not-public": 1
+    },
+    "reconnects": 0,
+    "recoveryTruncated": false,
+    "lastEventAt": null
+  },
+  "observedLive": true,
+  "verdict": "CONNECTION_MAINTAINED_NO_NEW_NOTES"
+}

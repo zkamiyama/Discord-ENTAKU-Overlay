@@ -9,6 +9,9 @@ import {commandRoute} from './routes/commands.ts';
 import {SettingsService} from './settings-service.ts';
 import {SettingsStore} from '../storage/settings-store.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
+import {MisskeyFeed} from '../misskey/feed.ts';
+import {MisskeyStream} from '../misskey/stream.ts';
+import {misskeyRoutes} from './routes/misskey.ts';
 import {PresetStore} from '../presets/store.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
 import { ProviderRecording } from '../diagnostics/recording.ts';
@@ -23,12 +26,15 @@ import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { chat?:boolean; messages: number; windowStart: number; frame?:number }
+interface SocketData { chat?:boolean; misskey?:boolean; messages: number; windowStart: number; frame?:number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
   retry?: () => void;
   vcChat?: VcChatFeed;
+  misskey?: MisskeyFeed;
+  /** Inject null for an externally managed or synthetic feed. */
+  misskeyStream?: MisskeyStream|null;
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
   presets?: PresetStore;
@@ -53,6 +59,8 @@ export function startServer(options: ServerOptions) {
   const customAssets = options.avatarStore ?? new AvatarStore();
   const settingsStore=options.settingsStore??new SettingsStore(null,{studio:engine.snapshot().studio,avatarProfiles:engine.avatarProfiles(),preferences:null});
   const settings=new SettingsService(engine,settingsStore,studioStore,customAssets,presets,now);
+  const misskey=options.misskey??new MisskeyFeed(settingsStore.snapshot().misskey);
+  const misskeyStream=options.misskeyStream===undefined?new MisskeyStream(misskey):options.misskeyStream;
   // The single writer protects validation and settings transactions; bounded admission also
   // protects the process from retaining unlimited uploaded assets or commands.
   const mutations=new WorkQueue(8);
@@ -82,6 +90,7 @@ export function startServer(options: ServerOptions) {
   };
   const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {sendEncoded(socket, JSON.stringify(message));};
   const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
+  const offMisskey=misskey.observe(state=>{const message=JSON.stringify({type:'misskey',state});for(const socket of clients)if(socket.data.misskey)sendEncoded(socket,message);});
   const broadcast = (): void => {
     if(stopping)return;
     const time=now();
@@ -100,8 +109,8 @@ export function startServer(options: ServerOptions) {
     if(!packet){broadcast();return;}
     socket.data.frame=sendEncoded(socket,packet.full())?packet.frame:undefined;
   };
-  const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,diagnostic,broadcast,serial};
-  const routes=[statusRoutes(context),assetRoutes(context),commandRoute(context)];
+  const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,misskey,misskeyStream,diagnostic,broadcast,serial};
+  const routes=[statusRoutes(context),misskeyRoutes(context),assetRoutes(context),commandRoute(context)];
   const server = Bun.serve<SocketData>({
     hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes) + 1024*1024,
     async fetch(request, server) {
@@ -141,6 +150,7 @@ export function startServer(options: ServerOptions) {
           const p = JSON.parse(message) as Record<string,unknown>;
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
           else if(p.type==='vc-chat-subscribe'){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
+          else if(p.type==='misskey-subscribe'){socket.data.misskey=true;send(socket,{type:'misskey',state:misskey.snapshot()});}
           else if(p.type==='render-status'){
             reports.set(socket,parseRenderReport(p,performance.now()));
           }
@@ -153,18 +163,20 @@ export function startServer(options: ServerOptions) {
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });
   const timer = setInterval(() => {
+    misskey.tick();
     if (options.tick) options.tick(); else engine.tick(now());
     if (performance.now() - broadcastAt >= 95) broadcast();
   }, 50);
+  misskeyStream?.start();
   return {
     server, broadcast,
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
     stop():Promise<void> {
       return stopped??=(async()=>{
-        stopping=true;offEvents();offChat();clearInterval(timer);
+        stopping=true;offEvents();offChat();offMisskey();misskeyStream?.stop();clearInterval(timer);
         const drained=mutations.close();
         for(const socket of clients)closeSocket(socket,1001,'SHUTDOWN');
-        try{await server.stop(true);}finally{await drained;}
+        try{await server.stop(true);}finally{await drained;misskeyStream?.dispose();misskey.dispose();}
       })();
     },
   };
