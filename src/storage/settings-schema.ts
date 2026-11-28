@@ -3,21 +3,22 @@ import {seatingParameters, seatingSession, type ParameterPreset, type SeatingPre
 import {DEFAULT_STUDIO_SCENE, validateStudioScene, type StudioScene} from '../studio/manifest.ts';
 import type {MisskeySettings} from '../contracts/misskey.ts';
 import {DEFAULT_MISSKEY_SETTINGS,validateMisskeySettings} from '../misskey/settings.ts';
+import {validateEnvironmentPeople,type EnvironmentPeople} from '../environment/types.ts';
 
 export interface SettingsPreferences {seating:SeatingPreset;autoCamera:boolean;theme:Theme}
-export interface SettingsData {studio:StudioScene;avatarProfiles:AvatarProfile[];preferences:SettingsPreferences|null;misskey?:MisskeySettings}
-export interface SettingsSnapshot extends SettingsData {schemaVersion:1;generation:number;misskey:MisskeySettings}
+export interface SettingsData {studio:StudioScene;avatarProfiles:AvatarProfile[];preferences:SettingsPreferences|null;misskey?:MisskeySettings;environment?:EnvironmentPeople|null}
+export interface SettingsSnapshot extends SettingsData {schemaVersion:1;generation:number;misskey:MisskeySettings;environment:EnvironmentPeople|null}
 
 export function presetPreferences(preset:ParameterPreset):SettingsPreferences {
   return {seating:structuredClone(preset.seating),autoCamera:preset.autoCamera,theme:preset.theme};
 }
 export function defaultSettings():SettingsData {
-  return {studio:structuredClone(DEFAULT_STUDIO_SCENE),avatarProfiles:[],preferences:null,misskey:structuredClone(DEFAULT_MISSKEY_SETTINGS)};
+  return {studio:structuredClone(DEFAULT_STUDIO_SCENE),avatarProfiles:[],preferences:null,misskey:structuredClone(DEFAULT_MISSKEY_SETTINGS),environment:null};
 }
 export function validateSettings(value:unknown):SettingsSnapshot {
   const v=value as SettingsSnapshot;
   if(!v||typeof v!=='object'||Array.isArray(v)||v.schemaVersion!==1||!Number.isSafeInteger(v.generation)||v.generation<0||
-    Object.keys(v).some(key=>!['schemaVersion','generation','studio','avatarProfiles','preferences','misskey'].includes(key))||
+    Object.keys(v).some(key=>!['schemaVersion','generation','studio','avatarProfiles','preferences','misskey','environment'].includes(key))||
     !Array.isArray(v.avatarProfiles)||v.avatarProfiles.length>256)throw new Error('SETTINGS_INVALID');
   const studio=validateStudioScene(v.studio),avatarProfiles=v.avatarProfiles.map(validateProfile);
   if(new Set(avatarProfiles.map(p=>p.userId)).size!==avatarProfiles.length)throw new Error('SETTINGS_INVALID');
@@ -31,5 +32,6 @@ export function validateSettings(value:unknown):SettingsSnapshot {
   // Existing schema-1 documents predate this optional feature. Validate a
   // present value strictly; absence alone supplies the disabled default.
   const misskey=v.misskey===undefined?structuredClone(DEFAULT_MISSKEY_SETTINGS):validateMisskeySettings(v.misskey);
-  return {schemaVersion:1,generation:v.generation,studio,avatarProfiles,preferences,misskey};
+  const environment=v.environment===undefined||v.environment===null?null:validateEnvironmentPeople(v.environment);
+  return {schemaVersion:1,generation:v.generation,studio,avatarProfiles,preferences,misskey,environment};
 }

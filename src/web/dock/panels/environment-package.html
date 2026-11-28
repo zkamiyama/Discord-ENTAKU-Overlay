@@ -1,0 +1,30 @@
+<dialog id="environment-package-dialog" aria-labelledby="environment-package-title">
+  <div class="heading"><h2 id="environment-package-title">環境パッケージ</h2><button id="environment-package-close" type="button" data-icon="x" aria-label="環境パッケージを閉じる"></button></div>
+  <p class="hint">ステージ、描画設定、出演者の配置と関連付け、必要なモデル・画像、Misskey設定を1つのZIPにまとめて移せます。</p>
+  <div class="environment-package-actions">
+    <section aria-labelledby="environment-export-title">
+      <h3 id="environment-export-title">現在の環境を渡す</h3>
+      <p class="hint">この環境の再現に必要な素材をまとめます。出演者名とDiscordのユーザーIDも含みます。標準アイコンは再現プレビュー用で、通常接続ではDiscordの最新画像を使用します。</p>
+      <button id="environment-package-export" type="button" data-icon="download-simple" data-label="true" aria-label="現在の環境を書き出す">現在の環境を書き出す</button>
+    </section>
+    <section aria-labelledby="environment-import-title">
+      <h3 id="environment-import-title">環境を読み込む</h3>
+      <label for="environment-package-file">環境パッケージのZIP</label>
+      <input id="environment-package-file" type="file" accept=".zip,application/zip"/>
+      <p class="hint">内容を確認してから適用できます。最大512 MiBです。</p>
+    </section>
+  </div>
+  <section id="environment-package-review" hidden aria-labelledby="environment-review-title">
+    <h3 id="environment-review-title">読み込む内容</h3>
+    <p id="environment-package-filename" class="metadata"></p>
+    <dl id="environment-package-summary"></dl>
+    <p class="hint">適用すると、現在の設定と出演者への関連付けを置き換えます。</p>
+    <button id="environment-package-apply" type="button" disabled>この環境を適用</button>
+  </section>
+  <p id="environment-package-feedback" role="status" aria-live="polite"></p>
+  <section id="environment-package-preview" hidden>
+    <h3>適用済みの環境</h3>
+    <a id="environment-preview-link" href="/overlay?environment=preview" target="_blank" rel="noopener noreferrer">保存時の出演者でプレビュー</a>
+    <p class="hint">保存した出演者と配置を別の映像ページで確認できます。Discordへの接続は不要です。</p>
+  </section>
+</dialog>

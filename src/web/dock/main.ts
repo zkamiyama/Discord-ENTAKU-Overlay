@@ -4,6 +4,7 @@ import {VcChatPanel} from './vc-chat-panel.ts';
 import {MisskeyPanel} from './misskey-panel.ts';
 import {seatLabel} from '../../geometry/seat-label.ts';
 import {PresetPanel} from './preset-panel.ts';
+import {EnvironmentPackagePanel} from './environment-package-panel.ts';
 import {StudioPanel} from './studio-panel.ts';
 import {DirectionPanel} from './direction-panel.ts';
 import {installNumericControls,syncNumericControls} from './numeric-controls.ts';
@@ -18,8 +19,9 @@ import {decorate,decorateShell,icon} from './icons.ts';
 import {installTheme} from './theme.ts';
 decorateShell();installTheme();
 const client=new StudioClient(),editor=new AvatarEditor(client);new VcChatPanel(client);
-new MisskeyPanel(client);
+const misskeyPanel=new MisskeyPanel(client);
 const studioPanel=new StudioPanel(client),presetPanel=new PresetPanel(client);new DiagnosticsPanel(client);const exposurePanel=new ExposurePanel(client),qualityPanel=new QualityPanel(client),postPanel=new PostPanel(client),directionPanel=new DirectionPanel(client);
+const environmentPanel=new EnvironmentPackagePanel(client,()=>{presetPanel.resetActive();misskeyPanel.reloadSettings();});
 installNumericControls();
 const get=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const errors=get('error');let busy=false,replayShown=false;
@@ -33,7 +35,7 @@ get('retry').onclick=()=>{if(confirm('Discordの認可画面が表示される�
 get('new-session').onclick=()=>{if(confirm('退出者の席予約を消し、現在の参加者で配置し直しますか？'))void command({type:'new-session',confirm:true});};
 get('add').onclick=()=>void command({type:'demo-add'});
 get('copy').onclick=()=>{const value=get<HTMLInputElement>('overlay-url').value;void navigator.clipboard.writeText(value).catch(()=>{get<HTMLInputElement>('overlay-url').closest('details')?.setAttribute('open','');get<HTMLInputElement>('overlay-url').select();errors.textContent='URL欄を選択しました。コピーしてください。';});};
-client.onConnection=status=>{get('transport').textContent=status;};
+client.onConnection=status=>{get('transport').textContent=status;environmentPanel.connectionChanged();};
 interface Row {element:HTMLElement;seat:HTMLElement;name:HTMLElement;status:HTMLElement;duration:HTMLElement;focus:HTMLButtonElement;speak:HTMLButtonElement;more:HTMLButtonElement;user:DockPerson}
 const rows=new Map<string,Row>(),menu=document.createElement('div');menu.className='context-menu';menu.setAttribute('role','menu');menu.hidden=true;document.body.append(menu);
 let menuTrigger:HTMLButtonElement|null=null;

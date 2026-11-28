@@ -17,6 +17,10 @@ export class MisskeyPanel {
   get<HTMLDetailsElement>('panel').addEventListener('toggle',()=>{if(!this.current&&!this.loading)void this.load();});
   window.addEventListener('pagehide',()=>{this.stopped=true;this.request++;},{once:true});
  }
+ reloadSettings():void {
+  this.request++;this.loading=false;this.current=null;
+  void this.load();
+ }
  private fill(settings:MisskeySettings):void{
   get<HTMLInputElement>('enabled').checked=settings.enabled;get<HTMLInputElement>('instance').value=settings.instanceUrl;
   get<HTMLInputElement>('tag').value=settings.hashtag;get<HTMLInputElement>('local').checked=settings.localOnly;get<HTMLInputElement>('home').checked=settings.includeHome;
@@ -33,14 +37,21 @@ export class MisskeyPanel {
  private async load():Promise<void>{
   if(this.loading||this.stopped)return;this.loading=true;const request=++this.request;
   try{const value=await this.client.misskeySettings();if(this.stopped||request!==this.request)return;this.current=value;this.fill(value.settings);}
-  catch(error){if(!this.stopped)this.feedback(error);}
-  finally{this.loading=false;get<HTMLButtonElement>('save').disabled=!this.current||this.busy;}
+  catch(error){if(!this.stopped&&request===this.request)this.feedback(error);}
+  finally{if(request===this.request){this.loading=false;get<HTMLButtonElement>('save').disabled=!this.current||this.busy;}}
  }
  private feedback(error:unknown):void{const code=error instanceof Error?error.message:String(error);get('feedback').textContent=errors[code]??code;get('feedback').dataset.error='true';}
  private async save():Promise<void>{
-  if(!this.current||this.busy)return;this.busy=true;get<HTMLButtonElement>('save').disabled=true;
-  try{const next=await this.client.setMisskeySettings(this.read(),this.current.generation);this.current=next;this.fill(next.settings);get('feedback').textContent=next.settings.enabled?'保存しました。接続状況は上に表示します。':'保存しました。受信と表示を停止しました。';get('feedback').dataset.error='false';}
-  catch(error){if(error instanceof Error&&error.message==='SETTINGS_CONFLICT')await this.load();this.feedback(error);}
+  if(!this.current||this.busy)return;const baseline=this.current,draft=this.read();this.busy=true;get<HTMLButtonElement>('save').disabled=true;
+  try{
+   // The generation covers all settings. An unrelated camera or studio edit
+   // must not invalidate this draft; another Misskey edit still needs review.
+   const current=await this.client.misskeySettings();if(this.stopped||this.current!==baseline)return;
+   if(JSON.stringify(current.settings)!==JSON.stringify(baseline.settings))throw new Error('SETTINGS_CONFLICT');
+   const next=await this.client.setMisskeySettings(draft,current.generation);if(this.stopped||this.current!==baseline)return;
+   this.current=next;this.fill(next.settings);get('feedback').textContent=next.settings.enabled?'保存しました。接続状況は上に表示します。':'保存しました。受信と表示を停止しました。';get('feedback').dataset.error='false';
+  }
+  catch(error){if(this.stopped||this.current!==baseline)return;if(error instanceof Error&&error.message==='SETTINGS_CONFLICT')await this.load();this.feedback(error);}
   finally{this.busy=false;get<HTMLButtonElement>('save').disabled=!this.current;}
  }
  private async control(action:'clear'|'pause',paused?:boolean):Promise<void>{

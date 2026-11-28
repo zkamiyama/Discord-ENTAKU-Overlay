@@ -164,3 +164,49 @@ test('cancelling image decoding closes a late bitmap instead of publishing it',a
   expect(await result).toEqual(Error('superseded'));expect(closed).toBe(1);
  }finally{globalThis.fetch=originalFetch;globalThis.createImageBitmap=originalDecode;client.disconnect();}
 });
+
+test('saved environment preview connects to its own stream and never sends commands or chat subscriptions',async()=>{
+ const originalLocation=Object.getOwnPropertyDescriptor(globalThis,'location'),originalFetch=globalThis.fetch;
+ Object.defineProperty(globalThis,'location',{configurable:true,value:new URL('https://127.0.0.1/overlay?environment=preview')});
+ const socket=new FakeSocket();let url='',fetches=0;
+ const client=new StudioClient(value=>{url=value;return socket as unknown as WebSocket;});
+ globalThis.fetch=(async()=>{fetches++;throw new Error('UNEXPECTED_FETCH');}) as unknown as typeof fetch;
+ try{
+  client.watchChat();client.watchMisskey();client.connect();synchronize(socket);
+  expect(url).toBe('wss://127.0.0.1/ws?environment=preview');expect(client.connected).toBe(true);
+  expect(socket.sent.some(message=>/vc-chat-subscribe|misskey-subscribe/.test(message))).toBe(false);
+  await expect(client.command({type:'wide'})).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  await expect(client.controlMisskey('clear')).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  await expect(client.importImage(new Blob())).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  await expect(client.exportEnvironment({theme:'dark',expectedRevision:0,expectedGeneration:0})).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  expect(fetches).toBe(0);
+ }finally{
+  globalThis.fetch=originalFetch;client.disconnect();
+  if(originalLocation)Object.defineProperty(globalThis,'location',originalLocation);else Reflect.deleteProperty(globalThis,'location');
+ }
+});
+
+test('environment replies cannot outlive their connection or the selected archive',async()=>{
+ const {client,sockets}=fixture(),originalFetch=globalThis.fetch;
+ let resolve!:(response:Response)=>void,signal:AbortSignal|undefined;
+ globalThis.fetch=((_url:unknown,init?:RequestInit)=>{signal=init?.signal??undefined;return new Promise<Response>(done=>{resolve=done;});}) as typeof fetch;
+ try{
+  const file=new File(['archive'],'environment.zip');client.connect();synchronize(sockets[0]!);
+  const oldConnection=client.inspectEnvironment(file);client.connect();synchronize(sockets[1]!);expect(signal?.aborted).toBe(true);
+  resolve(Response.json({summary:{},revision:0,generation:0}));await expect(oldConnection).rejects.toThrow('操作結果は再同期後の状態で確認してください');
+  const selection=new AbortController(),oldSelection=client.inspectEnvironment(file,selection.signal);
+  selection.abort(new Error('ARCHIVE_SELECTION_CHANGED'));expect(signal?.aborted).toBe(true);
+  resolve(Response.json({summary:{},revision:0,generation:0}));await expect(oldSelection).rejects.toThrow('ARCHIVE_SELECTION_CHANGED');
+ }finally{globalThis.fetch=originalFetch;client.disconnect();}
+});
+
+test('saved standard icons use local assets and retain the Discord icon texture orientation',async()=>{
+ const {client}=fixture(),originalFetch=globalThis.fetch,originalDecode=globalThis.createImageBitmap;
+ const urls:string[]=[],orientations:(ImageOrientation|undefined)[]=[];
+ globalThis.fetch=(async(input:unknown)=>{urls.push(String(input));return new Response(new Uint8Array([1]));}) as typeof fetch;
+ globalThis.createImageBitmap=(async(_blob:ImageBitmapSource,options?:ImageBitmapOptions)=>{orientations.push(options?.imageOrientation);return {close(){}} as ImageBitmap;}) as typeof createImageBitmap;
+ try{
+  await client.avatar('100',undefined,'a'.repeat(64));await client.avatar('100');
+  expect(urls).toEqual(['/api/assets/'+'a'.repeat(64),'/api/avatars/100']);expect(orientations).toEqual(['flipY','flipY']);
+ }finally{globalThis.fetch=originalFetch;globalThis.createImageBitmap=originalDecode;client.disconnect();}
+});

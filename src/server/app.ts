@@ -12,6 +12,9 @@ import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {MisskeyFeed} from '../misskey/feed.ts';
 import {MisskeyStream} from '../misskey/stream.ts';
 import {misskeyRoutes} from './routes/misskey.ts';
+import {environmentRoutes} from './routes/environment.ts';
+import {EnvironmentService} from './environment-service.ts';
+import {ENVIRONMENT_LIMITS} from '../environment/types.ts';
 import {PresetStore} from '../presets/store.ts';
 import { DiagnosticJournal } from '../diagnostics/journal.ts';
 import { ProviderRecording } from '../diagnostics/recording.ts';
@@ -26,7 +29,7 @@ import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { chat?:boolean; misskey?:boolean; messages: number; windowStart: number; frame?:number }
+interface SocketData { environmentPreview?:boolean; chat?:boolean; misskey?:boolean; messages: number; windowStart: number; frame?:number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
@@ -59,6 +62,7 @@ export function startServer(options: ServerOptions) {
   const customAssets = options.avatarStore ?? new AvatarStore();
   const settingsStore=options.settingsStore??new SettingsStore(null,{studio:engine.snapshot().studio,avatarProfiles:engine.avatarProfiles(),preferences:null});
   const settings=new SettingsService(engine,settingsStore,studioStore,customAssets,presets,now);
+  const environment=new EnvironmentService(engine,settingsStore,studioStore,customAssets,avatars,now);
   const misskey=options.misskey??new MisskeyFeed(settingsStore.snapshot().misskey);
   const misskeyStream=options.misskeyStream===undefined?new MisskeyStream(misskey):options.misskeyStream;
   // The single writer protects validation and settings transactions; bounded admission also
@@ -76,9 +80,14 @@ export function startServer(options: ServerOptions) {
 
   let broadcastAt = -Infinity;
   const stream=new StatePublisher();
+  const previewStream=new StatePublisher();
+  const resetUnusedStreams=():void=>{
+    if(![...clients].some(socket=>!socket.data.environmentPreview))stream.reset();
+    if(![...clients].some(socket=>socket.data.environmentPreview))previewStream.reset();
+  };
   const closeSocket=(socket:ServerWebSocket<SocketData>,code:number,reason:string):void=>{
     clients.delete(socket);reports.delete(socket);
-    if(!clients.size)stream.reset();
+    resetUnusedStreams();
     try{socket.close(code,reason);}catch{/* A failed connection cannot interrupt another client or a committed command. */}
   };
   const sendEncoded = (socket: ServerWebSocket<SocketData>, message: string): boolean => {
@@ -94,25 +103,37 @@ export function startServer(options: ServerOptions) {
   const broadcast = (): void => {
     if(stopping)return;
     const time=now();
-    if(clients.size){
+    const live=[...clients].filter(socket=>!socket.data.environmentPreview);
+    const previews=[...clients].filter(socket=>socket.data.environmentPreview);
+    if(live.length){
       const state=engine.snapshot(time),playback=options.replay?.status();journal.state(state);
       const packet=stream.publish({...state,clockRate:playback?(playback.paused||playback.seeking?0:playback.rate):1});
-      for(const socket of clients){
+      for(const socket of live){
         const message=socket.data.frame===packet.base&&packet.delta!==undefined?packet.delta:packet.full();
         socket.data.frame=sendEncoded(socket,message)?packet.frame:undefined;
       }
     }else journal.state(engine.journalState(time));
+    if(previews.length){
+      const state=environment.previewSnapshot(time);
+      if(state){
+        const packet=previewStream.publish({...state,clockRate:1});
+        for(const socket of previews){
+          const message=socket.data.frame===packet.base&&packet.delta!==undefined?packet.delta:packet.full();
+          socket.data.frame=sendEncoded(socket,message)?packet.frame:undefined;
+        }
+      }else for(const socket of previews)closeSocket(socket,1008,'ENVIRONMENT_PREVIEW_UNAVAILABLE');
+    }
     broadcastAt=performance.now();
   };
   const sendFull=(socket:ServerWebSocket<SocketData>):void=>{
-    const packet=stream.latest;
+    const packet=(socket.data.environmentPreview?previewStream:stream).latest;
     if(!packet){broadcast();return;}
     socket.data.frame=sendEncoded(socket,packet.full())?packet.frame:undefined;
   };
-  const context={options,now,settings,studioStore,customAssets,presets,avatars,recording,vcChat,misskey,misskeyStream,diagnostic,broadcast,serial};
-  const routes=[statusRoutes(context),misskeyRoutes(context),assetRoutes(context),commandRoute(context)];
+  const context={options,now,settings,environment,studioStore,customAssets,presets,avatars,recording,vcChat,misskey,misskeyStream,diagnostic,broadcast,serial};
+  const routes=[statusRoutes(context),misskeyRoutes(context),environmentRoutes(context),assetRoutes(context),commandRoute(context)];
   const server = Bun.serve<SocketData>({
-    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes) + 1024*1024,
+    hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes,ENVIRONMENT_LIMITS.archiveBytes) + 1024*1024,
     async fetch(request, server) {
       if(stopping)return json({error:'SERVER_STOPPING'},503);
       if (!validHost(request, server.port!)) return json({ error: 'HOST_REJECTED' }, 403);
@@ -120,7 +141,9 @@ export function startServer(options: ServerOptions) {
       if (url.pathname === '/ws') {
         if (request.method !== 'GET' || !validOrigin(request, server.port!)) return json({ error: 'ORIGIN_REJECTED' }, 403);
         if (clients.size >= 8) return json({ error: 'CLIENT_LIMIT' }, 429);
-        return server.upgrade(request, { data: { messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
+        const environmentPreview=url.searchParams.get('environment')==='preview';
+        if(environmentPreview&&!environment.status().previewAvailable)return json({error:'ENVIRONMENT_PREVIEW_UNAVAILABLE'},409);
+        return server.upgrade(request, { data: { environmentPreview,messages: 0, windowStart: performance.now() } }) ? undefined : json({ error: 'UPGRADE_REQUIRED' }, 400);
       }
       for(const route of routes){const response=await route(request,url,server.port!);if(response)return response;}
       if (request.method === 'GET' && url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
@@ -149,16 +172,16 @@ export function startServer(options: ServerOptions) {
           if (typeof message !== 'string') throw new Error();
           const p = JSON.parse(message) as Record<string,unknown>;
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
-          else if(p.type==='vc-chat-subscribe'){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
-          else if(p.type==='misskey-subscribe'){socket.data.misskey=true;send(socket,{type:'misskey',state:misskey.snapshot()});}
+          else if(p.type==='vc-chat-subscribe'&&!socket.data.environmentPreview){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
+          else if(p.type==='misskey-subscribe'&&!socket.data.environmentPreview){socket.data.misskey=true;send(socket,{type:'misskey',state:misskey.snapshot()});}
           else if(p.type==='render-status'){
-            reports.set(socket,parseRenderReport(p,performance.now()));
+            if(!socket.data.environmentPreview)reports.set(socket,parseRenderReport(p,performance.now()));
           }
           else if (p.type === 'resync') sendFull(socket);
           else socket.close(1008, 'INVALID_MESSAGE');
         } catch { socket.close(1008, 'INVALID_MESSAGE'); }
       },
-      close(socket) { clients.delete(socket); reports.delete(socket);if(!clients.size)stream.reset(); },
+      close(socket) { clients.delete(socket); reports.delete(socket);resetUnusedStreams(); },
     },
     error() { return json({ error: 'INTERNAL_ERROR' }, 500); },
   });
