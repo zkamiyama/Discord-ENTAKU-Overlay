@@ -20,6 +20,7 @@
 | カメラ・席 | [RC.15](rc15-controls-and-camera.md)、[発話終了](rc11-speech-end.md)、[分割](rc10-dialogue-split.md)、[プリセットと席](rc12-presets-and-seats.md) |
 | 環境の共有 | [環境パッケージ](environment-package.md)（書き出し・内容確認・適用・保存時プレビュー）、[ADR 0032](adr/0032-portable-environment-packages.md)（形式・整合検査・Discord画像の扱い） |
 | Discord | [認証とスタジオ](rc13-auth-and-studio.md)、[VC-CHAT](rc14-vc-chat.md)、[チャット検証](vc-chat-probe.md) |
+| ノート紹介 | [VCチャットからの紹介](note-introduction.md)（JSON設定・差し替え・取り下げ・全文表示）、[ADR 0033](adr/0033-vc-note-introduction.md)（変更通知と画面上のカード） |
 | Misskey | [ハッシュタグ受信・3Dカード](misskey-hashtag-cards.md)（設定、制限、荒らし対策、実験）、[ADR 0029](adr/0029-public-hashtag-cards.md)（初期設計）、[ADR 0030](adr/0030-tilted-cards-and-phrase-moderation.md)（平面メッシュ、フレーズ反復）、[ADR 0031](adr/0031-screen-parallel-cards.md)（装飾の傾きを除き、各画面に平行な姿勢） |
 
 ## 過去の検証記録

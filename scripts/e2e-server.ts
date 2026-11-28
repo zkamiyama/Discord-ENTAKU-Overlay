@@ -6,6 +6,7 @@ import {MisskeyFeed} from '../src/misskey/feed.ts';
 import {DEFAULT_MISSKEY_SETTINGS} from '../src/misskey/settings.ts';
 import {SettingsStore} from '../src/storage/settings-store.ts';
 import {defaultSettings} from '../src/storage/settings-schema.ts';
+import {NoteIntroductionFeed} from '../src/note-introduction/feed.ts';
 const start=performance.now();
 const engine=new AppEngine({source:'demo',serverEpoch:'e2e-only'});
 for(const event of demoEvents())engine.apply(event);
@@ -16,11 +17,37 @@ let misskeyClock=Date.now()-20_000,misskeyId=0;
 const misskeySettings={...DEFAULT_MISSKEY_SETTINGS,enabled:syntheticMisskey,lifetimeMs:120_000};
 const misskey=new MisskeyFeed(misskeySettings,syntheticMisskey?()=>misskeyClock:Date.now);
 const settingsStore=new SettingsStore(null,{...defaultSettings(),misskey:misskeySettings});
+const syntheticIntroductions=process.env.ENTAKU_E2E_NOTE_INTRODUCTION==='1';
+const introductionNotes=new Map<string,{note:unknown;delayMs:number;status:number;headers:Record<string,string>}>();
+const introductionRequests:Array<{id:string;url:string;at:number}>=[];
+const noteIntroduction=syntheticIntroductions?new NoteIntroductionFeed(settingsStore.snapshot().noteIntroduction,{
+ fetch:(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const {noteId}=JSON.parse(String(init?.body)),fixture=introductionNotes.get(noteId);
+  introductionRequests.push({id:String(noteId),url:String(input),at:performance.now()});
+  // Deliberately ignore abort here, so browser tests can exercise stale results.
+  if(fixture?.delayMs)await Bun.sleep(fixture.delayMs);
+  return Response.json(fixture?.note??{id:noteId,user:{id:'note-author',username:'creator',name:'映像実験室'},
+   visibility:'public',cw:null,files:[],createdAt:'2026-11-28T00:00:00.000Z',text:`音と映像が重なる、この瞬間が好き。 #NicoMiss (${noteId})`},
+   {status:fixture?.status??200,headers:fixture?.headers??{}});
+ }) as typeof fetch,
+}):undefined;
 if(syntheticMisskey)misskey.setConnection('live');
-const app=startServer({vcChat,engine,misskey,misskeyStream:null,settingsStore,assets:await Bun.file('.generated/web-assets.json').json(),port:31339,now:()=>performance.now()-start});
+const app=startServer({vcChat,engine,misskey,misskeyStream:null,noteIntroduction,settingsStore,assets:await Bun.file('.generated/web-assets.json').json(),port:31339,now:()=>performance.now()-start});
 // Synthetic chat controller exists only in this E2E entry point, never in the app.
 let controller:ReturnType<typeof Bun.serve>|undefined;
 let misskeyController:ReturnType<typeof Bun.serve>|undefined;
+let introductionController:ReturnType<typeof Bun.serve>|undefined;
+if(syntheticIntroductions){
+ introductionController=Bun.serve({hostname:'127.0.0.1',port:31342,maxRequestBodySize:128*1024,async fetch(request){
+  if(request.method==='GET')return Response.json({requests:introductionRequests,state:noteIntroduction!.snapshot()});
+  if(request.method!=='POST')return new Response('',{status:405});
+  const data=await request.json();
+  if(data.action!=='seed'||typeof data.id!=='string')return Response.json({error:'FIXTURE_REQUEST_INVALID'},{status:422});
+  introductionNotes.set(data.id,{note:data.note??{id:data.id,user:{id:'note-author',username:'creator',name:'映像実験室'},visibility:'public',cw:null,
+   files:[],createdAt:'2026-11-28T00:00:00.000Z',text:data.text??'合成ノート'},delayMs:Math.max(0,Math.min(8000,Number(data.delayMs)||0)),status:data.status??200,headers:data.headers??{}});
+  return Response.json({ok:true});
+ }});
+}
 if(syntheticMisskey){
  misskeyController=Bun.serve({hostname:'127.0.0.1',port:31341,maxRequestBodySize:65536,async fetch(request){
   if(request.method!=='POST')return new Response('',{status:405});const data=await request.json();
@@ -54,5 +81,5 @@ if(process.env.ENTAKU_E2E_CHAT==='1'){
  }});
 }
 console.log('ENTAKU_E2E_READY');
-const stop=()=>{void controller?.stop(true);void misskeyController?.stop(true);void app.stop().then(()=>process.exit(0));};
+const stop=()=>{void controller?.stop(true);void misskeyController?.stop(true);void introductionController?.stop(true);void app.stop().then(()=>process.exit(0));};
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

@@ -1,5 +1,6 @@
 import {expect,test} from 'bun:test';
 import {StatePublisher} from '../../src/contracts/state-stream.ts';
+import type {NoteIntroductionSettings,NoteIntroductionState} from '../../src/contracts/note-introduction.ts';
 import {AppEngine} from '../../src/domain/engine.ts';
 import {StudioClient} from '../../src/web/shared/client.ts';
 
@@ -24,6 +25,15 @@ function synchronize(socket:FakeSocket):void{
  socket.receive({type:'hello'});
  socket.receive(JSON.parse(new StatePublisher().publish(new AppEngine({source:'demo',serverEpoch:'test'}).snapshot()).full()));
 }
+const noteIntroductionSettings:NoteIntroductionSettings={schemaVersion:1,enabled:true,instances:['https://example.org'],includeHome:false};
+function introducedNote(revision:number,id='note1'):NoteIntroductionState {
+ return {revision,status:'showing',pendingUrl:null,errorCode:null,retryAt:null,card:{
+  presentationId:revision,id,url:`https://example.org/notes/${id}`,instanceUrl:'https://example.org',
+  userId:'user1',username:'listener',authorName:'視聴者',userHost:null,text:'紹介するノート',
+  createdAt:'2026-11-28T00:00:00.000Z',attachmentCount:0,sourceMessageId:'100',sourceChannelId:'200',introducedBy:'出演者',
+ }};
+}
+const emptyIntroduction=(revision:number):NoteIntroductionState=>({revision,status:'idle',pendingUrl:null,errorCode:null,retryAt:null,card:null});
 test('late events from a replaced WebSocket cannot reset state or create reconnects',async()=>{
   const {client,sockets}=fixture();
   try{
@@ -172,11 +182,13 @@ test('saved environment preview connects to its own stream and never sends comma
  const client=new StudioClient(value=>{url=value;return socket as unknown as WebSocket;});
  globalThis.fetch=(async()=>{fetches++;throw new Error('UNEXPECTED_FETCH');}) as unknown as typeof fetch;
  try{
-  client.watchChat();client.watchMisskey();client.connect();synchronize(socket);
+  client.watchChat();client.watchMisskey();client.watchNoteIntroduction();client.connect();synchronize(socket);
   expect(url).toBe('wss://127.0.0.1/ws?environment=preview');expect(client.connected).toBe(true);
-  expect(socket.sent.some(message=>/vc-chat-subscribe|misskey-subscribe/.test(message))).toBe(false);
+  expect(socket.sent.some(message=>/vc-chat-subscribe|misskey-subscribe|note-introduction-subscribe/.test(message))).toBe(false);
   await expect(client.command({type:'wide'})).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
   await expect(client.controlMisskey('clear')).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  await expect(client.dismissNoteIntroduction(1)).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
+  await expect(client.setNoteIntroductionSettings(noteIntroductionSettings,1)).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
   await expect(client.importImage(new Blob())).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
   await expect(client.exportEnvironment({theme:'dark',expectedRevision:0,expectedGeneration:0})).rejects.toThrow('ENVIRONMENT_PREVIEW_READ_ONLY');
   expect(fetches).toBe(0);
@@ -209,4 +221,82 @@ test('saved standard icons use local assets and retain the Discord icon texture 
   await client.avatar('100',undefined,'a'.repeat(64));await client.avatar('100');
   expect(urls).toEqual(['/api/assets/'+'a'.repeat(64),'/api/avatars/100']);expect(orientations).toEqual(['flipY','flipY']);
  }finally{globalThis.fetch=originalFetch;globalThis.createImageBitmap=originalDecode;client.disconnect();}
+});
+
+test('note introductions subscribe independently, reject malformed data and reset with their socket owner',()=>{
+ const {client,sockets}=fixture(),updates:(NoteIntroductionState|null)[]=[];
+ client.onNoteIntroduction=state=>updates.push(state);
+ try{
+  client.connect();const first=sockets[0]!;synchronize(first);
+  expect(first.sent.some(message=>message.includes('note-introduction-subscribe'))).toBe(false);
+  first.receive({type:'note-introduction',state:introducedNote(5)});expect(client.noteIntroduction).toBeNull();
+  client.watchNoteIntroduction();expect(first.sent.filter(message=>message.includes('note-introduction-subscribe'))).toHaveLength(1);
+  first.receive({type:'note-introduction',state:introducedNote(5)});expect(client.noteIntroduction).toEqual(introducedNote(5));
+  const count=updates.length;
+  first.receive({type:'note-introduction',state:emptyIntroduction(4)});expect(updates).toHaveLength(count);expect(client.noteIntroduction?.card?.id).toBe('note1');
+  const malformed=introducedNote(6);malformed.card!.url='javascript:alert(1)';
+  first.receive({type:'note-introduction',state:malformed});expect(client.noteIntroduction).toBeNull();expect(updates.at(-1)).toBeNull();
+  first.receive({type:'note-introduction',state:introducedNote(7)});
+  const delayed=first.onmessage!;client.connect();expect(client.noteIntroduction).toBeNull();expect(updates.at(-1)).toBeNull();
+  const second=sockets[1]!;synchronize(second);expect(second.sent.filter(message=>message.includes('note-introduction-subscribe'))).toHaveLength(1);
+  // A restarted feed may begin a fresh revision sequence on the new connection.
+  second.receive({type:'note-introduction',state:introducedNote(1,'current')});
+  delayed.call(first as unknown as WebSocket,{data:JSON.stringify({type:'note-introduction',state:introducedNote(100,'old')})} as MessageEvent);
+  expect(client.noteIntroduction?.card?.id).toBe('current');
+  client.disconnect();expect(client.noteIntroduction).toBeNull();expect(updates.at(-1)).toBeNull();
+ }finally{client.disconnect();}
+});
+
+test('dismiss uses the displayed revision, preserves newer notes and refreshes after a conflict',async()=>{
+ const {client,sockets}=fixture(),originalFetch=globalThis.fetch;
+ let resolve!:(response:Response)=>void,requestUrl='',requestBody:unknown;
+ globalThis.fetch=((url:unknown,init?:RequestInit)=>{
+  requestUrl=String(url);requestBody=JSON.parse(String(init?.body));return new Promise<Response>(done=>{resolve=done;});
+ }) as typeof fetch;
+ try{
+  client.watchNoteIntroduction();client.connect();const socket=sockets[0]!;synchronize(socket);
+  socket.receive({type:'note-introduction',state:introducedNote(5)});
+  const pending=client.dismissNoteIntroduction(client.noteIntroduction!.revision);
+  expect(requestUrl).toBe('/api/note-introduction/control');expect(requestBody).toEqual({action:'dismiss',revision:5});
+  expect(client.noteIntroduction?.card?.id).toBe('note1');
+  socket.receive({type:'note-introduction',state:introducedNote(7,'newer')});
+  resolve(Response.json({ok:true,state:emptyIntroduction(6)}));await pending;
+  expect(client.noteIntroduction?.card?.id).toBe('newer');
+  const subscriptions=socket.sent.filter(message=>message.includes('note-introduction-subscribe')).length;
+  globalThis.fetch=(async()=>Response.json({error:'NOTE_INTRODUCTION_CONFLICT'},{status:409})) as unknown as typeof fetch;
+  await expect(client.dismissNoteIntroduction(6)).rejects.toThrow('NOTE_INTRODUCTION_CONFLICT');
+  expect(socket.sent.filter(message=>message.includes('note-introduction-subscribe'))).toHaveLength(subscriptions+1);
+  expect(client.noteIntroduction?.card?.id).toBe('newer');
+ }finally{globalThis.fetch=originalFetch;client.disconnect();}
+});
+
+test('a note control reply cannot affect a replacement connection',async()=>{
+ const {client,sockets}=fixture(),originalFetch=globalThis.fetch;
+ let resolve!:(response:Response)=>void,signal:AbortSignal|undefined;
+ globalThis.fetch=((_url:unknown,init?:RequestInit)=>{signal=init?.signal??undefined;return new Promise<Response>(done=>{resolve=done;});}) as typeof fetch;
+ try{
+  client.watchNoteIntroduction();client.connect();synchronize(sockets[0]!);
+  sockets[0]!.receive({type:'note-introduction',state:introducedNote(50)});const pending=client.dismissNoteIntroduction(50);
+  client.connect();synchronize(sockets[1]!);expect(signal?.aborted).toBe(true);
+  sockets[1]!.receive({type:'note-introduction',state:introducedNote(1,'fresh')});
+  resolve(Response.json({ok:true,state:emptyIntroduction(51)}));await expect(pending).rejects.toThrow('操作結果は再同期後の状態で確認してください');
+  expect(client.noteIntroduction?.card?.id).toBe('fresh');
+ }finally{globalThis.fetch=originalFetch;client.disconnect();}
+});
+
+test('note settings carry the settings generation and validate server responses',async()=>{
+ const {client,sockets}=fixture(),originalFetch=globalThis.fetch,calls:{url:string;init?:RequestInit}[]=[];
+ let response:unknown={generation:12,settings:noteIntroductionSettings};
+ globalThis.fetch=(async(url:unknown,init?:RequestInit)=>{calls.push({url:String(url),init});return Response.json(response);}) as typeof fetch;
+ try{
+  await expect(client.noteIntroductionSettings()).rejects.toThrow('サーバーとの接続を確認してください');expect(calls).toHaveLength(0);
+  client.connect();synchronize(sockets[0]!);
+  expect(await client.noteIntroductionSettings()).toEqual({generation:12,settings:noteIntroductionSettings});expect(calls[0]!.url).toBe('/api/note-introduction/settings');
+  const next={...noteIntroductionSettings,enabled:false};response={generation:13,settings:next};
+  expect(await client.setNoteIntroductionSettings(next,12)).toEqual({generation:13,settings:next});
+  expect(calls[1]!.init?.method).toBe('POST');expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({settings:next,generation:12});
+  response={generation:1.5,settings:next};await expect(client.noteIntroductionSettings()).rejects.toThrow('NOTE_INTRODUCTION_SETTINGS_INVALID');
+  response={generation:14,settings:{...next,instances:['javascript:alert(1)']}};
+  await expect(client.noteIntroductionSettings()).rejects.toThrow('NOTE_INTRODUCTION_SETTINGS_INVALID');
+ }finally{globalThis.fetch=originalFetch;client.disconnect();}
 });

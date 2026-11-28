@@ -8,6 +8,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { parseOptions, HELP } from './cli-options.ts';
+import {readNoteIntroductionConfig} from './note-introduction/config-file.ts';
 import { AppEngine } from './domain/engine.ts';
 import { SettingsStore } from './storage/settings-store.ts';
 import { SessionWriter } from './storage/session-writer.ts';
@@ -42,6 +43,10 @@ export async function main(embeddedAssets?: WebAssets, compiled=false, args=proc
   const writableDirectory=options.safeMode||options.mode==='replay'?null:dataDir;
   const settingsStore=new SettingsStore(writableDirectory);
   const {studio,avatarProfiles,preferences}=await settingsStore.initialize();
+  if(options.noteIntroductionConfigPath){
+    const noteIntroduction=await readNoteIntroductionConfig(resolve(options.noteIntroductionConfigPath));
+    settingsStore.commit({...settingsStore.snapshot(),noteIntroduction});
+  }
   const sessions=replay?.session?[replay.session]:options.mode==='replay'?[]:settingsStore.loadSessions(options.mode);
   const avatarStore=new AvatarStore(writableDirectory),studioStore=new StudioStore(writableDirectory),presets=new PresetStore(writableDirectory);
   await Promise.all([avatarStore.initialize(),studioStore.initialize(),presets.list()]);

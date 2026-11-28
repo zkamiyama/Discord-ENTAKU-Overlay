@@ -28,6 +28,7 @@ add('START-HERE.md',await readFile('docs/getting-started.md'));
 add('README.md',await readFile('README.md'));
 add('LICENSE',await readFile('LICENSE'));
 add('THIRD_PARTY_NOTICES.md',await readFile('THIRD_PARTY_NOTICES.md'));
+add('config/note-introduction.json',await readFile('config/note-introduction.json'));
 for(const [target,source] of Object.entries({
   'licenses/Bun-LICENSE.md':'licenses/Bun-LICENSE.md',
   'licenses/Apache-2.0.txt':'licenses/Apache-2.0.txt',

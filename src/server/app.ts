@@ -11,6 +11,8 @@ import {SettingsStore} from '../storage/settings-store.ts';
 import {VcChatFeed} from '../chat/vc-chat-feed.ts';
 import {MisskeyFeed} from '../misskey/feed.ts';
 import {MisskeyStream} from '../misskey/stream.ts';
+import {NoteIntroductionFeed} from '../note-introduction/feed.ts';
+import {noteIntroductionRoutes} from './routes/note-introduction.ts';
 import {misskeyRoutes} from './routes/misskey.ts';
 import {environmentRoutes} from './routes/environment.ts';
 import {EnvironmentService} from './environment-service.ts';
@@ -29,7 +31,7 @@ import { validHost, validOrigin } from './security.ts';
 import { AvatarCache } from './avatar-cache.ts';
 export interface WebAsset { body: string; type: string; encoding?: 'base64' }
 export type WebAssets = Record<string, WebAsset>;
-interface SocketData { environmentPreview?:boolean; chat?:boolean; misskey?:boolean; messages: number; windowStart: number; frame?:number }
+interface SocketData { environmentPreview?:boolean; chat?:boolean; misskey?:boolean; noteIntroduction?:boolean; messages: number; windowStart: number; frame?:number }
 export interface ServerOptions {
   engine: AppEngine; assets: WebAssets; port: number;
   now?: () => number; tick?: () => void; onChange?: () => void;
@@ -38,6 +40,7 @@ export interface ServerOptions {
   misskey?: MisskeyFeed;
   /** Inject null for an externally managed or synthetic feed. */
   misskeyStream?: MisskeyStream|null;
+  noteIntroduction?:NoteIntroductionFeed;
   avatarStore?: AvatarStore;
   studioStore?: StudioStore;
   presets?: PresetStore;
@@ -65,6 +68,8 @@ export function startServer(options: ServerOptions) {
   const environment=new EnvironmentService(engine,settingsStore,studioStore,customAssets,avatars,now);
   const misskey=options.misskey??new MisskeyFeed(settingsStore.snapshot().misskey);
   const misskeyStream=options.misskeyStream===undefined?new MisskeyStream(misskey):options.misskeyStream;
+  const noteIntroduction=options.noteIntroduction??new NoteIntroductionFeed(settingsStore.snapshot().noteIntroduction);
+  const offChatChanges=vcChat.observeChanges(change=>noteIntroduction.accept(change));
   // The single writer protects validation and settings transactions; bounded admission also
   // protects the process from retaining unlimited uploaded assets or commands.
   const mutations=new WorkQueue(8);
@@ -100,6 +105,7 @@ export function startServer(options: ServerOptions) {
   const send = (socket: ServerWebSocket<SocketData>, message: unknown): void => {sendEncoded(socket, JSON.stringify(message));};
   const offChat=vcChat.observe(state=>{const message=JSON.stringify({type:'vc-chat',state});for(const socket of clients)if(socket.data.chat)sendEncoded(socket,message);});
   const offMisskey=misskey.observe(state=>{const message=JSON.stringify({type:'misskey',state});for(const socket of clients)if(socket.data.misskey)sendEncoded(socket,message);});
+  const offIntroduction=noteIntroduction.observe(state=>{const message=JSON.stringify({type:'note-introduction',state});for(const socket of clients)if(socket.data.noteIntroduction)sendEncoded(socket,message);});
   const broadcast = (): void => {
     if(stopping)return;
     const time=now();
@@ -130,8 +136,8 @@ export function startServer(options: ServerOptions) {
     if(!packet){broadcast();return;}
     socket.data.frame=sendEncoded(socket,packet.full())?packet.frame:undefined;
   };
-  const context={options,now,settings,environment,studioStore,customAssets,presets,avatars,recording,vcChat,misskey,misskeyStream,diagnostic,broadcast,serial};
-  const routes=[statusRoutes(context),misskeyRoutes(context),environmentRoutes(context),assetRoutes(context),commandRoute(context)];
+  const context={options,now,settings,environment,studioStore,customAssets,presets,avatars,recording,vcChat,misskey,misskeyStream,noteIntroduction,diagnostic,broadcast,serial};
+  const routes=[statusRoutes(context),misskeyRoutes(context),noteIntroductionRoutes(context),environmentRoutes(context),assetRoutes(context),commandRoute(context)];
   const server = Bun.serve<SocketData>({
     hostname: '127.0.0.1', port: options.port, maxRequestBodySize: Math.max(MAX_STUDIO_UNPACKED_BYTES,GAUSSIAN_LIMITS.unpackedBytes,ENVIRONMENT_LIMITS.archiveBytes) + 1024*1024,
     async fetch(request, server) {
@@ -174,6 +180,7 @@ export function startServer(options: ServerOptions) {
           if (p.type === 'ping' && typeof p.clientTime === 'number' && Number.isFinite(p.clientTime)) send(socket, { type: 'pong', clientTime: p.clientTime, serverTime: now() });
           else if(p.type==='vc-chat-subscribe'&&!socket.data.environmentPreview){socket.data.chat=true;send(socket,{type:'vc-chat',state:vcChat.snapshot()});}
           else if(p.type==='misskey-subscribe'&&!socket.data.environmentPreview){socket.data.misskey=true;send(socket,{type:'misskey',state:misskey.snapshot()});}
+          else if(p.type==='note-introduction-subscribe'&&!socket.data.environmentPreview){socket.data.noteIntroduction=true;send(socket,{type:'note-introduction',state:noteIntroduction.snapshot()});}
           else if(p.type==='render-status'){
             if(!socket.data.environmentPreview)reports.set(socket,parseRenderReport(p,performance.now()));
           }
@@ -196,7 +203,7 @@ export function startServer(options: ServerOptions) {
     urls: { overlay: `http://127.0.0.1:${server.port}/overlay`, dock: `http://127.0.0.1:${server.port}/dock` },
     stop():Promise<void> {
       return stopped??=(async()=>{
-        stopping=true;offEvents();offChat();offMisskey();misskeyStream?.stop();clearInterval(timer);
+        stopping=true;offEvents();offChat();offChatChanges();offMisskey();offIntroduction();noteIntroduction.dispose();misskeyStream?.stop();clearInterval(timer);
         const drained=mutations.close();
         for(const socket of clients)closeSocket(socket,1001,'SHUTDOWN');
         try{await server.stop(true);}finally{await drained;misskeyStream?.dispose();misskey.dispose();}

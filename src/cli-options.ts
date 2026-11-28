@@ -3,6 +3,7 @@ export interface Options {
   mode: 'demo' | 'ipc' | 'replay'; replayPath?: string; doctor: boolean; clientId?: string;
   compatibility: boolean; consent: boolean; safeMode: boolean; noOpen: boolean;
   port: number; dataDir?: string; help: boolean; version: boolean;
+  noteIntroductionConfigPath?:string;
 }
 export function parseOptions(args: readonly string[]): Options {
   const result:Options={mode:'demo',doctor:false,compatibility:false,consent:false,safeMode:false,noOpen:false,port:31337,help:false,version:false};
@@ -22,6 +23,7 @@ export function parseOptions(args: readonly string[]): Options {
     else if(arg==='--safe-mode')result.safeMode=true;
     else if(arg==='--no-open')result.noOpen=true;
     else if(arg==='--data-dir')result.dataDir=value();
+    else if(arg==='--note-introduction-config')result.noteIntroductionConfigPath=value();
     else if(arg==='--client-id'){result.clientId=value();if(!/^\d{1,20}$/.test(result.clientId))throw new Error('INVALID_CLIENT_ID');}
     else if(arg==='--port'){const v=value();if(!/^\d+$/.test(v))throw new Error('INVALID_PORT');result.port=Number(v);if(result.port<0||result.port>65535)throw new Error('INVALID_PORT');}
     else throw new Error('UNKNOWN_ARGUMENT');
@@ -43,6 +45,7 @@ Usage:
 
 Options:
   --data-dir DIRECTORY       External settings and reserved seats
+  --note-introduction-config FILE  Import note-introduction JSON settings at startup
   --safe-mode                Fresh in-memory settings; existing data is not changed
   --no-open                  Do not open the Dock in a browser
   --doctor                   Offline environment report; no authorization

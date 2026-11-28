@@ -10,12 +10,14 @@ import type {MisskeyFeed} from '../../misskey/feed.ts';
 import type {MisskeyStream} from '../../misskey/stream.ts';
 import type {RuntimeDiagnostics} from '../../contracts/diagnostics.ts';
 import type {EnvironmentService} from '../environment-service.ts';
+import type {NoteIntroductionFeed} from '../../note-introduction/feed.ts';
 export interface RouteContext {
  options:ServerOptions;now:()=>number;settings:SettingsService;studioStore:StudioStore;
  customAssets:AvatarStore;presets:PresetStore;avatars:AvatarCache;recording:ProviderRecording;
  vcChat:VcChatFeed;diagnostic:()=>RuntimeDiagnostics;broadcast:()=>void;
  misskey:MisskeyFeed;misskeyStream:MisskeyStream|null;
  environment:EnvironmentService;
+ noteIntroduction:NoteIntroductionFeed;
  serial:(work:()=>Promise<Response>,signal?:AbortSignal)=>Promise<Response>;
 }
 export type HttpRoute=(request:Request,url:URL,port:number)=>Promise<Response|undefined>;

@@ -1,0 +1,16 @@
+#note-introduction-layer{position:fixed;inset:0;z-index:10;pointer-events:none;overflow:hidden}
+#note-introduction{position:absolute;left:10vw;bottom:clamp(12px,3vh,40px);width:80vw;max-height:50vh;box-sizing:border-box;margin:0;color:#19283b;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Meiryo,"Noto Sans CJK JP",sans-serif;text-align:left;isolation:isolate}
+#note-introduction[hidden],#note-introduction [hidden]{display:none!important}
+.note-introduction-card{box-sizing:border-box;width:100%;padding:clamp(16px,1.65vw,30px);border:1px solid #ffffffe6;border-radius:clamp(16px,1.3vw,24px);background:linear-gradient(115deg,#fbfcfff9,#f2f6fcfa);box-shadow:0 14px 50px -12px #08122247,0 2px 8px #08122212;transform-origin:top left;overflow-wrap:anywhere}
+.note-introduction-header{display:flex;align-items:center;gap:clamp(10px,.9vw,17px);min-width:0}
+.note-introduction-monogram{display:grid;place-items:center;flex:0 0 auto;width:clamp(36px,3.1vw,56px);height:clamp(36px,3.1vw,56px);border-radius:30%;background:linear-gradient(145deg,#dceaff,#e8e2ff);box-shadow:inset 0 0 0 1px #fff9;color:#375279;font-size:clamp(18px,1.7vw,30px);font-weight:650;line-height:1;overflow:hidden}
+.note-introduction-identity{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}
+.note-introduction-author{font-size:clamp(15px,1.25vw,24px);font-weight:650;line-height:1.35;unicode-bidi:plaintext}
+.note-introduction-source{font-size:clamp(10px,.78vw,15px);line-height:1.4;color:#66758a}
+.note-introduction-badge{flex:0 0 auto;padding:5px 9px;border:1px solid #9dccb366;border-radius:999px;background:#e8f3ee;color:#3e725a;font-size:clamp(10px,.72vw,14px);font-weight:600;line-height:1.2;letter-spacing:.025em}
+.note-introduction-body{margin:clamp(14px,1.25vw,24px) 0;font-size:clamp(20px,2vw,40px);font-weight:450;line-height:1.45;letter-spacing:.012em;white-space:break-spaces;overflow-wrap:anywhere;word-break:normal;unicode-bidi:plaintext;tab-size:2}
+.note-introduction-footer{display:flex;align-items:baseline;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;padding-top:clamp(10px,.9vw,16px);border-top:1px solid #748aa32b;color:#69778b;font-size:clamp(10px,.8vw,15px);line-height:1.4}
+.note-introduction-by{display:flex;align-items:baseline;gap:8px;min-width:0}
+.note-introduction-by-label{flex:0 0 auto;color:#79889c;font-size:.9em;letter-spacing:.035em}
+.note-introduction-introducer{min-width:0;color:#435775;font-weight:550;unicode-bidi:plaintext}
+.note-introduction-attachments{color:#66758a}

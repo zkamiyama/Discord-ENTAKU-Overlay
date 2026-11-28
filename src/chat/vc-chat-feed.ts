@@ -1,4 +1,4 @@
-import {CHAT_LIMIT,CHAT_BYTE_LIMIT,emptyVcChat,type VcChatMessage,type VcChatState,type VcChatStatus} from '../contracts/vc-chat.ts';
+import {CHAT_LIMIT,CHAT_BYTE_LIMIT,emptyVcChat,type ChatChange,type VcChatMessage,type VcChatState,type VcChatStatus} from '../contracts/vc-chat.ts';
 import type {RpcClient} from '../discord/rpc-client.ts';
 import {DiscordError} from '../discord/errors.ts';
 type Packet=Record<string,unknown>;
@@ -24,19 +24,24 @@ function normalize(raw:unknown,channelId:string,previous?:VcChatMessage):VcChatM
 export class VcChatFeed {
   private state:VcChatState;
   private listeners=new Set<(state:VcChatState)=>void>();
+  private changes=new Set<(change:ChatChange)=>void>();
   private off:(()=>void)|null=null;private generation=0;
   // Live changes win over GET_CHANNEL responses already in flight.
   private touched=new Set<string>();private deleted=new Set<string>();
   constructor(status:VcChatStatus='connecting',private readonly sinceUtcMs=Date.now()){this.state=emptyVcChat(status);}
   snapshot():VcChatState{return structuredClone(this.state);}
   observe(listener:(state:VcChatState)=>void):()=>void{this.listeners.add(listener);return ()=>{this.listeners.delete(listener);};}
+  observeChanges(listener:(change:ChatChange)=>void):()=>void{this.changes.add(listener);return()=>{this.changes.delete(listener);};}
+  private change(value:ChatChange):void {
+    for(const listener of this.changes)try{listener(structuredClone(value));}catch{/* Read-only consumers cannot close RPC. */}
+  }
   private publish():void {
     this.state.revision++;
     for(const listener of this.listeners)try{listener(this.snapshot());}catch{/* A UI consumer must not close RPC. */}
   }
   disconnect(status:VcChatStatus='disconnected'):void {
     ++this.generation;this.off?.();this.off=null;this.touched.clear();this.deleted.clear();
-    const revision=this.state.revision;this.state={...emptyVcChat(status),revision};this.publish();
+    const revision=this.state.revision;this.state={...emptyVcChat(status),revision};this.publish();this.change({type:'reset'});
   }
   /** Returns the CREATE subscription so the optional terminal probe shares it. */
   start(client:ChatRpc,selection:unknown,rawChannel?:unknown):Promise<unknown>|undefined {
@@ -96,10 +101,18 @@ export class VcChatFeed {
     const previous=this.state.messages.find(p=>p.id===m.id);
     if(packet.evt==='MESSAGE_CREATE'&&previous)return;
     const remove=packet.evt==='MESSAGE_DELETE'||m.blocked===true;
-    const next=remove?null:normalize(m,this.state.channelId,previous);if(!remove&&(!next||Date.parse(next.timestamp)<this.sinceUtcMs))return;
+    const next=remove?null:normalize(m,this.state.channelId,previous);
+    if(!remove&&(!next||Date.parse(next.timestamp)<this.sinceUtcMs)){
+      if(packet.evt==='MESSAGE_UPDATE'&&!previous&&Object.hasOwn(m,'content')){
+        this.touched.add(m.id);if(this.touched.size>1000)this.touched.delete(this.touched.values().next().value!);
+        this.change({type:'invalidate',messageId:m.id,channelId:this.state.channelId,...(typeof m.content==='string'?{content:text(m.content,4000)}:{})});
+      }
+      return;
+    }
     this.touched.add(m.id);if(this.touched.size>1000)this.touched.delete(this.touched.values().next().value!);
-    if(remove){this.deleted.add(m.id);if(this.deleted.size>1000)this.deleted.delete(this.deleted.values().next().value!);if(previous){this.state.messages=this.state.messages.filter(p=>p.id!==m.id);this.publish();}return;}
+    if(remove){this.deleted.add(m.id);if(this.deleted.size>1000)this.deleted.delete(this.deleted.values().next().value!);if(previous){this.state.messages=this.state.messages.filter(p=>p.id!==m.id);this.publish();}this.change({type:'delete',messageId:m.id,channelId:this.state.channelId});return;}
     if(previous&&JSON.stringify(next)===JSON.stringify(previous))return;
     this.replace([...this.state.messages.filter(p=>p.id!==m.id),next!]);this.publish();
+    this.change({type:packet.evt==='MESSAGE_CREATE'?'create':'update',message:next!,...(previous?{previous}:{})});
   }
 }

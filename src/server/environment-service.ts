@@ -121,7 +121,7 @@ export class EnvironmentService {
     }));
     for(const result of fetched)if(result.status==='rejected')throw result.reason;
     check();
-    const content=await collectEnvironmentPackage({appVersion:VERSION,createdAt:new Date().toISOString(),preset,misskey:settings.misskey,people},
+    const content=await collectEnvironmentPackage({appVersion:VERSION,createdAt:new Date().toISOString(),preset,misskey:settings.misskey,noteIntroduction:settings.noteIntroduction,people},
       {studios:this.studios,avatars:this.avatars},extraImages);
     check();
     const bytes=await exportEnvironmentPackage(content);check();return bytes;
@@ -154,7 +154,7 @@ export class EnvironmentService {
     this.engine.applyPreset(preset,request.expectedRevision,this.now(),()=>{
       const state=this.engine.snapshot(),source=this.engine.source;
       this.settings.commit({...before,studio:preset.studio,avatarProfiles:preset.avatarProfiles,preferences:presetPreferences(preset),
-        misskey:content.manifest.misskey,environment:content.manifest.people},
+        misskey:content.manifest.misskey,environment:content.manifest.people,noteIntroduction:content.manifest.noteIntroduction??before.noteIntroduction},
       state.channel&&source!=='replay'?{source,session:state.session}:undefined);
     });
     this.inspected.delete(request.sha256);

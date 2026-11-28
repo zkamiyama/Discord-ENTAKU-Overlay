@@ -1,5 +1,6 @@
 import type {ParameterPreset,Theme} from '../presets/schema.ts';
 import type {MisskeySettings} from '../contracts/misskey.ts';
+import type {NoteIntroductionSettings} from '../contracts/note-introduction.ts';
 
 export const ENVIRONMENT_LIMITS=Object.freeze({
   archiveBytes:512*1024*1024,unpackedBytes:512*1024*1024,
@@ -11,6 +12,7 @@ export interface EnvironmentPerson {userId:string;username:string;displayName:st
 export interface EnvironmentPeople {identities:EnvironmentPerson[];presentUserIds:string[]}
 export interface EnvironmentConfiguration {
   appVersion:string;createdAt:string;preset:ParameterPreset;misskey:MisskeySettings;people:EnvironmentPeople;
+  noteIntroduction?:NoteIntroductionSettings;
 }
 export interface EnvironmentFileReference {path:string;blob:string}
 export interface EnvironmentPackageManifest extends EnvironmentConfiguration {

@@ -1,0 +1,14 @@
+#note-introduction-badge{display:block;color:var(--muted);font-size:11px;font-weight:400;margin-top:3px}
+#note-introduction-status[data-status=showing]{color:var(--green)}
+#note-introduction-status[data-status=error],#note-introduction-feedback[data-error=true]{color:var(--red)}
+#note-introduction-current{border:1px solid var(--border);border-radius:8px;background:var(--workspace);padding:10px;margin:10px 0;overflow-wrap:anywhere}
+#note-introduction-current a,#note-introduction-pending a{color:var(--primary);font-size:12px;overflow-wrap:anywhere}
+#note-introduction-body{white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:12px;line-height:1.6;margin-top:6px}
+#note-introduction-source{margin:6px 0 0;font-size:11px}
+#note-introduction-dismiss{width:100%;margin:4px 0 12px}
+#note-introduction-settings>summary{cursor:pointer;font-size:12px;padding:4px 0}
+#note-introduction-settings .controls{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#note-introduction-settings .controls button{min-width:0;padding:0 5px;font-size:12px}
+#note-introduction-instances{padding:0;list-style:none;margin:4px 0 12px;max-height:130px;overflow:auto}
+#note-introduction-instances li{font-size:12px;overflow-wrap:anywhere;padding:3px 0}
+#note-introduction-feedback{overflow-wrap:anywhere}
