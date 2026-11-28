@@ -1,0 +1,217 @@
+{
+  "kind": "synthetic-misskey-screen-parallel-rendering",
+  "measuredAt": "2026-11-28T03:43:07.850Z",
+  "baseCommit": "e646c7c9e325611bad4cf1a847147ab2c3675371",
+  "workingTree": true,
+  "sourceHashes": {
+    "src/web/overlay/misskey-cards.ts": "36d205983a81df5355bdeea30bbaaccf098309d65316d00a154b24629c2db572",
+    "src/geometry/misskey-card-layout.ts": "e213fc7788e53b60c8e727ac92a329ee44604507df971f91205d2495b284f55c",
+    "experiments/misskey-cards/probe.ts": "3befa9b75f6ebbdc19db7014036a9799b332acc0c2d0e0b82eff125f428083bd",
+    "experiments/misskey-cards/run.ts": "efcab50bf542274f73cc97dfe4f7964d85e76b8e058b934f0fa7bb1933cc31be"
+  },
+  "runtime": "1.4.4",
+  "device": {
+    "vendor": "Google Inc. (Google)",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "softwareRequested": true,
+  "softwareDetected": true,
+  "conditions": {
+    "pixelRatio": 1,
+    "textureSize": [
+      512,
+      256
+    ],
+    "mipmaps": false,
+    "warmupFrames": 20,
+    "frames": 40,
+    "width": 1280,
+    "background": "six capsule silhouettes and a table",
+    "timing": "CPU submission and CPU+GPU completion via 1x1 readRenderTargetPixels; not an OBS or full-app fps result"
+  },
+  "stableResources": true,
+  "unchangedPixels": true,
+  "results": [
+    {
+      "count": 0,
+      "split": false,
+      "frames": 40,
+      "width": 1280,
+      "height": 720,
+      "calls": 7,
+      "memory": {
+        "geometries": 2,
+        "textures": 1
+      },
+      "stats": {
+        "visible": 0,
+        "allocated": 0,
+        "textures": 0,
+        "textureBytes": 0,
+        "textureUpdates": 0
+      },
+      "staticTextureUpdateDelta": 0,
+      "cpuSubmissionMs": {
+        "median": 0.09999999997671694,
+        "p95": 0.30000000004656613
+      },
+      "synchronizedFrameMs": {
+        "median": 0.8999999999068677,
+        "p95": 1.6000000000931323
+      },
+      "memoryAfterDispose": {
+        "geometries": 0,
+        "textures": 0
+      }
+    },
+    {
+      "count": 30,
+      "split": false,
+      "frames": 40,
+      "width": 1280,
+      "height": 720,
+      "calls": 37,
+      "memory": {
+        "geometries": 3,
+        "textures": 31
+      },
+      "stats": {
+        "visible": 30,
+        "allocated": 30,
+        "textures": 30,
+        "textureBytes": 15728640,
+        "textureUpdates": 30
+      },
+      "staticTextureUpdateDelta": 0,
+      "cpuSubmissionMs": {
+        "median": 0.19999999995343387,
+        "p95": 0.39999999990686774
+      },
+      "synchronizedFrameMs": {
+        "median": 3.300000000046566,
+        "p95": 4
+      },
+      "memoryAfterDispose": {
+        "geometries": 0,
+        "textures": 0
+      }
+    },
+    {
+      "count": 0,
+      "split": true,
+      "frames": 40,
+      "width": 1280,
+      "height": 720,
+      "calls": 14,
+      "memory": {
+        "geometries": 2,
+        "textures": 1
+      },
+      "stats": {
+        "visible": 0,
+        "allocated": 0,
+        "textures": 0,
+        "textureBytes": 0,
+        "textureUpdates": 0
+      },
+      "staticTextureUpdateDelta": 0,
+      "cpuSubmissionMs": {
+        "median": 0.09999999997671694,
+        "p95": 0.19999999995343387
+      },
+      "synchronizedFrameMs": {
+        "median": 1.2999999999301508,
+        "p95": 1.7000000000698492
+      },
+      "memoryAfterDispose": {
+        "geometries": 0,
+        "textures": 0
+      }
+    },
+    {
+      "count": 30,
+      "split": true,
+      "frames": 40,
+      "width": 1280,
+      "height": 720,
+      "calls": 74,
+      "memory": {
+        "geometries": 3,
+        "textures": 31
+      },
+      "stats": {
+        "visible": 30,
+        "allocated": 30,
+        "textures": 30,
+        "textureBytes": 15728640,
+        "textureUpdates": 30
+      },
+      "staticTextureUpdateDelta": 0,
+      "cpuSubmissionMs": {
+        "median": 0.30000000004656613,
+        "p95": 0.5
+      },
+      "synchronizedFrameMs": {
+        "median": 6.300000000046566,
+        "p95": 7.300000000046566
+      },
+      "memoryAfterDispose": {
+        "geometries": 0,
+        "textures": 0
+      }
+    }
+  ],
+  "churn": {
+    "posts": 1000,
+    "retained": {
+      "stats": {
+        "visible": 30,
+        "allocated": 30,
+        "textures": 30,
+        "textureBytes": 15728640,
+        "textureUpdates": 1000
+      },
+      "memory": {
+        "geometries": 3,
+        "textures": 30
+      }
+    },
+    "memoryAfterDispose": {
+      "geometries": 0,
+      "textures": 0
+    }
+  },
+  "captures": [
+    {
+      "name": "japanese",
+      "width": 1024,
+      "height": 512,
+      "path": ".work/misskey-cards/japanese.png"
+    },
+    {
+      "name": "english",
+      "width": 1024,
+      "height": 512,
+      "path": ".work/misskey-cards/english.png"
+    },
+    {
+      "name": "long",
+      "width": 1024,
+      "height": 512,
+      "path": ".work/misskey-cards/long.png"
+    },
+    {
+      "name": "emoji",
+      "width": 1024,
+      "height": 512,
+      "path": ".work/misskey-cards/emoji.png"
+    },
+    {
+      "name": "field",
+      "width": 1920,
+      "height": 1080,
+      "path": ".work/misskey-cards/field.png"
+    }
+  ]
+}

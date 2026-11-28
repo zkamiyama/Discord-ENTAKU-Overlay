@@ -2,7 +2,7 @@ import {expect,test} from './fixtures.ts';
 import {execFileSync} from 'node:child_process';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 
-test('tilted card meshes follow an animated camera and render both split views independently',async({page})=>{
+test('card meshes stay screen-parallel at the center and edges through camera motion and split views',async({page})=>{
  test.setTimeout(90000);
  mkdirSync('.work/misskey-cards',{recursive:true});
  execFileSync('bun',['build','experiments/misskey-cards/probe.ts','--target=browser','--outfile=.work/misskey-cards/geometry-probe.js']);
@@ -15,13 +15,17 @@ test('tilted card meshes follow an animated camera and render both split views i
  const result=await page.evaluate(()=>(window as any).inspectMisskeyGeometryViews());
  writeFileSync('.work/misskey-cards/geometry-views.json',JSON.stringify(result,null,2));
  expect(result.mesh).toBe(true);expect(result.geometry).toBe('PlaneGeometry');
- for(const frame of [...result.animation,...result.rollOnly,...result.forward.views,...result.reverse.views,result.restored]){
-  expect(frame.facing).toBeGreaterThan(.8);expect(frame.facing).toBeLessThan(.999);
+ for(const frame of [...result.animation,...result.framing,...result.rollOnly,...result.forward.views,...result.reverse.views,result.restored]){
+  expect(frame.viewAlignmentError).toBeLessThan(1e-6);
   expect(frame.centerError).toBeLessThan(1e-6);expect(frame.orthogonality).toBeLessThan(1e-6);
-  // A front-facing Sprite has no depth difference between its four corners.
-  expect(frame.depthRange).toBeGreaterThan(.1);
+  expect(frame.depthRange).toBeLessThan(1e-6);
+  expect(frame.projectedHorizontalError).toBeLessThan(1e-6);expect(frame.projectedVerticalError).toBeLessThan(1e-6);
+  expect(frame.projectedWidth).toBeGreaterThan(0);expect(frame.projectedHeight).toBeGreaterThan(0);
  }
- for(const frame of result.animation)expect(frame.white).toBeGreaterThan(1000);
+ for(const frame of [...result.animation,...result.framing])expect(frame.white).toBeGreaterThan(1000);
+ expect(result.framing[0].projectedCenter[0]).toBeCloseTo(0,6);expect(result.framing[0].projectedCenter[1]).toBeCloseTo(0,6);
+ expect(result.framing[1].projectedCenter[0]).toBeLessThan(-.5);expect(result.framing[1].projectedCenter[1]).toBeLessThan(-.3);
+ expect(result.framing[2].projectedCenter[0]).toBeGreaterThan(.5);expect(result.framing[2].projectedCenter[1]).toBeGreaterThan(.3);
  for(let index=1;index<result.animation.length;index++){
   const before=result.animation[index-1].normal,after=result.animation[index].normal;
   expect(before.reduce((sum:number,value:number,axis:number)=>sum+value*after[axis],0)).toBeGreaterThan(.9);

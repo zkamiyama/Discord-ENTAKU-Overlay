@@ -92,8 +92,8 @@ function memory(){return {...renderer.info.memory};}
   return {width,height,stats:view.stats};
 };
 
-/** Real WebGL checks for the two risks that a Sprite-to-Mesh conversion adds:
- * animated camera poses and sequential cameras sharing one scene graph. */
+/** Real WebGL checks that cards remain screen-parallel at the center and edges,
+ * through camera motion and sequential SPLIT views sharing one scene graph. */
 (window as any).inspectMisskeyGeometryViews=async()=>{
   const width=640,height=360,scene=new THREE.Scene(),stage=new THREE.Group(),view=new MisskeyCards();
   scene.background=new THREE.Color('#233c41');scene.add(stage);stage.add(view.root);
@@ -104,16 +104,31 @@ function memory(){return {...renderer.info.memory};}
   const mesh=view.root.children[0] as THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;
   const position=misskeyCardPosition(0,0),target=view.root.localToWorld(mesh.position.clone());
   const a=camera(width/height),b=camera(width/2/height),pixels=new Uint8Array(width*height*4);
-  const pose=(cam:THREE.PerspectiveCamera,angle:number,roll:number,aspect:number)=>{
+  const pose=(cam:THREE.PerspectiveCamera,angle:number,roll:number,aspect:number,offsetX=0,offsetY=0)=>{
     const inward=3.4*Math.cos(angle),tangent=3.4*Math.sin(angle);
     cam.position.set(position.x+position.inwardX*inward-position.inwardZ*tangent,position.y+.25+.2*Math.sin(angle),position.z+position.inwardZ*inward+position.inwardX*tangent).applyMatrix4(view.root.matrixWorld);
-    cam.up.set(Math.sin(roll),Math.cos(roll),0);cam.lookAt(target);cam.aspect=aspect;cam.updateProjectionMatrix();cam.updateMatrixWorld(true);
+    cam.up.set(Math.sin(roll),Math.cos(roll),0);cam.lookAt(target);
+    // Move the card away from the optical axis by changing the actual camera
+    // pose. A projection-only offset would not expose a leftover point lookAt.
+    const halfHeight=Math.tan(THREE.MathUtils.degToRad(cam.fov/2));
+    cam.rotateY(Math.atan(offsetX*aspect*halfHeight));cam.rotateX(-Math.atan(offsetY*halfHeight));
+    cam.aspect=aspect;cam.updateProjectionMatrix();cam.updateMatrixWorld(true);
   };
   const observation=(cam:THREE.PerspectiveCamera)=>{
     const center=new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld),right=new THREE.Vector3().setFromMatrixColumn(mesh.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(mesh.matrixWorld,1);
-    const normal=new THREE.Vector3().crossVectors(right,up).normalize(),toCamera=cam.position.clone().sub(center).normalize();
-    const depths=[[-.5,-.5],[-.5,.5],[.5,-.5],[.5,.5]].map(([x,y])=>new THREE.Vector3(x,y,0).applyMatrix4(mesh.matrixWorld).applyMatrix4(cam.matrixWorldInverse).z);
-    return {normal:normal.toArray(),right:right.clone().normalize().toArray(),up:up.clone().normalize().toArray(),facing:normal.dot(toCamera),centerError:center.distanceTo(target),orthogonality:Math.abs(right.normalize().dot(up.normalize())),depthRange:Math.max(...depths)-Math.min(...depths),matrix:mesh.matrixWorld.toArray()};
+    const normal=new THREE.Vector3().crossVectors(right,up).normalize(),modelView=new THREE.Matrix4().multiplyMatrices(cam.matrixWorldInverse,mesh.matrixWorld);
+    const viewAlignmentError=Math.max(...[0,1,2].map(axis=>new THREE.Vector3().setFromMatrixColumn(modelView,axis).normalize().distanceTo(new THREE.Vector3().setComponent(axis,1))));
+    const corners=[[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]].map(([x,y])=>new THREE.Vector3(x,y,0).applyMatrix4(modelView));
+    const depths=corners.map(corner=>corner.z),projected=corners.map(corner=>corner.applyMatrix4(cam.projectionMatrix));
+    const [bottomLeft,bottomRight,topRight,topLeft]=projected;
+    return {
+      normal:normal.toArray(),right:right.clone().normalize().toArray(),up:up.clone().normalize().toArray(),viewAlignmentError,
+      centerError:center.distanceTo(target),orthogonality:Math.abs(right.normalize().dot(up.normalize())),depthRange:Math.max(...depths)-Math.min(...depths),
+      projectedHorizontalError:Math.max(Math.abs(bottomRight!.y-bottomLeft!.y),Math.abs(topRight!.y-topLeft!.y)),
+      projectedVerticalError:Math.max(Math.abs(topLeft!.x-bottomLeft!.x),Math.abs(topRight!.x-bottomRight!.x)),
+      projectedWidth:bottomRight!.x-bottomLeft!.x,projectedHeight:topLeft!.y-bottomLeft!.y,
+      projectedCenter:center.clone().project(cam).toArray(),projectedCorners:projected.map(corner=>corner.toArray()),matrix:mesh.matrixWorld.toArray(),
+    };
   };
   const read=()=>{gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);};
   const region=(start:number,end:number)=>{
@@ -132,6 +147,13 @@ function memory(){return {...renderer.info.memory};}
       const angle=(frame-6)*Math.PI/18;
       pose(a,angle,.2*Math.sin(angle),width/height);renderer.render(scene,a);read();
       animation.push({...observation(a),...region(0,width)});
+    }
+    // A zero-tilt spherical billboard only passes at the optical center. Both
+    // off-center observations must retain horizontal and vertical edges too.
+    const framing=[];
+    for(const [offsetX,offsetY] of [[0,0],[-.55,-.35],[.55,.35]] as const){
+      pose(a,0,0,width/height,offsetX,offsetY);renderer.render(scene,a);read();
+      framing.push({...observation(a),...region(0,width)});
     }
     // Isolate roll from orbit: a world-up implementation must not pass just
     // because the eye position changed between observations.
@@ -156,7 +178,7 @@ function memory(){return {...renderer.info.memory};}
     pose(a,-Math.PI/3,.2*Math.sin(-Math.PI/3),width/height);
     renderer.setViewport(0,0,width,height);renderer.render(scene,a);read();
     const restored={...observation(a),...region(0,width)};
-    const result={mesh:mesh.isMesh===true,geometry:mesh.geometry?.type,animation,rollOnly,forward,reverse,restored,stats:view.stats,memory:memory()};
+    const result={mesh:mesh.isMesh===true,geometry:mesh.geometry?.type,animation,framing,rollOnly,forward,reverse,restored,stats:view.stats,memory:memory()};
     view.dispose();renderer.render(new THREE.Scene(),a);
     return {...result,memoryAfterDispose:memory()};
   }finally{renderer.autoClear=true;renderer.setScissorTest(false);view.dispose();scene.clear();}

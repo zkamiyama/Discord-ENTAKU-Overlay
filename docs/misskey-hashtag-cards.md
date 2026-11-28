@@ -2,7 +2,7 @@
 
 ENTAKUはMisskeyの`hashtag` Streamingチャンネルから公開ノートを受信し、人物の背後に最大30枚のカードを表示する。接続先の初期値は`https://otomad.site`、タグは`NicoMiss`。受信は初期状態では無効で、Dockから有効にする。Discordに接続していないデモでも使える。
 
-この文書は`feat/misskey-hashtag-cards`の実装を説明する。調査日は2026-11-28 JST。初期設計は[ADR 0029](adr/0029-public-hashtag-cards.md)、平面メッシュと反復判定への変更は[ADR 0030](adr/0030-tilted-cards-and-phrase-moderation.md)に記録した。測定の生データは[実接続](measurements/misskey-live.json)と[平面メッシュの描画実験](measurements/misskey-geometry.json)にある。各記録の対象ソースと条件を確認し、別の版や実GPUの結果へ読み替えない。
+この文書は`feat/misskey-hashtag-cards`の実装を説明する。調査日は2026-11-28 JST。初期設計は[ADR 0029](adr/0029-public-hashtag-cards.md)、平面メッシュと反復判定への変更は[ADR 0030](adr/0030-tilted-cards-and-phrase-moderation.md)、装飾の傾きを除く変更は[ADR 0031](adr/0031-screen-parallel-cards.md)に記録した。測定の生データは[実接続](measurements/misskey-live.json)と[画面に平行なカードの描画実験](measurements/misskey-upright.json)にある。各記録の対象ソースと条件を確認し、別の版や実GPUの結果へ読み替えない。
 
 ## 使い始める
 
@@ -120,7 +120,7 @@ IDと内容の重複キャッシュは各2,048件、投稿者の短期キャッ�
 
 ## 3D表示と負荷
 
-Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMaterial`、`CanvasTexture`を使う。カードの面を幾何形状にし、文字は512×256のCanvasへ描く。本文やフォントが変わる場合だけ描き直し、浮遊・傾き・フェードは座標・行列・透明度で動かす。同じノートについて毎フレームCanvasを描き直さない。外部のアバター画像は取得せず、名前の頭文字から小さなアイコンを作る。
+Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMaterial`、`CanvasTexture`を使う。カードの面を幾何形状にし、文字は512×256のCanvasへ描く。本文やフォントが変わる場合だけ描き直し、浮遊・カメラ追従・フェードは座標・行列・透明度で動かす。同じノートについて毎フレームCanvasを描き直さない。外部のアバター画像は取得せず、名前の頭文字から小さなアイコンを作る。
 
 カードはアイボリーの地に濃い文字、細いシアンの線、淡いタグ表示という構成にした。装飾を控え、投稿者名と本文を先に読めるようにする。小さなWindows風ウィンドウを重ねる方式は採らない。
 
@@ -128,21 +128,21 @@ Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMateria
 
 ![ENTAKUのOverlayに配置した合成ノート](images/misskey-overlay.png)
 
-![左右のカメラへそれぞれ向くSPLITのカード](images/misskey-split.png)
+![左右それぞれの画面に平行なSPLITのカード](images/misskey-split.png)
 
 上の画像の本文と投稿者名は描画試験用の合成データである。
 
 配置は机のカプセル形状に沿う10方向×3段、合計30スロット。対向位置から埋める順序なので、少数件でも一方に偏りにくい。机の長さ・offset・stage transformへ追従し、各カメラで近側のカードを抑制する。SPLITではそれぞれの視点で判定する。人物の背後に均等な居場所を作る方式で、画面上ではカードが重なる場合もある。
 
-姿勢は各drawの実際のカメラから決める。カードの中心は空間内に置いたまま、面をカメラへ向け、その上にスロット固有のXYZの傾きと小さな揺れを加える。角度の絶対値はXが7.5〜15.5度、Yが13〜22度、Zが2〜7度。移動・回転するカメラとrollに追従し、SPLITの左右は独立して計算する。片方の姿勢をもう片方へ引き継がない。親の非一様scaleも行列で補正する。
+姿勢は各drawの実際のカメラから決め、カードの面をその画面と平行にする。XYZ各軸の装飾回転と回転の揺れは加えない。カードの位置からカメラの位置へ向ける`lookAt`も使わない。この方式では、カメラが移動・回転しても、画面端のカードまで文字と辺が水平・垂直に揃う。rollも含むカメラのworld回転を反映し、SPLITの左右は独立して計算する。片方の姿勢をもう片方へ引き継がない。親の非一様scaleも行列で補正する。
 
-面はビューごとに回転するため、すべてのカメラが同じ固定姿勢の物体を撮る方式ではない。カメラが回り込んでも読めることと、傾きによる奥行きを両立する。文字そのものには厚みを付けず、1枚2三角形の平面に画像として表示する。
+カードの中心は空間内に置き、距離に応じた見かけの大きさと奥行きを保つ。面の向きだけをビューに合わせるため、すべてのカメラが同じ固定姿勢の物体を撮る方式ではない。浮遊感は配置の奥行きと穏やかな上下動で作り、文字を読むための整列を優先する。文字そのものには厚みを付けず、1枚2三角形の平面に画像として表示する。
 
 `depthTest=true`、`depthWrite=false`を使い、不透明な机や壁との奥行きを保つ。カードは人物より前に描画し、3DGSのまとまった透明描画でも人物を上書きしない。表示用layerへ分け、影・反射・自動露出の対象から外す。詳細はADRに記載する。
 
 ### 測定で分かったこと
 
-独立した合成シーンを1280×720、pixel ratio 1、SwiftShaderで測定した。20フレームのwarmup後、40フレームを計測する。通常表示とSPLITそれぞれで0枚と30枚を比較した。実GPU、OBS/CEF、ENTAKU全体のfps測定ではない。
+画面に平行なカードを、独立した合成シーンで測定した。条件は1280×720、pixel ratio 1、SwiftShaderで、20フレームのwarmup後、40フレームを計測する。通常表示とSPLITそれぞれで0枚と30枚を比較した。実GPU、OBS/CEF、ENTAKU全体のfps測定ではない。
 
 - 30枚でカードのCanvasTextureは30個、RGBA画素分は15,728,640 bytes（15 MiB）。CPU側Canvasとドライバーの領域は含まない。
 - 1,000件を入れ替えても保持テクスチャ数は30個のまま。
@@ -150,16 +150,25 @@ Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMateria
 - dispose後のGPUテクスチャ数とgeometry数はともに0。共有PlaneGeometryは所有者が1回だけ解放する。
 - 独立シーンのdraw callは通常表示で7→37、SPLITで14→74。カード1枚1drawを基本とする。
 
-変更前の`8036aa7`を同じ環境で測り直し、平面メッシュの作業ツリーと比較した。以下は30枚表示時の値である。CPU時間は描画命令の送信まで、同期時間は`readRenderTargetPixels`の完了までを含む。
+以下は画面に平行なカードを30枚表示した値である。CPU時間は描画命令の送信まで、同期時間は`readRenderTargetPixels`の完了までを含む。生値とソースhashは[現在の姿勢での測定](measurements/misskey-upright.json)にある。
+
+| 表示 | draw call | CPU中央値 | 同期時間の中央値 | 同期時間p95 |
+|---|---:|---:|---:|---:|
+| 通常・画面に平行 | 37 | 0.2 ms | 3.3 ms | 4.0 ms |
+| SPLIT・画面に平行 | 74 | 0.3 ms | 6.3 ms | 7.3 ms |
+
+### 過去の描画方式の比較
+
+次の表は装飾の傾きがあった版の記録であり、現在の姿勢の測定ではない。当時の変更前`8036aa7`を同じ環境で測り直し、傾きを加える平面メッシュの作業ツリーと比較した。いずれも30枚表示時の値である。
 
 | 表示・方式 | draw call | CPU中央値 | 同期時間の中央値 | 同期時間p95 |
 |---|---:|---:|---:|---:|
 | 通常・変更前Sprite | 37 | 0.3 ms | 3.9 ms | 5.5 ms |
-| 通常・平面メッシュ | 37 | 0.3 ms | 3.6 ms | 4.6 ms |
+| 通常・傾き付き平面メッシュ | 37 | 0.3 ms | 3.6 ms | 4.6 ms |
 | SPLIT・変更前Sprite | 74 | 0.5 ms | 6.9 ms | 8.8 ms |
-| SPLIT・平面メッシュ | 74 | 0.6 ms | 6.7 ms | 8.4 ms |
+| SPLIT・傾き付き平面メッシュ | 74 | 0.6 ms | 6.7 ms | 8.4 ms |
 
-生値とソースhashは[平面メッシュの測定](measurements/misskey-geometry.json)、変更前は[比較用Sprite測定](measurements/misskey-sprite-baseline.json)にある。初期調査時の[Sprite測定](measurements/misskey-cards.json)も過去の記録として保持する。少数フレームのソフトウェア描画には揺れがあり、この表から速度改善率や実GPUのfpsを求めない。draw callと保持テクスチャ数は増えていない。30件を初期上限にする根拠は、資源が有界であることとこの比較実験であり、あらゆるPCで30件なら軽いという保証ではない。
+過去の生値とソースhashは[傾き付き平面メッシュの測定](measurements/misskey-geometry.json)、その比較対象は[Sprite測定](measurements/misskey-sprite-baseline.json)にある。初期調査時の[Sprite測定](measurements/misskey-cards.json)も過去の記録として保持する。少数フレームのソフトウェア描画には揺れがあり、別の測定時点の時間差から速度改善率や実GPUのfpsを求めない。現在の姿勢への変更でもdraw callと保持テクスチャ数は増えていない。30件を初期上限にする根拠は、資源が有界であることとこれらの実験であり、あらゆるPCで30件なら軽いという保証ではない。
 
 ## 実接続の確認と未確認の範囲
 
@@ -169,9 +178,9 @@ Three.jsの標準`Mesh`、共有する1個の`PlaneGeometry`、`MeshBasicMateria
 
 開始時のソースhashは[実接続JSON](measurements/misskey-live.json)にある。その後、型不正な安全フラグ・usernameの除外判定と、反復過負荷時の取り下げを修正した。これらの経路は合成テストで確認し、180秒の実接続を繰り返してはいない。
 
-単体・結合試験では公開範囲、重複、歓声の許可、フレーズ反復の境界、上限、期限、pause/resume、429、heartbeat、再接続、古い応答の拒否、補完cursor、削除・編集、反復過負荷を検査する。姿勢の試験はカメラ移動・roll、SPLITの描画順、非一様scale、中心位置、geometry共有と解放を含む。
+単体・結合試験では公開範囲、重複、歓声の許可、フレーズ反復の境界、上限、期限、pause/resume、429、heartbeat、再接続、古い応答の拒否、補完cursor、削除・編集、反復過負荷を検査する。姿勢の試験は画面中央と端での辺の水平・垂直、カメラ移動・roll、SPLITの描画順、非一様scale、中心位置、geometry共有と解放を含む。
 
-Playwrightでは実Overlayの30枚表示、上限、SPLIT、文字列の無害な表示、設定保存、投稿者除外、pause/clear/切断、3DGS人物との描画順序を確認する。別のWebGL試験では13通りの連続カメラ位置、同じ位置でのroll変更、左右のAB/BA描画順、通常表示への復帰を調べる。各draw後の行列と画素を確認し、左右を描く順序によらず各画面が一致することを検査する。実GPU、WindowsのOBS/CEF、長時間の実配信は別途確認が必要。
+Playwrightでは実Overlayの30枚表示、上限、SPLIT、文字列の無害な表示、設定保存、投稿者除外、pause/clear/切断、3DGS人物との描画順序を確認する。別のWebGL試験では13通りの連続カメラ位置、中央・左下・右上の3構図、同じ位置でのroll変更、左右のAB/BA描画順、通常表示への復帰を調べる。各draw後の行列、四隅の投影、画素を確認し、画面端でもカードが斜めにならず、左右を描く順序によらず各画面が一致することを検査する。記録は[姿勢の測定](measurements/misskey-upright-views.json)にある。実GPU、WindowsのOBS/CEF、長時間の実配信は別途確認が必要。
 
 ## 再実行
 

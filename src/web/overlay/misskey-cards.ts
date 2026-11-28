@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {MISSKEY_CARD_LIMIT,type MisskeyCard,type MisskeyState} from '../../contracts/misskey.ts';
-import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition,misskeyCardTilt,type MisskeyCardPosition} from '../../geometry/misskey-card-layout.ts';
+import {MISSKEY_CARD_HEIGHT,MISSKEY_CARD_WIDTH,misskeyCardFacing,misskeyCardPosition,type MisskeyCardPosition} from '../../geometry/misskey-card-layout.ts';
 import {protectDisplayObject} from '../studio/exposure-renderer.ts';
 
 export const MISSKEY_TEXTURE_WIDTH=512;
@@ -15,7 +15,7 @@ export interface MisskeyCardStats {
   visible:number;allocated:number;textures:number;textureBytes:number;textureUpdates:number;
 }
 interface CardSlot {
-  mesh:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;texture:THREE.CanvasTexture;context:CanvasRenderingContext2D;tilt:THREE.Quaternion;
+  mesh:THREE.Mesh<THREE.PlaneGeometry,THREE.MeshBasicMaterial>;texture:THREE.CanvasTexture;context:CanvasRenderingContext2D;
   card:MisskeyCard|null;signature:string;position:MisskeyCardPosition;baseOpacity:number;
 }
 
@@ -85,13 +85,10 @@ export class MisskeyCards {
   private dirty=false;
   private readonly cameraPosition=new THREE.Vector3();
   private readonly localCameraPosition=new THREE.Vector3();
-  private readonly cameraUp=new THREE.Vector3();
   private readonly worldPosition=new THREE.Vector3();
   private readonly worldScale=new THREE.Vector3();
   private readonly rootScale=new THREE.Vector3(1,1,1);
   private readonly worldRotation=new THREE.Quaternion();
-  private readonly facingMatrix=new THREE.Matrix4();
-  private readonly tiltEuler=new THREE.Euler();
   private readonly inverseRoot=new THREE.Matrix4();
   private readonly rootMatrix=new THREE.Matrix4();
   private rootInvertible=true;
@@ -135,7 +132,6 @@ export class MisskeyCards {
       slot.mesh.position.set(slot.position.x,slot.position.y+Math.sin(time*.45+phase)*.035+(1-ease(age/420))*.08,slot.position.z);
       const scale=.965+.035*ease(age/420);
       slot.mesh.scale.set(MISSKEY_CARD_WIDTH*scale,MISSKEY_CARD_HEIGHT*scale,1);
-      const tilt=misskeyCardTilt(card.slot,time);slot.tilt.setFromEuler(this.tiltEuler.set(tilt.x,tilt.y,tilt.z));
       // Transparent sorting happens before onBeforeRender. Keep the centered
       // plane's translation current here; only its orientation changes per view.
       slot.mesh.matrix.setPosition(slot.mesh.position);slot.mesh.matrixWorldNeedsUpdate=true;
@@ -158,7 +154,7 @@ export class MisskeyCards {
     // A prior view's orientation must not cull this view before its callback.
     // There are at most thirty two-triangle cards, each one FrontSide draw.
     mesh.frustumCulled=false;
-    const slot:CardSlot={mesh,texture,context,tilt:new THREE.Quaternion(),card:null,signature:'',position:misskeyCardPosition(index,0),baseOpacity:0};
+    const slot:CardSlot={mesh,texture,context,card:null,signature:'',position:misskeyCardPosition(index,0),baseOpacity:0};
     mesh.onBeforeRender=(_renderer,_scene,camera)=>{
       const matrix=this.root.matrixWorld;
       if(!this.rootMatrix.equals(matrix)){
@@ -170,9 +166,10 @@ export class MisskeyCards {
       this.localCameraPosition.copy(this.cameraPosition).applyMatrix4(this.inverseRoot);
       material.opacity=slot.baseOpacity*misskeyCardFacing(slot.position,this.localCameraPosition.x,this.localCameraPosition.z);
       this.worldPosition.copy(mesh.position).applyMatrix4(matrix);
-      this.cameraUp.setFromMatrixColumn(camera.matrixWorld,1).normalize();
-      this.facingMatrix.lookAt(this.cameraPosition,this.worldPosition,this.cameraUp);
-      this.worldRotation.setFromRotationMatrix(this.facingMatrix).multiply(slot.tilt);
+      // Screen-parallel geometry keeps text and card edges level, even at the
+      // edge of a perspective view. A per-card lookAt would reintroduce tilt.
+      // Include the actual camera's world roll so the card stays level on screen.
+      camera.getWorldQuaternion(this.worldRotation);
       this.worldScale.copy(this.rootScale).multiply(mesh.scale);
       // Recompute from this camera, never from the previous SPLIT view. Keep
       // the inverse-parent product as a matrix: decompose loses the shear that
